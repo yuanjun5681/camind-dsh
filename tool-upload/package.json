@@ -1,0 +1,22 @@
+{
+  "name": "camind-tool-upload",
+  "version": "0.1.0",
+  "description": "Session-scoped uploaded-file listing and reading tools for every Agent mode.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "tools/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

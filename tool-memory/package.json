@@ -1,0 +1,23 @@
+{
+  "name": "camind-tool-memory",
+  "version": "0.1.0",
+  "description": "OKF memory bank (knowledge + experience): memoryBank Cordis service and model-facing memory tools.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./service": "./lib/service.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "tools/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Bundle layer: insert the memory plugin row.
+# Plugin rows reference the package by name so Node resolution finds the installed code.
+- insert:
+    - id: memory
+      name: camind-tool-memory

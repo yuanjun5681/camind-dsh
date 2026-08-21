@@ -1,0 +1,25 @@
+{
+  "name": "camind-ui-home",
+  "version": "0.1.0",
+  "description": "New-session home for /camind: Camind brand block and example prompts layered over the official conversation (shell.home chain), plus example chips on the blank hero (conversation.input.dock).",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "lib/client.js"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

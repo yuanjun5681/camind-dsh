@@ -1,0 +1,38 @@
+{
+  "name": "camind-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Electron shell for the Camind web UI",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "prestart": "node ../scripts/sync-dsh-version.mjs --check",
+    "start": "electron .",
+    "prepare-vendor": "node scripts/prepare-vendor.mjs",
+    "dist": "npm run prepare-vendor && electron-builder",
+    "dist:dir": "npm run prepare-vendor && electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.camind.app",
+    "productName": "Camind",
+    "files": [
+      "main.js"
+    ],
+    "extraResources": [
+      { "from": "vendor", "to": ".", "filter": ["**/*"] }
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "target": ["dmg", "zip"]
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

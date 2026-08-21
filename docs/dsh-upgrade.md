@@ -1,0 +1,41 @@
+# dsh 版本升级流程
+
+dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧版写入的会话日志等数据可能被新版拒绝打开）。本工作区有多处依赖同一个 dsh 版本，约定：**唯一需要人工修改的版本源是根目录 `dsh-version.json`**，其余位置由脚本同步或校验。
+
+## 版本消费点
+
+| 位置 | 消费方式 |
+| --- | --- |
+| `scripts/dsh.mjs` | 启动器：`npx -y @deepseek-ai/dsh@<version>` 运行本体，不随 npm `latest` 漂移 |
+| `ui-shell/package.json` | devDependencies 里 4 个客户端包（`dsh-client-modules`、`dsh-client-ui-theme`、`dsh-client-web`、`dsh-client-web-react`）+ `package-lock.json` |
+| `ui-shell/vendor/*` | 两份上游源码快照（ui-attachment、ui-primitives），各自 `package.json` 的 version 被校验 |
+| `ui-sidebar/package.json` | `dshUpstream.version/tag/commit`（version 被校验）；`peerDependencies` 里的 `@deepseek-ai/*` 也钉着版本 |
+| `desktop/scripts/prepare-vendor.mjs` | 打包时安装 `@deepseek-ai/dsh@<version>` 本体，开始前先跑 `--check` |
+
+不需要动的部分：profile 里的内置 bundle（`@deepseek-ai/dsh-base` 等）始终从正在运行的 dsh 安装自身解析，随 dsh 一起升级；`link:` 挂载的本工作区插件与 dsh 版本解耦。
+
+## 工具脚本
+
+- `scripts/dsh-version.mjs`：读取并校验 `dsh-version.json`（semver 格式检查），导出客户端包清单，是所有脚本的公共版本源。
+- `npm run sync:dsh-version`：把 ui-shell 的 4 个客户端包改到目标版本并重算 lock（`npm install --package-lock-only --ignore-scripts`），结束后自校验。
+- `npm run check:dsh-version`：只校验不修改。覆盖 ui-shell 的 package.json / lock 根依赖 / lock 实装版本、两份 vendor 快照的 version、ui-sidebar 的 `dshUpstream.version`。
+
+## 升级步骤
+
+1. 修改根目录 `dsh-version.json` 的 `version`。
+2. `npm run sync:dsh-version`，同步 ui-shell 客户端包。
+3. **手动更新两份 vendor 源码快照**：从上游仓库对应 tag（`deepseek-ai/deepseek-harness`，tag 形如 `dsh-v<version>`）复制 `packages/client/ui-attachment/src` 与 `packages/client/ui-primitives/src`，更新各自 `package.json` 的 version 和 README 里的 tag/commit。
+4. **手动更新 ui-sidebar**：同步上游 `packages/client/ui-sidebar` 源码，重放 `sidebar.brand` 席位与 `sidebar.footer.action` owner props 扩展两处改动（基线与做法见 `ui-sidebar/README.md`），更新 `dshUpstream` 的 version/tag/commit、README 的「上游基线」，以及 `peerDependencies` 里钉死的 `@deepseek-ai/*` 版本。
+5. `npm run check:dsh-version`，应全部通过。
+6. `cd ui-shell && npm install && npm run build`，重建前端。
+7. 需要桌面打包时 `cd desktop && npm run dist`（prepare-vendor 会先跑 `--check`，不一致直接失败）。
+8. 冒烟：`node scripts/dsh.mjs --profile headless --dump-config` 确认组合配置正常，再开 `http://127.0.0.1:3080/camind/` 验证自定义前端。
+
+## 注意
+
+- 版本不一致时，ui-shell 的 `prebuild`/`predev` 和 desktop 的 prepare-vendor 都会拒绝继续——这是设计行为，按上面步骤补齐即可，不要绕过。
+- vendor 快照与 ui-sidebar 是**人工维护**的上游源码复制，sync 脚本只校验不更新；升级漏了这两处会在 check 阶段报出来。
+- ui-home 用结构选择器 CSS 隐藏官方 HeroShell（锚点 `[data-phase="hero"]`/`[data-composer-seat]`/`[data-chain-overlay-fallback]`，见 `ui-home/lib/client.js` 头注释）。升级后冒烟时确认新会话页 `/` 不再出现官方鱼标/「探索未至之境」/预览徽章；官方 hero 的 DOM 结构若变，需同步该选择器。
+- ui-home 另有一条 hero 阶段 `[data-conversation-scroll]` 的 `overflow: visible` 覆盖：官方斜杠菜单/popupSelect 从 composer 向上展开（底部锚定 absolute，最高 320px），首页布局里 hero 滚动容器只有 composer 栈那么高，`overflow-y: auto` 会把弹层剪到只剩一行。升级后冒烟时在 `/` 输入 `/` 确认命令列表完整浮在示例卡片上方；官方若改弹层定位或滚动容器结构，需复核该规则。
+- 升级不要重跑 `npm run init`：init 只负责新检出的环境重建（profile、skills symlink、ui-shell 构建），版本变化按上面步骤执行；完成后日常运行仍是 `node scripts/dsh.mjs web`。
+- 升级后先用 `--dump-config` 快速验证组合，再考虑重建 `.dsh/` 数据（磁盘格式可能不兼容）。

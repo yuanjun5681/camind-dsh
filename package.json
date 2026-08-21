@@ -1,0 +1,11 @@
+{
+  "name": "camind",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "init": "node scripts/init.mjs",
+    "dsh": "node scripts/dsh.mjs",
+    "sync:dsh-version": "node scripts/sync-dsh-version.mjs",
+    "check:dsh-version": "node scripts/sync-dsh-version.mjs --check"
+  }
+}

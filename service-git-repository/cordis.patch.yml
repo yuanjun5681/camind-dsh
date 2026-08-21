@@ -1,0 +1,4 @@
+# Bundle layer: provide the generic gitRepository Cordis service.
+- insert:
+    - id: git-repository
+      name: camind-service-git-repository

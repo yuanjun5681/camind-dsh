@@ -1,0 +1,18 @@
+# 系统 / 编辑器
+.DS_Store
+*.log
+
+# 凭据与环境（模板除外）
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# dsh 数据目录（会话、上传、记忆库、settings/credentials）
+.dsh/
+
+# 依赖与构建产物
+node_modules/
+desktop/vendor/
+desktop/dist/

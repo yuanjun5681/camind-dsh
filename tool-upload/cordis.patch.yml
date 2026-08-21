@@ -1,0 +1,4 @@
+# Bundle layer: expose session-scoped upload access tools to every Agent mode.
+- insert:
+    - id: upload-tools
+      name: camind-tool-upload

@@ -1,0 +1,5 @@
+# New-session home for /camind: brand + examples via ui-shell's shell.home chain
+# and the official conversation.input.dock seat (client-side only, no Host services).
+- insert:
+    - id: ui-home
+      name: camind-ui-home

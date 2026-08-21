@@ -1,0 +1,25 @@
+{
+  "name": "camind-ui-brand",
+  "version": "0.1.0",
+  "description": "Camind brand for /camind: blobatar mascot + wordmark registered into ui-sidebar's sidebar.brand seat.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "lib/client.js"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

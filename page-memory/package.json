@@ -1,0 +1,25 @@
+{
+  "name": "camind-page-memory",
+  "version": "0.1.0",
+  "description": "Memory bank management page (knowledge + experience) under /camind/pages/memory.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

@@ -1,0 +1,103 @@
+/**
+ * 官方 `@deepseek-ai/dsh-client-ui-primitives` 发布包把 CSS module 打成空 stub
+ * （官方壳从源码编进去）。通用设置里的 Menu 用 portal 挂到 document.body，
+ * 没有 `position:fixed` / `z-index` 时列表既不定位，又压在设置遮罩（z-index:1000）下面，
+ * 看起来像下拉打不开。label / separator 的 CSS module 同样是空 stub，
+ * 「分组方式 / 排序方式」会变成和选项一样的正文。这里按官方 Menu.module.css
+ * 用 role 选择器补一层。
+ *
+ * 必须排除 `.composer-menu`：自定义下拉同样 portal 到 body 且带 role="menu"，
+ * 否则 `align-items:center` 会盖掉 `.composer-menu-item` 的左对齐。
+ */
+body > [role="menu"]:not(.composer-menu) {
+  box-sizing: border-box;
+  position: fixed;
+  top: auto;
+  left: auto;
+  z-index: 1100;
+  min-width: 218px;
+  max-width: 360px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-inverted);
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv3);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+body > [role="menu"]:not(.composer-menu) > [role="presentation"]:first-child {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+/* Heading row（分组方式 / 排序方式）：role=presentation 套在 viewport 里，不是可选项。 */
+body > [role="menu"]:not(.composer-menu) > [role="presentation"] > [role="presentation"] {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+body > [role="menu"]:not(.composer-menu) [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+}
+
+body > [role="menu"]:not(.composer-menu) [role="menuitem"] > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body > [role="menu"]:not(.composer-menu) [role="menuitem"] > span:first-child:not(:only-of-type) {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+body > [role="menu"]:not(.composer-menu) [role="menuitem"] > svg {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+body > [role="menu"]:not(.composer-menu) [role="menuitem"]:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+body > [role="menu"]:not(.composer-menu) [role="menuitem"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+body > [role="menu"]:not(.composer-menu) [role="separator"] {
+  flex: none;
+  height: 1px;
+  min-height: 1px;
+  margin: 4px 2px;
+  background: var(--dsw-alias-border-l1);
+}

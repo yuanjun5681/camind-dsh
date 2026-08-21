@@ -1,0 +1,4 @@
+# Bundle layer: insert the ui-shell Host plugin (serves /ui and the protocol bridge).
+- insert:
+    - id: ui-shell
+      name: camind-ui-shell

@@ -1,0 +1,21 @@
+{
+  "name": "camind-service-git-repository",
+  "version": "0.1.0",
+  "description": "Generic Cordis gitRepository service: local Git repos, worktrees, locks, and sidecar envelopes.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
