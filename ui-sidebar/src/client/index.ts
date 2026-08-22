@@ -1,6 +1,8 @@
 /**
  * Custom Sidebar client plugin. It occupies the official `sidebar` seat under
  * the official package id in ui-shell, preserving downstream slot names.
+ * Locale namespace stays `customSidebar`: the official `sidebar` namespace
+ * belongs to the stock sidebar and re-registering it would throw.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -9,7 +11,8 @@ import { SidebarRoot } from './SidebarRoot.tsx'
 import { en, zh, type SidebarKey } from './locales.ts'
 
 export type {
-  SidebarBrandOwnerProps,
+  SidebarBrandMarkOwnerProps,
+  SidebarBrandNameOwnerProps,
   SidebarFooterActionOwnerProps,
   SidebarRootComponentProps,
   SidebarRootInjected,
@@ -40,8 +43,12 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('sidebar', () => ctx.slots.register({
       name: 'sidebar',
       locale: NS,
+      // The shell owns geometry and the brand seats; ui-workspace registers
+      // the browsing region, ui-settings the foot trigger + settings panel,
+      // camind-ui-brand the brand mark/name occupants.
       children: {
-        'sidebar.brand': { kind: 'single', scope: 'root' },
+        'sidebar.brand.mark': { kind: 'single', scope: 'root' },
+        'sidebar.brand.name': { kind: 'single', scope: 'root' },
         'sidebar.workspaces': { kind: 'single', scope: 'root' },
         'sidebar.settings': { kind: 'single', scope: 'root' },
         'sidebar.footer.action': { kind: 'list', scope: 'root' },

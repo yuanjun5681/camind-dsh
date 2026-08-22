@@ -889,6 +889,7 @@ export function apply(ctx) {
                     url: entry.url,
                     rev: entry.rev,
                     ...entry.inject ? { inject: [...entry.inject] } : {},
+                    ...entry.external?.length ? { external: [...entry.external] } : {},
                     ...entry.immediately ? { immediately: true } : {},
                 })),
             };
@@ -1363,8 +1364,9 @@ export function apply(ctx) {
         },
     });
     // 定制 UI 是默认入口：精确路由优先于官方前端的 fallback 席位，
-    // 访问 / 时 302 到 /camind/（302 而非 301，随时可撤销）。官方 UI 无 URL
-    // 路由逻辑，仍可由 fallback 在任意未占用路径（如 /web）完整提供。
+    // 访问 / 时 302 到 /camind/（302 而非 301，随时可撤销）。0.1.1 起官方
+    // 前端的 fallback 只在 dist 根与 /index.html 提供入口（任意路径不再
+    // 回退 SPA），官方 UI 无 URL 路由逻辑，/web 精确路由 302 到 /index.html。
     ctx.webServer.register({
         kind: 'exact',
         path: '/',
@@ -1373,6 +1375,14 @@ export function apply(ctx) {
             res.end();
         },
     });
-    console.log('[ui-shell] serving SPA at /camind  (/ redirects here; official UI at any unmatched path, e.g. /web)');
+    ctx.webServer.register({
+        kind: 'exact',
+        path: '/web',
+        handler: (req, res) => {
+            res.writeHead(302, { Location: '/index.html' });
+            res.end();
+        },
+    });
+    console.log('[ui-shell] serving SPA at /camind  (/ redirects here; official UI at /web -> /index.html)');
 }
 //# sourceMappingURL=index.js.map

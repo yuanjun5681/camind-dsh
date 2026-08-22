@@ -1,17 +1,16 @@
 /**
- * Sidebar shell copied from the official rc.7 implementation. Local changes:
- * the `sidebar.brand` fallback seat, passing the shell's `pathname`/`navigate`
- * into the official `sidebar.footer.action` list (see contract/slots.ts), and
- * an account footer row — user chip left, settings trigger right. The trigger
+ * Sidebar shell copied from the official 0.1.1-rc.2 implementation (the
+ * `sidebar.brand.mark`/`sidebar.brand.name` seats are upstream-native since
+ * 0.1.1). Local changes: passing the shell's `pathname`/`navigate` into the
+ * official `sidebar.footer.action` list (see contract/slots.ts), and an
+ * account footer row — user chip left, settings trigger right. The trigger
  * is always rendered with `wide: false` so the official occupant paints its
  * compact rail variant (36px circular icon button) instead of the full-width
  * labeled row.
  */
 import { useEffect, useRef, useState } from 'react'
 import {
-  BrandWordmark, FishLogo,
-  IconNewChatOutline16, IconPanelLeftOutline16,
-  Tooltip,
+  FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
 import css from './SidebarRoot.module.css'
@@ -20,6 +19,7 @@ function clsx(...names: Array<string | false | undefined>): string {
   return names.filter(Boolean).join(' ')
 }
 
+/** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
 const COLLAPSE_SETTLE_MS = 150
 const SCROLLBAR_LINGER_MS = 2000
 
@@ -54,6 +54,8 @@ export function SidebarRoot({
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
+  // Wide content stays mounted while the collapse animates (fading via
+  // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
   useEffect(() => {
     if (!collapsed) { setSettled(false); return }
@@ -62,9 +64,14 @@ export function SidebarRoot({
   }, [collapsed])
   const wide = !collapsed || !settled
 
+  // Freeze the content at its expanded width while it fades out (collapsed
+  // && wide): the sliding column then clips it instead of reflowing it. The
+  // rail layout (.collapsed styles) only applies once the fade settles.
   const lastWideWidth = useRef(width)
   if (!collapsed) lastWideWidth.current = width
 
+  // Rail-in only crossfades a live collapse: a refresh straight into the
+  // collapsed state renders the rail statically (no delay-hidden icons).
   const everWide = useRef(!collapsed)
   if (!collapsed) everWide.current = true
 
@@ -115,6 +122,8 @@ export function SidebarRoot({
       onPointerLeave={() => { armLinger() }}
     >
       <div className={css.logoRow}>
+        {/* Expanded, the brand doubles as a New Session shortcut; the
+            collapsed rail's logo is the expand toggle below instead. */}
         {wide && (
           <button
             type="button"
@@ -122,9 +131,27 @@ export function SidebarRoot({
             aria-label={t('session.new.label')}
             onClick={() => { startSession() }}
           >
-            {renderSlot('sidebar.brand', { wide }, { fallback: <BrandWordmark /> })}
+            <span className={css.brandIdentity} aria-hidden="true">
+              <span className={css.brandMark}>
+                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+              </span>
+              <span className={css.brandName}>
+                {renderSlot('sidebar.brand.name', {}, {
+                  fallback: (
+                    <>
+                      <span className={css.fallbackBrandName}>DSH Local Build</span>
+                      {process.env.DSH_CLIENT_COMMIT_HASH
+                        ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
+                        : null}
+                    </>
+                  ),
+                })}
+              </span>
+            </span>
           </button>
         )}
+        {/* Rail resting state is the whale mark; hovering swaps in the panel
+            icon (the expand affordance, figma sidebar-hover flow). */}
         <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
@@ -133,10 +160,11 @@ export function SidebarRoot({
             onClick={() => { toggleSidebar() }}
           >
             {!wide && (
-              <span className={css.railFish}>
-                {renderSlot('sidebar.brand', { wide }, { fallback: <FishLogo size={24} /> })}
+              <span className={css.railMark} aria-hidden="true">
+                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
               </span>
             )}
+            {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
             <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
           </button>
         </Tooltip>

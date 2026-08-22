@@ -231,6 +231,7 @@ export interface HostContext {
         url: string
         rev: string
         inject?: readonly string[]
+        external?: readonly string[]
         immediately?: boolean
       }[]
     }

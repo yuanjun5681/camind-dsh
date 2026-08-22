@@ -1,7 +1,7 @@
 {
   "name": "camind-ui-brand",
   "version": "0.1.0",
-  "description": "Camind brand for /camind: blobatar mascot + wordmark registered into ui-sidebar's sidebar.brand seat.",
+  "description": "Camind brand for /camind: blobatar mascot + wordmark registered into the sidebar.brand.mark / sidebar.brand.name seats.",
   "type": "module",
   "main": "./index.js",
   "exports": {

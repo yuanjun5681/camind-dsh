@@ -3,8 +3,8 @@
 本文介绍 Camind 的定制前端如何工作。定制 UI 挂在 `/camind` 并是默认入口（`/` 302 跳转到 `/camind/`）；官方 UI 仍在 fallback 席位，由任意未占用路径（如 `/web`）访问，两者互不干扰。涉及这些插件：
 
 - `camind-ui-shell`（ui-shell/）— Host 协议桥 + 自托管 React SPA：半注册 `/camind` 与 `/camind/api`，浏览器侧加载官方插件图并复用官方 slot runtime。
-- `camind-ui-sidebar`（ui-sidebar/）— 以官方模块 ID 静态替换的 Sidebar，新增 `sidebar.brand` slot，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`。
-- `camind-ui-brand`（ui-brand/）— 品牌插件：动态 blobatar mascot + “Camind” 字标徽章，注册到 `sidebar.brand` 席位。
+- `camind-ui-sidebar`（ui-sidebar/）— 以官方模块 ID 静态替换的 Sidebar，沿用 0.1.1 起上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`。
+- `camind-ui-brand`（ui-brand/）— 品牌插件：动态 blobatar mascot + “Camind” 字标徽章，注册到 `sidebar.brand.mark` / `sidebar.brand.name` 席位（priority -10 压过图内 ui-brand-official；仅 `/camind` 路径注册）。
 - `camind-ui-home`（ui-home/）— 新会话首页（`/`）品牌区与紧随其下的示例卡片：`shell.home` 链叠加在官方 conversation 上方，并中和官方 hero 的自居中、由外层把「品牌 + 示例 + 工作区行 + 输入卡」收成一个整体居中组；`conversation.input.dock` 上挂一个不可见的 inputActions 桥供示例写草稿；官方 HeroShell 用结构选择器 CSS 隐藏。
 - `camind-page-memory`（page-memory/）— 记忆库管理页（两级）：底部菜单 + `/pages/memory` 知识/经验双 tab 列表 + `/pages/memory/<type>/<name>` 详情，Host 半自带 `/camind/api/memory`。
 
@@ -26,21 +26,19 @@
 
 `bootOfficialClient()`（`ui-shell/src/web/officialClient.ts`）：
 
-1. `ensureBootGraph()`：优先读 Host 内联的 `window.__DSH_BOOT__`，缺失时 `GET /camind/api/client-plugins`。图结构为 `{ rev, entries: [{ id, url, inject?, immediately? }] }`。
-2. `new ClientModuleSystem({ modules, staticModules })`：安装 `window.__ModuleLoader__` 注册槽。`staticModules` 是官方平台词表（react、react-dom、cordis、ui-slots、ui-primitives、ui-attachment 等约 10 个），模块实例来自 ui-shell 自己的 Vite bundle，`resolve.dedupe` 保证 react 单实例。
-3. `registerStatic()` 注册四个静态模块（见下节）。
-4. 预取 `immediately` 插件，然后按图逐行 `ctx.loader.create({ name })` 激活；单个插件失败仅 `console.warn`，不阻塞整体。
+1. `ensureBootGraph()`：优先读 Host 内联的 `window.__DSH_BOOT__`，缺失时 `GET /camind/api/client-plugins`。图结构为 `{ rev, entries: [{ id, url, inject?, external?, immediately? }] }`。
+2. 安装 `window.__ModuleLoader__` facade（queue 模式），把三个本地模块的 factory 压入待处理队列（见下节），再经 `createClientModuleSystem()` 建系统并切入活动注册。`staticModules` 是官方平台词表（react、react-dom、cordis、ui-slots、ui-primitives），模块实例来自 ui-shell 自己的 Vite bundle，`resolve.dedupe` 保证 react 单实例。
+3. 预取 `immediately` 插件，然后按图逐行 `ctx.loader.create({ name })` 激活（modules 行命中 bootstrap 缓存）；单个插件失败仅 `console.warn`，不阻塞整体。
 
 ### 静态替换机制
 
-`registerStatic(id, module)` 让指定模块 ID 绕过网络加载，直接解析到本地实现；`require`/`import` 的解析顺序是 seed（平台词表）→ statics → factory → 图行。四处静态替换（`officialClient.ts:150-155`）：
+0.1.1 起官方模块系统删除 `registerStatic`：本地模块改为在建系统前以图行 ID 预注册 factory（`__ModuleLoader__.load({ id, factory })` 进待处理队列）。解析顺序是 seed（平台词表）→ 已物化记录 → 已注册 factory → 网络图行；factory 命中即不再抓取对应 bundle。三处本地注册（`officialClient.ts` 的 `bootOfficialClient`）：
 
+- `@deepseek-ai/dsh-client-ui-layout` → layoutShim（提供 `ctx.layout` 与 theme 投影）；
 - `@deepseek-ai/dsh-client-ui-sidebar` → ui-sidebar 的 TS 源码（相对路径 import，由 ui-shell 的 Vite 直接编译，不走 `__ModuleLoader__`）；
-- 官方 app shell 模块 ID → customShell（root slot 声明，见下节）；
-- `@deepseek-ai/dsh-client-modules` → 官方 ModulesClient；
-- `@deepseek-ai/dsh-client-ui-layout` → layoutShim。
+- `camind-ui-shell/app-shell` → customShell（图外自定义行：root slot 声明 + 业务扩展，见下节）。
 
-boot 图里即便也有官方 sidebar，静态表先行拦截，依赖它的模块（如 ui-workspace）拿到的都是自定义实现。官方 `/` 用另一套 boot，不受影响。
+`@deepseek-ai/dsh-client-modules` 则由 Vite 解开其 loader 格式产物（`vite.config.ts` 的 `unwrapDshClientLoader`）后作为 bootstrap module 传给 `createClientModuleSystem()`。boot 图里即便也有官方 sidebar，预注册 factory 先行拦截，依赖它的模块（如 ui-workspace）拿到的都是自定义实现。官方 `/web`（302 到 `/index.html`）用另一套 boot，不受影响。
 
 ## 布局与 slot
 
@@ -69,7 +67,7 @@ Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物�
 
 - conversation 子 slot（官方定义，ui-shell 以 inject 方式注册业务扩展）：`conversation.input.left`（文件上传按钮；所有模式使用 DSH_HOME 会话隔离批次，ZIP 自动解压）、`conversation.input.dock`（待发送文件附件 rail 与拖拽分流器的生命周期锚点；组件通过 portal 落在官方 Composer 卡片内、textarea 上方，不污染 draft；图片继续桥接官方图片草稿）、`conversation.chat.turnTail`。
 - `shell.overlay`：ui-shell 挂 `FilePreviewOverlay`（全屏级文件预览）与 `DiffOverlay`（全局代码对比，工作台只是调用方）。
-- sidebar 子 slot（ui-sidebar 声明）：`sidebar.brand` 为新增；`sidebar.workspaces`、`sidebar.settings` 沿用官方契约，owner props 刻意保持不变；`sidebar.footer.action` 是官方 list 席位，owner props 本地扩展为 `{ wide, pathname, navigate }`（官方契约的超集，存量插件忽略多余字段），类型靠 `declare module` 增广，见 `ui-sidebar/src/client/contract/slots.ts`。
+- sidebar 子 slot（ui-sidebar 声明）：`sidebar.brand.mark` / `sidebar.brand.name` 是 0.1.1 起的上游原生席位；`sidebar.workspaces`、`sidebar.settings` 沿用官方契约，owner props 刻意保持不变；`sidebar.footer.action` 是官方 list 席位，owner props 本地扩展为 `{ wide, pathname, navigate }`（官方契约的超集，存量插件忽略多余字段），类型靠 `declare module` 增广，见 `ui-sidebar/src/client/contract/slots.ts`。
 - 侧栏最底部是账号行（ui-sidebar 本地改动）：flex between 布局，左侧用户块（本地无账号体系，固定显示名 `user`，首字母圆形头像 + 名字），右侧 `sidebar.settings`——固定以 `wide: false` 传给官方 occupant，使其渲染 36px 圆形纯图标 trigger 而非整行带标签按钮；折叠 rail 下只保留该图标，与官方行为一致。
 
 ## 插件如何扩展页面（page-memory）

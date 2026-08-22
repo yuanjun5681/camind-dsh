@@ -3,14 +3,14 @@
  *
  * 官方 ui-layout 的 AppFrame 不知道项目 Workbench。这里用自管 layout shim
  * 提供 ctx.layout / theme，并以混合 root 渲染官方四个顶层 slot 与业务工作台。
- * 不 Vite-import 官方 ./client（factory require 在解开后会炸）。
+ * 0.1.1 起官方模块系统删除 registerStatic：本地替换模块（layout shim、
+ * 定制 Sidebar、app-shell）改为在建系统前压入 __ModuleLoader__ 待处理队列。
  */
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as ModulesClient from '@deepseek-ai/dsh-client-modules/client'
-import { ClientModuleSystem, parseBootManifest } from '@deepseek-ai/dsh-client-modules/client'
-import { APP_SHELL_ID, getStaticModules } from '@deepseek-ai/dsh-client-web'
-import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
+import { createClientModuleSystem } from '@deepseek-ai/dsh-client-modules/client'
+import { getStaticModules } from '@deepseek-ai/dsh-client-web'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { api } from './api'
 import { layoutShim } from './officialLayout'
@@ -28,6 +28,8 @@ import * as CustomSidebarClient from '../../../ui-sidebar/src/client/index'
 const MODULES_ID = '@deepseek-ai/dsh-client-modules'
 const LAYOUT_ID = '@deepseek-ai/dsh-client-ui-layout'
 const SIDEBAR_ID = '@deepseek-ai/dsh-client-ui-sidebar'
+// 本地 app-shell 行：不在 Host 下发的图里，用预注册 factory + 显式 create 激活。
+const APP_SHELL_ID = 'camind-ui-shell/app-shell'
 
 type SlotChildSpec = { kind: 'single' | 'list' | 'keyed' | 'chain'; scope: 'root' | 'session' | 'session-maybe' }
 
@@ -106,13 +108,13 @@ export function subscribeOfficialClient(listener: () => void): () => void {
   return () => { listeners.delete(listener) }
 }
 
-/** 装 SlotRenderer、混合 root，以及不替换官方 Conversation 的业务扩展。 */
+/** 装混合 root 与不替换官方 Conversation 的业务扩展；SlotRenderer 由官方
+ *  ui-renderer 插件（图内 fetch bundle）安装。 */
 const customShell = {
   name: 'ui-shell-app-shell',
   inject: ['slots', 'layout', 'sessions'],
   apply(ctx: ClientContext) {
     const slots = (ctx as OfficialClient).slots
-    slots.install(createSlotRenderer())
     slots.register({
       name: 'root',
       priority: -1,
@@ -199,25 +201,58 @@ async function ensureBootGraph(): Promise<void> {
   win.__DSH_BOOT__ = graph
 }
 
+type BundleRegistration = {
+  id: string
+  factory: (require: (spec: string) => unknown) => Record<string, unknown>
+}
+
+/** 官方引导 HTML 内联脚本安装的页面级 facade（见 dsh-client-modules 的
+ *  ClientModuleLoaderTarget）；/camind 是自己的 SPA，由这里补齐。 */
+type ModuleLoaderFacade = {
+  mode: 'queue' | 'live'
+  pendingQueue: BundleRegistration[]
+  load(registration: BundleRegistration): void
+  create(options: { boot: unknown; staticModules: Record<string, unknown> }): ClientModuleSystemLike
+}
+
+type ClientModuleSystemLike = {
+  manifest: { plugins: { id: string; immediately: boolean }[] }
+  prefetch(id: string): Promise<void>
+}
+
 export async function bootOfficialClient(): Promise<void> {
   try {
     await ensureBootGraph()
-    const win = window as Window & { __DSH_BOOT__?: unknown; __DSH_MODULES__?: ClientModuleSystem; __ModuleLoader__?: unknown }
+    const win = window as Window & {
+      __DSH_BOOT__?: unknown
+      __DSH_MODULES__?: ClientModuleSystemLike
+      __ModuleLoader__?: ModuleLoaderFacade
+    }
     if (win.__ModuleLoader__) {
       throw new Error('window.__ModuleLoader__ 已被占用，无法启动官方插件表')
     }
-    const manifest = parseBootManifest(win.__DSH_BOOT__)
-    const modules = new ClientModuleSystem({
-      modules: manifest.modules,
-      staticModules: getStaticModules(),
-    })
-    modules.registerStatic(APP_SHELL_ID, customShell)
-    modules.registerStatic(MODULES_ID, ModulesClient)
-    modules.registerStatic(LAYOUT_ID, layoutShim)
-    // /camind 专用：以相同模块 ID 替换官方 Sidebar，满足 ui-workspace 的依赖边；
-    // 官方 / 使用另一套 boot，不受影响。
-    modules.registerStatic(SIDEBAR_ID, CustomSidebarClient)
+    const facade: ModuleLoaderFacade = {
+      mode: 'queue',
+      pendingQueue: [],
+      load(registration) { this.pendingQueue.push(registration) },
+      create(options) {
+        return createClientModuleSystem(
+          this as never,
+          { id: MODULES_ID, exports: ModulesClient as Record<string, unknown> },
+          options as never,
+        ) as unknown as ClientModuleSystemLike
+      },
+    }
+    win.__ModuleLoader__ = facade
+    // /camind 专用：以图行 ID 预注册本地模块——layout 换 shim、Sidebar 换
+    // 定制实现（满足 ui-workspace 的依赖边）；app-shell 是图外自定义行。
+    // 官方 / 使用另一套 boot，不受影响。factory 闭包持有 Vite 打包后的模块。
+    facade.load({ id: LAYOUT_ID, factory: () => layoutShim as never })
+    facade.load({ id: SIDEBAR_ID, factory: () => CustomSidebarClient as Record<string, unknown> })
+    facade.load({ id: APP_SHELL_ID, factory: () => customShell as never })
+    const modules = facade.create({ boot: win.__DSH_BOOT__, staticModules: getStaticModules() })
     win.__DSH_MODULES__ = modules
+    const manifest = modules.manifest
 
     const ctx = new Context()
     await ctx.plugin(Loader)

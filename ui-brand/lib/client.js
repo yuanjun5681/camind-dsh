@@ -1,7 +1,8 @@
 // camind-ui-brand browser bundle — hand-written, no build step.
-// Claims ui-sidebar's `sidebar.brand` single seat (empty by default, so this
-// registration replaces the BrandWordmark/FishLogo fallbacks). The brand mark
-// is a frozen, always-animated blobatar mascot: SSR'd once from blobatar@2.1.0
+// Claims the upstream-native `sidebar.brand.mark` / `sidebar.brand.name`
+// single seats (dsh 0.1.1+; empty by default, so these registrations replace
+// the FishLogo / "DSH Local Build" fallbacks). The brand mark is a frozen,
+// always-animated blobatar mascot: SSR'd once from blobatar@2.1.0
 // (MIT, https://github.com/Alain00/blobatar) and embedded below as static
 // markup, so the runtime carries no blobatar code. Regenerate with:
 //   npm i blobatar@2.1.0 react react-dom
@@ -10,8 +11,8 @@
 // Motion is pure CSS: blobatar's dist/motion.css (vendored verbatim below; all
 // classes, keyframes and @property names are mo- prefixed) is injected into
 // <head> on activation and removed with the plugin; it already honors
-// prefers-reduced-motion. Wide mode adds the wordmark with the theme-inverted
-// "Harness" badge; the collapsed rail renders the mascot alone.
+// prefers-reduced-motion. The name seat adds the wordmark with the
+// theme-inverted "Harness" badge; the collapsed rail renders the mark alone.
 window.__ModuleLoader__.load({ id: "camind-ui-brand", factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
 
@@ -30,24 +31,15 @@ const MOTION_CSS = `@property --mo-amp{syntax:"<number>";inherits:true;initial-v
 
 // Mascot display sizing, injected together with MOTION_CSS. The blobatar
 // figure only fills ~70% of its 100 viewBox (it is composed for plated
-// avatars), so at the raw 24px the creature reads ~17px — too small. The wide
-// logo row has a 44px content box (60px row, 8px padding), the collapsed
-// rail's toggle button is 36px: size the mascot to 36px / 28px accordingly.
+// avatars), so at the raw 24px the creature reads ~17px — too small. The mark
+// seat serves both the expanded brand row and the collapsed rail at size 24;
+// rendering the svg at 1.25x keeps the creature legible in either container.
 const BRAND_CSS = `
 .camind-brand-mascot{display:inline-flex;flex:none;line-height:0}
-.camind-brand-mascot>svg{width:36px;height:36px}
-.camind-brand-mascot.camind-brand-rail>svg{width:28px;height:28px}
+.camind-brand-mascot>svg{width:100%;height:100%}
 `
 
 const styles = {
-  wide: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    minWidth: 0,
-    overflow: 'hidden',
-    whiteSpace: 'nowrap',
-  },
   wordmark: {
     fontSize: 15,
     fontWeight: 600,
@@ -71,23 +63,29 @@ const styles = {
   },
 }
 
-function Mascot({ rail }) {
+function Mascot({ size }) {
+  const edge = Math.round((size ?? 24) * 1.25)
   return h('span', {
-    className: rail ? 'camind-brand-mascot camind-brand-rail' : 'camind-brand-mascot',
+    className: 'camind-brand-mascot',
+    style: { width: edge, height: edge },
     dangerouslySetInnerHTML: { __html: MASCOT_SVG },
   })
 }
 
-function CamindBrand({ wide }) {
-  if (!wide) return h(Mascot, { rail: true })
-  return h('span', { style: styles.wide },
-    h(Mascot, { rail: false }),
-    h('span', { style: styles.wordmark },
-      'Camind',
-      h('span', { style: styles.badge }, 'Harness')))
+function CamindBrandMark({ size }) {
+  return h(Mascot, { size })
+}
+
+function CamindBrandName() {
+  return h('span', { style: styles.wordmark },
+    'Camind',
+    h('span', { style: styles.badge }, 'Harness'))
 }
 
 function apply(ctx) {
+  // /camind-only: the same graph also boots the official shell (/web), whose
+  // brand seats belong to ui-brand-official's stock occupants.
+  if (!location.pathname.startsWith('/camind')) return
   ctx.effect(() => {
     const style = document.createElement('style')
     style.setAttribute('data-camind-ui-brand-motion', '')
@@ -96,10 +94,18 @@ function apply(ctx) {
     return () => { style.remove() }
   })
 
-  ctx.slots.inject('sidebar.brand', () =>
+  // priority -10: the graph's ui-brand-official row registers the same single
+  // seats at priority 0; same-priority clashes throw, the lowest renders.
+  ctx.slots.inject('sidebar.brand.mark', () =>
     ctx.slots.register({
-      name: 'sidebar.brand',
-    }, CamindBrand))
+      name: 'sidebar.brand.mark',
+      priority: -10,
+    }, CamindBrandMark))
+  ctx.slots.inject('sidebar.brand.name', () =>
+    ctx.slots.register({
+      name: 'sidebar.brand.name',
+      priority: -10,
+    }, CamindBrandName))
 }
 
 exports.name = 'ui-brand-client'

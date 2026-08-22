@@ -1,5 +1,6 @@
-# Brand bundle: contributes the Camind mascot + wordmark to
-# ui-sidebar's sidebar.brand single seat (client-side only, no Host services).
+# Brand bundle: contributes the Camind mascot + wordmark to the upstream-native
+# sidebar.brand.mark / sidebar.brand.name single seats (client-side only, no
+# Host services).
 - insert:
     - id: ui-brand
       name: camind-ui-brand

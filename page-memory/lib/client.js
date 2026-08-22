@@ -760,13 +760,19 @@ function MemoryPage({ matched }) {
 // --- sidebar entry ---------------------------------------------------------------------
 
 function MemoryMenuItem({ wide, pathname, navigate }) {
-  const active = isPagePath(pathname)
+  // The official shell (served at /web) renders this list with { wide } only —
+  // the route-aware props are a /camind extension, so degrade gracefully there.
+  const active = typeof pathname === 'string' && isPagePath(pathname)
+  const open = () => {
+    if (typeof navigate === 'function') navigate(route)
+    else location.assign('/camind' + route)
+  }
   const button = h('button', {
     type: 'button',
     'aria-label': '打开记忆库页面',
     'aria-current': active ? 'page' : undefined,
     style: menuStyles.button(active, wide),
-    onClick: () => navigate(route),
+    onClick: open,
     onPointerEnter: (event) => {
       if (!active) event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover)'
     },

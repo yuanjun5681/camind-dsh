@@ -5,7 +5,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { DropOverlay } from '@deepseek-ai/dsh-client-ui-attachment'
+// 0.1.1 起包根变成 Host 存根、不再导出原子组件；直接引 vendor 源码（保留 CSS 类名）。
+import { DropOverlay } from '../../vendor/dsh-client-ui-attachment/src/DropOverlay'
 import type { UploadedFile } from '@shared/protocol'
 import { api } from './api'
 import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'

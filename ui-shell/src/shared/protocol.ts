@@ -271,6 +271,8 @@ export interface ClientPluginEntry {
   url: string
   rev: string
   inject?: string[]
+  /** 0.1.1 起图行声明的动态外部依赖（模块系统按它预取依赖行）。 */
+  external?: string[]
   immediately?: boolean
 }
 

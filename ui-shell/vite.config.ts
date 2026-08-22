@@ -31,6 +31,7 @@ function unwrapDshClientLoader(): Plugin {
           `const __dshExports = ((require) => {${body}})(require)`,
           'export default __dshExports',
           'export const ClientModuleSystem = __dshExports.ClientModuleSystem',
+          'export const createClientModuleSystem = __dshExports.createClientModuleSystem',
           'export const parseBootManifest = __dshExports.parseBootManifest',
           'export const apply = __dshExports.apply',
           'export const inject = __dshExports.inject',
@@ -48,19 +49,19 @@ export default defineConfig({
   plugins: [unwrapDshClientLoader(), react()],
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    // 官方 Sidebar 品牌名 fallback 读取的构建元信息；本地构建无 commit 章。
+    'process.env.DSH_CLIENT_COMMIT_HASH': JSON.stringify(''),
     'process.execArgv': JSON.stringify([]),
     'process.versions': JSON.stringify({ node: '22.22.1' }),
   },
   resolve: {
     alias: [
       { find: '@shared', replacement: path.join(root, 'src/shared') },
-      // rc.7 的 npm lib 产物将 CSS Modules 替换成空对象；官方 Web 壳则从
-      // 同版本源码构建。这里固定到随项目保存的上游源码，保证平台模块向
-      // 所有官方 UI 插件提供完整的组件和样式映射。
-      {
-        find: /^@deepseek-ai\/dsh-client-ui-attachment$/,
-        replacement: path.join(root, 'vendor/dsh-client-ui-attachment/src/index.ts'),
-      },
+      // npm lib 产物将 CSS Modules 替换成空对象；官方 Web 壳则从同版本源码
+      // 构建。ui-primitives 仍是静态表共享给所有官方 fetch bundle 的平台
+      // 单例，这里固定到随项目保存的上游源码，保证样式映射完整。
+      // （0.1.1 起 ui-attachment 不再是平台单例：官方附件 UI 走 Host fetch
+      // bundle，ui-shell 自用的 DropOverlay 直接相对导入 vendor 源码。）
       {
         find: /^@deepseek-ai\/dsh-client-ui-primitives$/,
         replacement: path.join(root, 'vendor/dsh-client-ui-primitives/src/index.ts'),
@@ -74,7 +75,6 @@ export default defineConfig({
       '@deepseek-ai/cordis',
       '@deepseek-ai/cordis-plugin-loader',
       '@deepseek-ai/dsh-client-web',
-      '@deepseek-ai/dsh-client-web-react',
     ],
     exclude: ['@deepseek-ai/dsh-client-modules'],
   },

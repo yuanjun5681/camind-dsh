@@ -17,7 +17,8 @@
 
 | Slot | Kind | Scope | 用途 | 现状 |
 |---|---|---|---|---|
-| ★ `sidebar.brand` | single | root | 侧栏 logo（owner 传 `{ wide }`，区分展开/折叠） | 空位；fallback 为官方 BrandWordmark / FishLogo |
+| `sidebar.brand.mark` | single | root | 侧栏品牌标记（展开品牌行与折叠 rail 共用；owner 传 `{ size }`） | 0.1.1 起上游原生；fallback 为官方 FishLogo，camind-ui-brand 以 priority -10 占位 |
+| `sidebar.brand.name` | single | root | 侧栏品牌字标（展开态，标记旁） | 0.1.1 起上游原生；fallback 为 "DSH Local Build" 文本，camind-ui-brand 以 priority -10 占位 |
 | `sidebar.workspaces` | single | root | 工作区列表区 | 官方 workspace 插件占位 |
 | `sidebar.settings` | single | root | 设置入口区 | 官方 settings-general 占位 |
 | `sidebar.footer.action` | list | root | 侧栏底部按钮（「设置」上方；本地扩展 owner 传 `{ wide, pathname, navigate }`，官方契约的超集） | page-memory 已注册“记忆库”管理页入口 |
@@ -87,7 +88,7 @@
 
 | 想做的事 | 用的 Slot |
 |---|---|
-| 换 logo | `sidebar.brand`（single，空位，注册即接管） |
+| 换 logo | `sidebar.brand.mark` / `sidebar.brand.name`（single，priority -10 接管，图内 ui-brand-official 在 priority 0） |
 | 定制新会话首页品牌/示例 | `shell.home`（chain，`/` 叠加在官方 conversation 上方）+ `conversation.input.dock`（不可见 inputActions 桥，供示例写草稿） |
 | 加底部菜单 | `sidebar.footer.action`（list，按 order 并列，owner 传 `{ wide, pathname, navigate }`） |
 | 加插件页面 | `shell.content`（chain，select 匹配路由） |

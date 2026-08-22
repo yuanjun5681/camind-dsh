@@ -1,14 +1,16 @@
 # dsh-client-ui-attachment source snapshot
 
 This directory vendors `packages/client/ui-attachment/src` from
-`deepseek-ai/deepseek-harness` tag `dsh-v0.1.0-rc.7`
-(`99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`).
+`deepseek-ai/deepseek-harness` tag `dsh-v0.1.1-rc.2`
+(`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`).
 
-The published `@deepseek-ai/dsh-client-ui-attachment@0.1.0-rc.7` JavaScript
-replaces CSS Module imports with empty objects. `ui-shell/vite.config.ts`
-aliases the platform singleton to this version-matched source snapshot so the
-official attachment rail, image gallery, lightbox, and drop overlay retain
-their official layout and interaction styles.
+Since 0.1.1 the package root is a host-side stub: the attachment atoms
+(`DropOverlay` and friends) live at the source root while the plugin half
+moved to `src/client/` and ships as a styled Host-served fetch bundle.
+`ui-shell`'s own upload dock imports `DropOverlay` from this snapshot
+directly (relative import, keeping the real CSS Module class names); the
+official composer/message attachment UI arrives through the client plugin
+graph and needs no aliasing.
 
 Keep this snapshot and the pinned dsh client package versions in sync. The
 root version check and every `ui-shell` build reject a mismatch recorded in

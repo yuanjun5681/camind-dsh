@@ -6,11 +6,13 @@ import { fileURLToPath } from 'node:url'
 
 export const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+// 上游 0.1.1 起 dsh-client-web-react 被删除（slot renderer 并入
+// dsh-client-ui-renderer，经 Host fetch bundle 加载），不再作为 npm 依赖固定。
 export const clientPackages = [
   '@deepseek-ai/dsh-client-modules',
+  '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-theme',
   '@deepseek-ai/dsh-client-web',
-  '@deepseek-ai/dsh-client-web-react',
 ]
 
 export function readDshVersion() {

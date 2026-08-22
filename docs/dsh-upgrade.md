@@ -7,10 +7,19 @@ dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧
 | 位置 | 消费方式 |
 | --- | --- |
 | `scripts/dsh.mjs` | 启动器：`npx -y @deepseek-ai/dsh@<version>` 运行本体，不随 npm `latest` 漂移 |
-| `ui-shell/package.json` | devDependencies 里 4 个客户端包（`dsh-client-modules`、`dsh-client-ui-theme`、`dsh-client-web`、`dsh-client-web-react`）+ `package-lock.json` |
+| `ui-shell/package.json` | devDependencies 里 4 个客户端包（`dsh-client-modules`、`dsh-client-ui-slots`、`dsh-client-ui-theme`、`dsh-client-web`）+ `package-lock.json`；vendor 源码的运行时依赖（katex/shiki/micromark 等）也在这里显式固定（0.1.1 起官方包不再传递它们） |
 | `ui-shell/vendor/*` | 两份上游源码快照（ui-attachment、ui-primitives），各自 `package.json` 的 version 被校验 |
 | `ui-sidebar/package.json` | `dshUpstream.version/tag/commit`（version 被校验）；`peerDependencies` 里的 `@deepseek-ai/*` 也钉着版本 |
 | `desktop/scripts/prepare-vendor.mjs` | 打包时安装 `@deepseek-ai/dsh@<version>` 本体，开始前先跑 `--check` |
+
+0.1.1 的上游结构变化（升级到此版本时的已知适配，供后续升级对照）：
+
+- `dsh-client-web-react` 被删除（slot renderer 并入 `dsh-client-ui-renderer`，作为图内 fetch bundle 加载）；`dsh-client-web` 的静态表只剩平台单例（react/cordis/ui-slots/ui-primitives）。
+- `ClientModuleSystem` 删除 `registerStatic`：本地替换模块（layout shim、定制 Sidebar、图外 app-shell 行）改为在建系统前压入 `window.__ModuleLoader__` 待处理队列（`ui-shell/src/web/officialClient.ts`）。
+- `ui-attachment` 的包根变成 Host 存根：官方附件 UI 改由 fetch bundle 提供（自带样式，无需别名），ui-shell 自用的 `DropOverlay` 相对导入 vendor 源码；vite 只剩 ui-primitives 一个别名。
+- `ui-theme` 的五张全局样式表改由官方 ui-theme 客户端插件激活时注入，ui-shell 不再静态引入。
+- 官方前端的 fallback 只在 dist 根与 `/index.html` 提供入口（任意路径不再回退 SPA），ui-shell 注册了 exact `/web` 302 到 `/index.html`。
+- 官方 Sidebar 新增 `sidebar.brand.mark` / `sidebar.brand.name` 席位，且图内新增 `ui-brand-official` 行（priority 0）：camind-ui-brand 以 priority -10 注册压过它（single 席位同优先级重复注册会 throw，低优先级渲染）。
 
 不需要动的部分：profile 里的内置 bundle（`@deepseek-ai/dsh-base` 等）始终从正在运行的 dsh 安装自身解析，随 dsh 一起升级；`link:` 挂载的本工作区插件与 dsh 版本解耦。
 
@@ -25,11 +34,12 @@ dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧
 1. 修改根目录 `dsh-version.json` 的 `version`。
 2. `npm run sync:dsh-version`，同步 ui-shell 客户端包。
 3. **手动更新两份 vendor 源码快照**：从上游仓库对应 tag（`deepseek-ai/deepseek-harness`，tag 形如 `dsh-v<version>`）复制 `packages/client/ui-attachment/src` 与 `packages/client/ui-primitives/src`，更新各自 `package.json` 的 version 和 README 里的 tag/commit。
-4. **手动更新 ui-sidebar**：同步上游 `packages/client/ui-sidebar` 源码，重放 `sidebar.brand` 席位与 `sidebar.footer.action` owner props 扩展两处改动（基线与做法见 `ui-sidebar/README.md`），更新 `dshUpstream` 的 version/tag/commit、README 的「上游基线」，以及 `peerDependencies` 里钉死的 `@deepseek-ai/*` 版本。
+4. **手动更新 ui-sidebar**：同步上游 `packages/client/ui-sidebar` 源码，重放 `sidebar.footer.action` owner props 扩展与账号页脚行（含 `.footerActions` 纵向排列）两处本地改动（基线与做法见 `ui-sidebar/README.md`；品牌席位 0.1.1 起上游原生，无需再重放），更新 `dshUpstream` 的 version/tag/commit、README 的「上游基线」，以及 `peerDependencies` 里钉死的 `@deepseek-ai/*` 版本。
 5. `npm run check:dsh-version`，应全部通过。
 6. `cd ui-shell && npm install && npm run build`，重建前端。
 7. 需要桌面打包时 `cd desktop && npm run dist`（prepare-vendor 会先跑 `--check`，不一致直接失败）。
 8. 冒烟：`node scripts/dsh.mjs --profile headless --dump-config` 确认组合配置正常，再开 `http://127.0.0.1:3080/camind/` 验证自定义前端。
+9. 把本次升级过程记录到 `docs/upgrades/<目标版本>.md`：版本起止与 tag/commit → 上游 breaking changes → 本地适配点（带文件路径）→ 验证结果 → 遗留事项；先翻上一份记录对照哪些适配已做过。
 
 ## 注意
 

@@ -7,7 +7,7 @@
 - [会话上传文件](uploads.md)：所有模式统一上传、会话隔离工具与 ZIP 安全解压协议
 - [记忆库设计](memory-design.md)：知识库 + 经验库（OKF v0.2 bundle），camind-tool-memory 工具与 camind-page-memory 页面
 - [CAM 加工场景设计](cam-machining-design.md)：无流程引擎的插件化方案（camind-tool-cam + camind-service-machine + skill/preset），approval/ask_user_question/jobs 原生机制映射（设计稿，未实现）
-- [dsh 版本升级流程](dsh-upgrade.md)：`dsh-version.json` 唯一版本源 + 同步/校验 SOP
+- [dsh 版本升级流程](dsh-upgrade.md)：`dsh-version.json` 唯一版本源 + 同步/校验 SOP；每次升级的过程记录存 [upgrades/](upgrades/)（按目标版本命名）
 
 ## 上游官方文档
 

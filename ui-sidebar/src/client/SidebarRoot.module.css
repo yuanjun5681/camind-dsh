@@ -1,4 +1,7 @@
-/* Official ui-sidebar rc.7 styles, unchanged. */
+/* Official ui-sidebar 0.1.1-rc.2 styles, plus local changes: the footer
+   actions stack vertically (the official row clips multiple entries), and the
+   settings area is an account row — user chip left, settings trigger right. */
+
 .root {
   --dsh-sidebar-inline-padding: 12px;
   display: flex;
@@ -9,24 +12,40 @@
   background: var(--dsw-specific-sidebar-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
+  /* The sidebar is elevated above the conversation surface, so a revealed
+     scrollbar uses the l2 pair. .quietBars hides it without changing layout. */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Rail geometry (figma rail spec): 36x36 control boxes centered in the 56px
+   rail (10px side padding), 12px vertical rhythm, 18px from the rail top to
+   the whale's box (24px to the 24-wide whale glyph itself). */
 .root.collapsed {
   padding: 18px 10px 6px;
 }
 
+/* Scrollbars in the column are a pointer affordance: the shell adds this
+   class whenever the pointer is not inside (SidebarRoot.tsx owns the linger),
+   and rebinding ui-theme's indirection pair to `transparent` takes the thumb
+   out of every scroll region nested under it — the workspace browser's
+   session list today. `transparent` rather than `display: none` on the bar:
+   the reservation (`scrollbar-gutter: stable` on the list) stays in force, so
+   revealing the thumb never reflows a row. Rebinding contract and the two
+   rendering paths it reaches: ui-theme's README. */
 .root.quietBars {
   --dsh-scrollbar-thumb: transparent;
   --dsh-scrollbar-thumb-hover: transparent;
 }
 
+/* Collapse phase 1: the whole frozen-width content fades out in place over
+   150ms; at settle the children unmount/snap to the rail layout. */
 .fading > * {
   opacity: 0;
   transition: opacity 150ms var(--ds-ease-in-out);
 }
 
+/* Wide-only content fades back in on expand remount. */
 .wide {
   animation: wide-in 200ms var(--ds-ease-in-out);
 }
@@ -35,6 +54,11 @@
   from { opacity: 0; }
 }
 
+/* At the 150ms rail settle, the four upper controls enter from the former
+   rail right edge over the remaining 150ms of the AppFrame track transition.
+   The bottom-pinned settings seat shares their opacity timeline but stays
+   horizontally fixed. Only a live collapse gets .railIn; a cold collapsed
+   render stays static. */
 .railIn .iconButton,
 .railIn .newSession,
 .railIn .regionArea {
@@ -56,6 +80,9 @@
   from { opacity: 0; }
 }
 
+/* Logo row (figma pad (4,8,4,8)): expanded keeps the panel toggle at the
+   right edge; the rail gives every control the same base left anchor before
+   the shared entry translation is applied. */
 .logoRow {
   flex: none;
   display: flex;
@@ -76,6 +103,10 @@
   justify-content: flex-start;
 }
 
+/* Brand group (figma I133:7632): the full wordmark rides the text ink
+   (figma flows: the main-screen instance is black; blue is brand
+   emphasis only). A button only in behavior (New Session shortcut): the
+   pointer cursor is the sole affordance — no hover chrome on the mark. */
 .brand {
   flex: 1;
   min-width: 0;
@@ -87,6 +118,41 @@
   background: transparent;
   color: inherit;
   cursor: pointer;
+}
+
+/* Mark and name are independent slots; the shell owns their shared baseline,
+   spacing, and height so either occupant can vary in width. */
+.brandIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  min-width: 0;
+}
+
+.brandMark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brandName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: 0.04em;
+}
+
+.fallbackBrandName {
+  font-size: 17px;
+  letter-spacing: 0px;
+  white-space: nowrap;
 }
 
 .iconButton {
@@ -113,6 +179,9 @@
   height: 36px;
 }
 
+/* Rail logo swap: collapsed, the toggle rests as the whale mark (brand ink,
+   no hover circle) and hovering reveals the panel icon — the expand
+   affordance (figma sidebar-hover flow). Expanded it is a plain panel icon. */
 .collapsed .toggle .panelIcon {
   display: none;
 }
@@ -121,14 +190,38 @@
   display: inline;
 }
 
-.collapsed .toggle:hover .railFish {
+.collapsed .toggle:hover .railMark {
   display: none;
 }
 
+.railMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Rail icons ride the primary ink (figma rail spec); expanded keeps the
+   secondary icon-button ink. */
 .collapsed .iconButton {
   color: var(--dsw-alias-label-primary);
 }
 
+.buildRevision {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: var(--dsw-alias-label-primary-inverted);
+  background: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 8px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* New Session: 38px bar, 12px radius (figma 133:7634 geometry, squared-off
+   corners); collapsed it renders as the rail's plain icon control. */
 .newSession {
   flex: none;
   display: flex;
@@ -179,6 +272,9 @@
   max-width: 0;
 }
 
+/* Region seat: always mounted so the foot never moves. Its trailing margin
+   cancels the wide shell inset so the nested scrollbar can sit at the sidebar
+   edge; the browser restores that inset inside its own rows. */
 .regionArea {
   flex: 1;
   min-height: 0;
@@ -196,6 +292,8 @@
   padding-left: 0;
 }
 
+/* Footer seats: additive actions stack above Settings. Each occupant owns its
+   button geometry and hover chrome. */
 .footArea {
   flex: none;
   display: flex;
@@ -209,8 +307,7 @@
 }
 
 /* Account footer row: user chip left, settings icon button right. The official
-   trigger keeps its rail margins (8px 0 10px), which double as the row's
-   vertical spacing. */
+   trigger keeps its rail margins, which double as the row's vertical spacing. */
 .settingsArea {
   flex: none;
   min-width: 0;
