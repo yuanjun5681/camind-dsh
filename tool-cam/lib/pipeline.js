@@ -11,7 +11,9 @@
 //   /poll 结果单次消费（done 立即返回）、超时先 /cancel、worker 错误信封从
 //   data.result 提取 error_class；
 // - 文件传输：uploadFile（/fs_upload，客户端算 sha256 放 X-CAM-SHA256）、
-//   listDir（/fs_list）、stat（/fs_stat，缺失文件回 ok + exists=false）。
+//   listDir（/fs_list）、stat（/fs_stat，缺失文件回 ok + exists=false）；
+// - ensureReady（/health 开工前健康门禁，ready=false 附 diagnosis）与
+//   windowsPath（src/dst 等非自动解析路径参数的显式绝对化，base_dir 取 /ping）。
 //
 // 统一返回 { status:'ok', data? } / { status:'error', errorType, errorClass?,
 // errorDetail?, msg, retryable? }：连接失败/WorkerTimeout/PollTimeout →
@@ -22,8 +24,7 @@
 //
 // 后续迭代的扩展点（§4.1，本文件内继续生长，不另起服务）：
 // - 回收侧传输（/fs_zip 开包实数、/fs_download 头校验）；
-// - run 目录 op 状态表与断点续跑决策（ok 跳过 / generated 补 post / 其余重跑）；
-// - 机器自检编排（NC 对账 / 空刀路 fail-closed / 翻面验证 / 特征核对）。
+// （run 目录 op 状态表/断点续跑与机器自检编排已落在 lib/tools/run.js。）
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -293,6 +294,43 @@ export function createCamPipeline(ctx, getConfig) {
     return call('/fs_stat', { path: remoteRelPath, sha256: false }, 60)
   }
 
+  // 开工前健康门禁（旧 Camind client.ensure_ready 的移植）：ready=false 附
+  // worker 给的 diagnosis 恢复动作，可重试（去 Windows 侧看一眼）；/health
+  // 自己调用失败时原样上浮（unreachable 已是可重试分类）。
+  async function ensureReady() {
+    const health = await call('/health', {}, 15)
+    if (health.status !== 'ok') return health
+    if (health.data?.ready === false) {
+      return failure({
+        errorType: 'NotReady',
+        retryable: true,
+        msg: `CAM 工作站未就绪：${health.data?.diagnosis ?? 'worker 未就绪（无 diagnosis）'}。`
+          + '请到 Windows 侧按上述诊断恢复后重试。',
+      })
+    }
+    return health
+  }
+
+  // proxy 只对 prt/out/out_dir 三个参数做相对路径解析；其余路径参数（如
+  // /cam_copy_part 的 src/dst）worker 要求 base_dir 内绝对路径——这里把
+  // 相对路径显式绝对化（base_dir 来自 /ping，进程内缓存；旧 Camind
+  // client.windows_base_dir/to_windows_path 的移植）。
+  let cachedBaseDir
+  async function windowsPath(relPath) {
+    const text = String(relPath ?? '')
+    if (/^[A-Za-z]:[\\/]/.test(text) || text.startsWith('\\\\')) return ok(text)
+    if (cachedBaseDir === undefined) {
+      const pinged = await ping()
+      if (pinged.status !== 'ok') return pinged
+      const base = String(pinged.data?.base_dir ?? '').replace(/[\\/]+$/, '')
+      if (!base) {
+        return failure({ errorType: 'bad_response', msg: '/ping 未返回 base_dir，无法绝对化远端路径。' })
+      }
+      cachedBaseDir = base
+    }
+    return ok(`${cachedBaseDir}\\${text.replace(/\//g, '\\')}`)
+  }
+
   // proxy 契约：全部端点 POST，响应信封 {status:'ok',data} / {status:'error',...}，
   // 判成败只看 status 字段，不看 HTTP 码。本地失败（未配置/连不上/响应无法解析）
   // 也归一成同形信封，调用方只认 status。
@@ -339,5 +377,5 @@ export function createCamPipeline(ctx, getConfig) {
     return envelope
   }
 
-  return { connectionInfo, ping, call, run, uploadFile, listDir, stat }
+  return { connectionInfo, ping, call, run, uploadFile, listDir, stat, ensureReady, windowsPath }
 }

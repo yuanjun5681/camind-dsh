@@ -92,10 +92,10 @@
 - **长任务纪律**：分钟级端点（`/cam_*`、`/generate_toolpath`、`/postprocess`）一律 `/submit` + `/poll`（默认 2s 间隔、1800s deadline）——同步长任务会被 TCP 层掐断；`/poll` 结果**只取一次**，取到 `done:true` 立即落盘；到点先查 `/health` 的 `queue_processing`，还在算则忙碌延展（deadline × 4 硬上限），硬上限到点报不可重试的 `WorkerTooSlow`；超时先 `/cancel` 再报（cancel 只保证撤掉未被 worker 领取的命令）；秒级只读探查走同步转发；
 - **错误分类 → 工具结果映射**：连接失败 / `WorkerTimeout` / `PollTimeout` → 可重试提示（去 Windows 机看一眼）；`/health` ready=false → 附 diagnosis 恢复动作；`error_class=refused` → 按设计拒绝（护栏正常工作的证据，如实转述）；`error_class=internal_error` → 报警；旧 worker 无 `error_class` 键时按「判不出」处理，判据不钉 error_type 类名；
 - **文件传输**：`.prt/.dwg` 经 tool-upload 落在 `$DSH_HOME/uploads/<session>/<batch>/`，执行前经 `/fs_upload`（客户端算 sha256 放 `X-CAM-SHA256`）推到 proxy `input/<task>/`；交付时 `/fs_zip` 整目录回收 `out_dir` 的 `*.nc`（**不信 `X-CAM-Files` 头，开包实数**）、`/fs_download` 回收 work 副本与设定单视图（校验响应头 sha256）；路径一律相对 `base_dir`，越界即 `PathViolation`；proxy 只自动解析 `prt`/`out`/`out_dir` 三个参数，其余路径参数（如 `src`/`dst`）必须客户端显式绝对化；
-- **断点续跑**（移植旧 Camind `cam_ops` 状态表语义）：run 目录维护 op 状态表，每 op 四终态 `ok`（NC 在盘）/ `generated`（有刀路缺 NC）/ `empty`（空刀路，fail-closed 需人看工艺）/ `error`，逐 op 原子落盘；续跑决策 `ok` 跳过、`generated` 只补 post、其余重跑；suffix 首次执行定格进状态，工序单变了不吃旧刀路；
+- **断点续跑**（移植旧 Camind `cam_ops` 状态表语义）：run 目录维护 op 状态表，每 op 四终态 `ok`（NC 在盘）/ `generated`（有刀路缺 NC）/ `empty`（空刀路，fail-closed 需人看工艺）/ `error`，逐 op 原子落盘；续跑决策 `ok` 跳过、`generated` 只补 post、其余重跑；suffix 首次执行定格进状态，工序单变了不吃旧刀路。**已实现**（`runstate.json`，tmp+rename 原子落盘，job.json 内容指纹 sha256 前 16 位防旧）；
 - **NX 互斥**：插件进程内互斥 + proxy 文件队列天然串行（单进程前提成立；多实例共用同一 proxy 时需外置锁，届时再议）；
 - 长调用（run/resume）注册为 `ctx.jobs` 后台任务，模型可继续对话，`job_*` 工具可查询/停止；
-- **机器自检编排**（`cam_run` 收尾、交付前，移植旧 Camind 最小集合）：NC 数量对账（取件实数 vs 期望）、空刀路 fail-closed、翻面验证（八项检查契约）、特征核对（roster/assertions 对照 survey 与执行结果）；NC 结构纯文本扫描可直接搬；Z-map 语义体检与非确定性两跑属重投资项，后置（§8）。
+- **机器自检编排**（`cam_run` 收尾、交付前，移植旧 Camind 最小集合）：NC 数量对账（取件实数 vs 期望）、空刀路 fail-closed、翻面验证（八项检查契约）、特征核对（roster/assertions 对照 survey 与执行结果）；NC 结构纯文本扫描可直接搬；Z-map 语义体检与非确定性两跑属重投资项，后置（§8）。**v1 范围：NC 数量对账（`/fs_list` 实数 vs ok 工序记录的 NC）+ 空刀路 fail-closed（结论走 `cam/check-report` 事件）；翻面验证与特征核对属后续迭代**；
 
 ### 4.2 模型工具（中文 description，对齐本工作区惯例）
 
@@ -103,12 +103,14 @@
 |---|---|---|
 | `cam_survey` | 读件：解析 3D 模型（特征/孔位/尺寸）+ 解析 2D 图纸（材料/热处理/螺纹/公差/颜色规则）+ 交叉核对 | 经 proxy `/cam_survey` 等只读端点；输出事实与疑似高风险候选清单；不做任何判断。**v1 已实现（3D；2D 图纸解析下一迭代）** |
 | `cam_plan` | 事实 + 用户声明 → 排工艺（三阶段套路）、选刀、定参数，产出显式工序单 `job.json`（`camindbase_job: "0"` schema 沿用旧 Camind jobspec） | 内部 `inject` machineRegistry 取机床参数；选刀纯规则；plan 前模型应先 `search_memory`（skill 规定）。**v1 已实现：不内建自动排工艺规则引擎——工序单草案由会话模型按 skill 起草，cam_plan 只做确定性校验 + 机床绑定 + 冻结落盘（`$DSH_HOME/cam-runs/<session>/<run>/` 的 job.json/declarations.json/machine_snapshot.json），v1 不调 proxy；全自动规则排产是后续迭代** |
-| `cam_run` | `job.json` → proxy 后台执行（work copy → prepare → 逐 op submit+poll → 出 NC），自动含机器自检（NC 对账/翻面验证/特征核对） | **闸门**：`tools/pre-execute` 检查高风险声明齐全（不齐 → deny + 中文缺失清单）→ 齐全则返回 `{kind:'ask'}` 弹签字卡 |
+| `cam_run` | `job.json` → proxy 后台执行（work copy → prepare → 逐 op submit+poll → 出 NC），自动含机器自检（NC 对账/翻面验证/特征核对） | **闸门**：`tools/pre-execute` 检查高风险声明齐全（不齐 → deny + 中文缺失清单）→ 齐全则返回 `{kind:'ask'}` 弹签字卡。**v1 已实现（2026-08-23）：work copy（主模型不被写）→ prepare（init_setup）→ 逐 op 执行（copy_postprocess / from_scratch_workpiece_op；face_select_generate/tap_holes 落「v1 不支持」error 终态）→ NC 对账 + 空刀路 fail-closed 自检；`ctx.jobs` 后台执行 + runstate 断点续跑（ok 跳过/generated 补 post/指纹不符拒绝）+ `cam/stage`、`cam/check-report` 会话事件；翻面/特征核对后续迭代。真机实证（2026-08-23）：**撞名时 worker 自动改名**（请求 `X` → 实建 `X_01`）且 `postprocess.files` 按实际名键控——判读必须以返回的 `copy.new_name` 为准，实际名记入 runstate 供续跑对准** |
 | `cam_deliver` | 汇总检查结论，生成中文交付报告 + 加工设定单 + 刀路查看器，经 `/fs_zip`/`/fs_download` 回收产物，打包为会话交付物 | 同样过 approval 签字；检查未过也要人确认才打包（报告写清每项决定来源） |
 
 "问人"不是工具：缺声明时模型在对话里直接问，或用 `ask_user_question` 把 `cam_survey` 发现的候选孔预填成多选卡（推荐项置首），用户勾选后续跑。
 
 ### 4.3 硬闸门（tools/pre-execute 监听器）
+
+> **已实现**（2026-08-23，`tool-cam/lib/gate.js`；v1 只拦 `cam_run`，`cam_deliver` 随其迭代一并接入）。
 
 瀑布监听器，只拦截 `cam_run` / `cam_deliver`：
 
@@ -116,6 +118,8 @@
 2. 缺失 → `{kind:'deny', reason: <中文缺失清单>}`，模型拿清单回去问人；
 3. 齐全 → `{kind:'ask', reason: <签字卡文案：件号/工序数/检查结论摘要>}`，tools 管线自动路由 approval 缝；策略为 `never` 或无应答方时 fail-closed；
 4. 批准一次性有效，审计事件入 session log；模型只看到最终工具结果。
+
+> 实现注记：本版本 cordis 的 waterfall `next()` 不线程化值（`next({kind:'deny'})` 不生效）——放行 `return next()`，deny/ask **直接 return 决策对象、不调用 next**（veto 语义，见 `dsh-tool-cordis` 事件目录签名与 cordis 源码实证）。
 
 ### 4.4 会话事件与卡片（client bundle）
 
@@ -175,7 +179,7 @@
 
 分期：
 
-1. **P1 camind-tool-cam**：proxy 客户端 + run 状态表 + 4 工具 + 闸门 + 事件（先无自定义卡片，会话里纯文本结论即可跑通）；
+1. **P1 camind-tool-cam**：proxy 客户端 + run 状态表 + 4 工具 + 闸门 + 事件（先无自定义卡片，会话里纯文本结论即可跑通）——**已落地 3/4 工具（cam_survey / cam_plan / cam_run）+ 闸门 + runstate + 会话事件，剩 cam_deliver**；
 2. **P2 camind-service-machine** + skill + preset；
 3. **P3 会话卡片渲染器 + 设置页「NX 工作台」**（§4.5）；**P4 经验库扩展**。
 

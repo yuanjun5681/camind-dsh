@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { normalizeRiskKind, opRiskKind } from '../risk.js'
 import { resolvePart, safeRemoteName, safeSessionId } from './survey.js'
 
 const SCHEMA_VERSION = '0'
@@ -30,26 +31,6 @@ const OP_TYPES = {
   from_scratch_workpiece_op: ['new_name', 'geometry'],
   face_select_generate: ['template', 'new_name'],
   tap_holes: ['new_name', 'hole_centers', 'attack_dia', 'pitch'],
-}
-
-// 高风险类别归一（operations 的 risk 标记 / declarations 的 kind 共用同一张别名表）。
-const RISK_KINDS = {
-  tapping: ['tapping', '攻丝'],
-  countersink: ['countersink', 'counterbore', '沉窝', '锪孔', '锪锥孔'],
-}
-
-function normalizeRiskKind(value) {
-  const text = String(value ?? '').trim().toLowerCase()
-  for (const [kind, aliases] of Object.entries(RISK_KINDS)) {
-    if (aliases.some((a) => a.toLowerCase() === text)) return kind
-  }
-  return null
-}
-
-// 工序的高风险类别：攻丝显式类型天然是 tapping；其余看可选 risk 标记。
-function opRiskKind(op) {
-  if (op.type === 'tap_holes') return 'tapping'
-  return normalizeRiskKind(op.risk)
 }
 
 function isPositiveNumber(value) {
@@ -118,6 +99,13 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
         },
         post_name: { type: 'string', description: `后处理器名，默认 ${DEFAULT_POST}` },
         out_dir: { type: 'string', description: 'proxy 侧输出目录（相对 base_dir），默认 output/<part_id>' },
+        prepare: {
+          type: 'object',
+          description:
+            '可选 prepare 段（裸件引导，cam_run 在 work copy 上执行）：'
+            + '{init_setup: true 或 {tool_diameter?, ensure_tool?}}——零件没有 CAM setup '
+            + '（裸件）且工序单含 from_scratch_workpiece_op 时给出；件内已有 setup/模板工序时省略。',
+        },
       },
       required: ['part_id', 'part', 'machine_id', 'operations'],
     },
@@ -296,6 +284,23 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
         }
       }
 
+      // ---- prepare 段（可选，裸件引导；cam_run 在 work copy 上执行） ----------
+      let prepare
+      if (args?.prepare !== undefined && args?.prepare !== null) {
+        if (typeof args.prepare !== 'object' || Array.isArray(args.prepare)) {
+          errors.push('prepare 必须是对象（如 {init_setup: true}）。')
+        } else {
+          const init = args.prepare.init_setup
+          const initOk = init === undefined || init === true || init === false
+            || (typeof init === 'object' && init !== null && !Array.isArray(init))
+          if (!initOk) {
+            errors.push('prepare.init_setup 必须是 true/false 或对象（{tool_diameter?, ensure_tool?}）。')
+          } else if (init) {
+            prepare = { init_setup: init }
+          }
+        }
+      }
+
       // ---- 聚合报错或落盘 ---------------------------------------------------
       if (errors.length > 0) {
         return json({
@@ -319,6 +324,7 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
         camindbase_job: SCHEMA_VERSION,
         part_id: partId,
         prt: remoteRel,
+        prt_local: partRef.file.absolute,
         out_dir: outDir,
         post_name: postName,
         work_copy: true,
@@ -328,6 +334,7 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
           expected_magazine_revision: machine.magazine_version ?? null,
         },
         operations: ops,
+        ...(prepare ? { prepare } : {}),
       }
       const snapshot = machineRegistry.snapshot(machineId)
       writeFileSync(path.join(dir, 'job.json'), `${JSON.stringify(job, null, 2)}\n`)
@@ -358,7 +365,7 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
           risk: opRiskKind(op),
         })),
         notes: [
-          'job.json 的 prt 是 proxy 侧目标路径；实际上传由 cam_run 执行时完成（v1 不调 proxy）。',
+          'job.json 的 prt 是 proxy 侧目标路径、prt_local 是本地原件绝对路径；实际上传由 cam_run 执行时完成（本工具不调 proxy）。',
           'machine_snapshot.json 为冻结快照：之后改机床档案不影响本 run。',
           'declarations.json 是用户书面声明留档，cam_run 的闸门将读盘核对（不认对话记忆）。',
         ],
