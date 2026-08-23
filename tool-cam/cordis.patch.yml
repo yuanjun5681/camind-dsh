@@ -1,0 +1,5 @@
+# Bundle layer: insert the CAM pipeline plugin row.
+# Plugin rows reference the package by name so Node resolution finds the installed code.
+- insert:
+    - id: tool-cam
+      name: camind-tool-cam

@@ -122,12 +122,12 @@
 - 扩展 `SessionEventMap`：`cam/stage`（阶段推进）、`cam/check-report`（自检结论）、`cam/delivered`（交付包清单）——持久、可回放，ui-shell「交付物」页签从事件取 artifact；
 - 注册 `ConversationNodeDefinition` + keyed renderer（client bundle 手写格式照 page-memory/lib/client.js）：预检清单卡、检查报告卡（通过/需复核 + 逐项结论）、交付卡（文件列表 + 下载）。
 
-### 4.5 连接配置与设置界面（照抄官方 dsh-web-search-deepseek 双件套，已核实 dsh 0.1.1-rc.2）
+### 4.5 连接配置与设置界面（照抄官方 dsh-web-search-deepseek 双件套，已核实 dsh 0.1.1-rc.2；**初版已实现**：settings namespace + keyed 设置卡片 + ping，2026-08-23）
 
 - 插件导出 `Config = z.object({ baseURL: z.string(), tokenEnv: z.string().role('credential-ref').default('CAMIND_NX_AGENT_TOKEN') })`，并以 `installSettingsSection(ctx, 'cam-nx', Config, ...)` 注册 settings namespace——界面修改落 `$DSH_HOME/settings.yaml` 的 `cam-nx:` 节，**热更新无需重启**；
 - **token 不内联**：Config 只存环境变量名引用（`role('credential-ref')`），真实值经官方 wire API `credentials.set` 写入 `$DSH_HOME/.credentials.yaml`（强制 0600），运行时 `ctx.credentials.resolve(tokenEnv)` 解析；分层兜底自动成立：环境变量 > .credentials.yaml > .env——headless/desktop 场景继续用 `CAMIND_NX_AGENT_URL` / `CAMIND_NX_AGENT_TOKEN` 环境变量，互不影响；
 - client bundle 往官方 Settings 弹层注册 `settings.section` 一整页「NX 工作台」（或更省事的 `settings.plugin.item` 卡片；`/camind` 壳经 camind-ui-sidebar 挂的 `sidebar.settings` 进同一弹层）：非密字段经 `settingsScope.bind({namespace:'cam-nx'})` 读写，token 输入框 write-only——`role('secret')` 字段在 describe 时被结构性剥离、只回「已配置」徽标，密文永不过线；附「测试连接」按钮调 `/ping` 回显 `base_dir` / `proxy_version`；
-- 官方 Host wire API（`settings.update` / `credentials.set` 等，dsh-host-apiproxy 提供）现成，**不需要 page-memory 式自建 HTTP API**。
+- 官方 Host wire API（`settings.update` / `credentials.set` 等，dsh-host-apiproxy 提供）现成；唯一的自建 HTTP API 是 `POST /camind/api/cam/ping`（初版已实现，exact 路由）：卡片「测试连接」要由 Host 侧持 token 调 proxy，浏览器直连会暴露 token 且受 CORS 限制，其余读写都走官方 wire API。
 
 ## 5. 机床档案与经验库扩展
 

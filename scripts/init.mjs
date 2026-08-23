@@ -81,6 +81,7 @@ const PROFILE_TEMPLATES = {
   headless: {
     dependencies: {
       'camind-service-git-repository': 'link:service-git-repository',
+      'camind-tool-cam': 'link:tool-cam',
       'camind-tool-memory': 'link:tool-memory',
       'camind-tool-upload': 'link:tool-upload',
     },
@@ -90,6 +91,7 @@ const PROFILE_TEMPLATES = {
       'camind-tool-upload',
       'camind-service-git-repository',
       'camind-tool-memory',
+      'camind-tool-cam',
     ],
   },
   web: {
@@ -97,6 +99,7 @@ const PROFILE_TEMPLATES = {
       'dsh-markdown-preview': '^0.3.0',
       'camind-page-memory': 'link:page-memory',
       'camind-service-git-repository': 'link:service-git-repository',
+      'camind-tool-cam': 'link:tool-cam',
       'camind-tool-memory': 'link:tool-memory',
       'camind-tool-upload': 'link:tool-upload',
       'camind-ui-brand': 'link:ui-brand',
@@ -109,6 +112,7 @@ const PROFILE_TEMPLATES = {
       'camind-tool-upload',
       'camind-service-git-repository',
       'camind-tool-memory',
+      'camind-tool-cam',
       'camind-ui-shell',
       'camind-ui-brand',
       'camind-ui-home',

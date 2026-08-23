@@ -50,6 +50,9 @@ page-memory/        记忆库管理页（`camind-page-memory`）：底部菜单�
 service-git-repository/ 通用 Cordis `gitRepository` 服务（`camind-service-git-repository`）：
                     本地仓库、worktree、锁与 sidecar；headless/web 全局加载
 tool-upload/        通用上传工具集：当前 session 的上传文件列表与分段读取；所有模式全局加载
+tool-cam/           CAM 加工插件（`camind-tool-cam`，设计稿 docs/cam-machining-design.md）：
+                    camPipeline 服务（CAM-Agent proxy 客户端，初版仅连接配置 + ping）+
+                    settings namespace cam-nx + 官方 Settings 插件配置卡片；所有模式全局加载
 tool-memory/        OKF 记忆库（`camind-tool-memory`）：`memoryBank` Cordis 服务 +
                     4 个记忆工具（search/read/save/extract）；所有模式全局加载
 desktop/            Electron 壳：spawn `dsh web` 并加载自定义 UI（/camind/）
@@ -74,6 +77,7 @@ README.md           主要文档（运行、插件开发教程、桌面打包细
 - **page-memory**（`camind-page-memory`）— 记忆库管理页（两级）。底部菜单「记忆库」注册到 `sidebar.footer.action`（`order: 20`，「设置」之上），页面注册到 `shell.content`，路由 `/camind/pages/memory`（`/experience` 切 tab；`/knowledge|experience/<name>` 为详情，深链接有效）。Host 半注册 `prefix /camind/api/memory`，领域逻辑经 `inject: ['webServer', 'memoryBank']` 复用 tool-memory 的服务。知识 tab 支持零表单上传（.md/.txt 多选，选完即传）：缺 title/description 的条目落 `metadata_status: pending`，Host 经 dsh `llm` 服务（`agentDefaultModel` 选模型，防御式 `ctx.get`）后台自动补全 → `ready`/`failed`，卡片与详情 3 秒轮询。经验只能由 `extract_memory` 产生，页面负责审核流转（采纳/弃用/编辑退回候选/删除）。仅 web profile。
 - **service-git-repository**（`camind-service-git-repository`）— 通用 Cordis `gitRepository` 服务。管理本地 Git 仓库、worktree、commit/merge、sidecar 与仓库锁，以及文件级 log/diffRefs/restoreFileTo，不理解任何领域数据。headless/web 全局加载。
 - **tool-upload**（`camind-tool-upload`）— 所有 Agent 模式全局加载的通用上传工具集。UI Host 把每次上传写到 `$DSH_HOME/uploads/<session>/<batch>/`，原始文件在 `files/`，ZIP 自动安全解压到 `extracted/<archive>/`；session 工作区不作上传暂存。插件提供 Cordis `uploads` 服务，集中处理 session 归属、manifest、路径与完整性校验；模型侧 `list_uploaded_files` / `read_uploaded_file` 只允许列出、分段读取调用 session 的 manifest 声明文件，不能跨 session 或读取 `$DSH_HOME` 其他数据。浏览器文件选择和字节传输不设计成模型 tool。
+- **tool-cam**（`camind-tool-cam`）— CAM 加工场景插件（设计稿 `docs/cam-machining-design.md`；初版只实现 §4.5 + §4.1 的 ping，4 个 CAM 工具/闸门/断点续跑属后续迭代）。Host 侧提供 Cordis `camPipeline` 服务（CAM-Agent proxy HTTP 客户端：连接配置解析 settings > 环境变量 `CAMIND_NX_AGENT_URL` 兜底、token 经凭据库 `tokenEnv` 引用解析且明文不外露、`connectionInfo()` / `ping()`），并以 `installSettingsSection` 注册 settings namespace `cam-nx`（热更新，照官方 dsh-web-search-deepseek 双件套）；web 下半注册 exact `POST /camind/api/cam/ping`（webServer 是带自己 inject 的子插件，headless 不激活）。client bundle 往官方 Settings → 插件 → 插件配置 tab 注册 keyed 卡片「NX 工作台」（`settings.plugin.item` key `cam-nx`）：baseURL 文本框走 `settingsScope`，token 输入框 write-only 走 `credentials.set/describe` wire API，「测试连接」调上述 ping 路由回显 base_dir / proxy_version。headless/web 全局加载。
 
 ## 运行与构建命令
 
@@ -119,7 +123,7 @@ npm run dist     # 打包：先 prepare-vendor 再 electron-builder，产物在 
 
 一个 bundle = 带 `dsh.bundle` 声明的 npm 包，三个文件：`package.json`、`cordis.patch.yml`、`index.js`。照抄现有示例的结构即可，要点：
 
-- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有八个：`camind-ui-shell`（ui-shell/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-tool-upload`（tool-upload/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）。
+- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有九个：`camind-ui-shell`（ui-shell/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）。
 - 插件是导出 `apply(ctx)` 的 ESM 模块；`export const inject = ['tools', 'commands', ...]` 声明消费的服务，Cordis 等其就绪后才运行 `apply`。通过 `ctx` 注册的一切都是可逆 effect，卸载自动回收；手动资源用 `ctx.effect(() => disposer)`。
 - `package.json` 声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`；有浏览器代码时再加 `"dsh": { "client": { "platform": "web" } }` 并导出 `./client`。
 - `cordis.patch.yml` 的插件行按**包名**引用（`- insert: [{ id: ..., name: <包名> }]`），Node 解析到安装后的代码。
