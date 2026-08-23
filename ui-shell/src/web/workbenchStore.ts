@@ -3,9 +3,9 @@
  * 会话事实仍归官方 runtime；这里只保存纯展示状态，不复制 conversation store。
  * preview 只驱动 shell.overlay 里的弹层，不切换工作台 tab、不强制打开工作台。
  */
-import type { WorkspaceFile, WorkspaceUploadBatch } from '@shared/protocol'
+import type { CamRunSummary, WorkspaceFile, WorkspaceUploadBatch } from '@shared/protocol'
 
-export type WorkbenchTab = 'input' | 'deliverables'
+export type WorkbenchTab = 'input' | 'deliverables' | 'cam'
 
 export interface WorkbenchSnapshot {
   open: boolean
@@ -14,6 +14,8 @@ export interface WorkbenchSnapshot {
   uploads: Readonly<Record<string, readonly WorkspaceFile[]>>
   pendingUploads: Readonly<Record<string, readonly WorkspaceUploadBatch[]>>
   deliverables: Readonly<Record<string, readonly string[]>>
+  /** 「加工」页签：per session 的 CAM run 列表（CamRuns 组件轮询写入）。 */
+  camRuns: Readonly<Record<string, readonly CamRunSummary[]>>
 }
 
 let snapshot: WorkbenchSnapshot = {
@@ -22,6 +24,7 @@ let snapshot: WorkbenchSnapshot = {
   uploads: {},
   pendingUploads: {},
   deliverables: {},
+  camRuns: {},
 }
 
 const listeners = new Set<() => void>()
@@ -83,6 +86,15 @@ export const workbenchActions = {
     publish({
       ...snapshot,
       deliverables: { ...snapshot.deliverables, [sessionId]: next },
+    })
+  },
+  setCamRuns(sessionId: string, runs: readonly CamRunSummary[]) {
+    // 5s 轮询写回：内容没变就跳过 publish，避免工作台无谓重渲染。
+    const previous = snapshot.camRuns[sessionId]
+    if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(runs)) return
+    publish({
+      ...snapshot,
+      camRuns: { ...snapshot.camRuns, [sessionId]: [...runs] },
     })
   },
   preview(sessionId: string, path: string) {

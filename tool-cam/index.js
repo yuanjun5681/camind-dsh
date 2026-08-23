@@ -5,10 +5,12 @@
 // 交付三件套镜像进会话工作区] + tools/pre-execute 高风险声明/交付签字硬闸门）。
 // Host 半：camPipeline Cordis 服务（lib/pipeline.js）+ settings namespace
 // `cam-nx`（照官方 dsh-web-search-deepseek 双件套，热更新）+ web 下的
-// POST /camind/api/cam/ping（设置卡片「测试连接」用）与只读下载路由
-// GET /camind/api/cam/runs/<session>/<runId>/delivery/<file>（交付卡「下载」
-// 与 NC 条目抽取；lib/delivery-route.js，严格防越界）——webServer 仅 web
-// profile 提供，故路由是带自己 inject 的子插件，headless 下自然不激活。
+// POST /camind/api/cam/ping（设置卡片「测试连接」用）与只读路由
+// GET /camind/api/cam/runs（lib/runs-route.js：?session= 列表 + <session>/<runId>
+// 详情，数据源 = run 目录落盘，供 ui-shell 工作台「加工」页签；<session>/<runId>/
+// delivery/<file> 交付下载与 NC 条目抽取委托 lib/delivery-route.js，严格防越界）
+// ——webServer 仅 web profile 提供，故路由是带自己 inject 的子插件，headless 下
+// 自然不激活。
 // 浏览器半是 lib/client.js（官方 Settings 的 keyed 设置卡片 + cam/stage、
 // cam/check-report、cam/delivered 三个会话事件的卡片渲染器与交付卡的
 // keyed slot cam.nc.preview 刀路查看器挂点）。
@@ -25,7 +27,7 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 
 import { createCamPipeline, DEFAULT_TOKEN_ENV } from './lib/pipeline.js'
 import { registerCamGate } from './lib/gate.js'
-import { createDeliveryRouteHandler } from './lib/delivery-route.js'
+import { createRunsRouteHandler } from './lib/runs-route.js'
 import { registerCamSurvey } from './lib/tools/survey.js'
 import { registerCamPlan } from './lib/tools/plan.js'
 import { registerCamRun } from './lib/tools/run.js'
@@ -92,14 +94,15 @@ export function apply(ctx, config) {
           }
         },
       })
-      // 交付包只读下载（交付卡「下载」/ NC 条目抽取），严格防越界见 delivery-route.js。
+      // run 只读查询 + 交付下载（列表/详情数据源是 run 目录落盘；delivery 子路径
+      // 委托 delivery-route.js），严格防越界见 runs-route.js / delivery-route.js。
       routeCtx.webServer.register({
         kind: 'prefix',
         path: '/camind/api/cam/runs',
-        handler: createDeliveryRouteHandler(),
+        handler: createRunsRouteHandler(),
       })
     },
   })
 
-  console.log('[tool-cam] loaded；registered: camPipeline 服务（connectionInfo/ping/call/run/uploadFile/zipDir/downloadFile/listDir/stat/ensureReady/windowsPath）、settings namespace cam-nx、工具 cam_survey, cam_plan, cam_run, cam_deliver、cam_run/cam_deliver 硬闸门、web 路由 /camind/api/cam/ping 与 /camind/api/cam/runs（交付下载）')
+  console.log('[tool-cam] loaded；registered: camPipeline 服务（connectionInfo/ping/call/run/uploadFile/zipDir/downloadFile/listDir/stat/ensureReady/windowsPath）、settings namespace cam-nx、工具 cam_survey, cam_plan, cam_run, cam_deliver、cam_run/cam_deliver 硬闸门、web 路由 /camind/api/cam/ping 与 /camind/api/cam/runs（run 列表/详情 + 交付下载）')
 }

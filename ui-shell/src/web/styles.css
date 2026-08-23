@@ -432,6 +432,124 @@ a { color: inherit; text-decoration: none; }
 }
 .workbench-deliverable-name { font-size: 13px; font-weight: 600; line-height: 1.35; }
 .workbench-deliverable-dir { color: var(--caption); font-size: 11px; line-height: 1.35; }
+
+/* —— Workbench「加工」页签（CAM run 列表） —— */
+
+.camrun-list { display: flex; flex-direction: column; gap: 10px; }
+.camrun-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-code);
+  padding: 10px 11px;
+}
+.camrun-head {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.camrun-badge {
+  flex: none;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 16px;
+}
+.camrun-badge-ok { color: var(--added); background: color-mix(in srgb, var(--added) 14%, transparent); }
+.camrun-badge-warn { color: var(--warn); background: var(--warn-bg); }
+.camrun-badge-err { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.camrun-badge-muted { color: var(--caption); background: var(--bg-hover-solid); }
+.camrun-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.camrun-ops { flex: none; display: flex; align-items: center; gap: 4px; }
+.camrun-ops-empty { color: var(--caption); font-size: 11px; }
+.camrun-op-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--caption);
+}
+.camrun-op-dot[data-status="ok"] { background: var(--added); }
+.camrun-op-dot[data-status="generated"],
+.camrun-op-dot[data-status="empty"] { background: var(--warn); }
+.camrun-op-dot[data-status="error"] { background: var(--danger); }
+.camrun-toggle { flex: none; color: var(--caption); font-size: 11px; }
+.camrun-head:hover .camrun-toggle { color: var(--text); }
+.camrun-facts { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.camrun-facts > div { min-width: 0; display: flex; align-items: baseline; gap: 5px; font-size: 11px; }
+.camrun-facts dt { color: var(--caption); }
+.camrun-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.camrun-note { margin: 8px 0 0; color: var(--caption); font-size: 11px; line-height: 1.55; }
+.camrun-warn { margin: 8px 0 0; color: var(--warn); font-size: 11px; line-height: 1.55; }
+.camrun-files { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.camrun-file { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.camrun-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.camrun-file small { flex: none; color: var(--caption); }
+.camrun-file-actions { flex: none; display: flex; gap: 8px; }
+.camrun-file-actions a,
+.camrun-file-actions button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.camrun-file-actions button:disabled { color: var(--caption); cursor: default; }
+.camrun-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.camrun-detail h4 { margin: 12px 0 6px; color: var(--muted); font-size: 12px; }
+.camrun-op-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.camrun-op-list li { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 12px; }
+.camrun-op-list .camrun-op-dot { align-self: center; }
+.camrun-op-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.camrun-op-status { flex: none; color: var(--caption); font-size: 11px; }
+.camrun-op-error { flex: none; max-width: 100%; color: var(--danger); font-size: 11px; overflow-wrap: anywhere; }
+.camrun-viewer { margin-top: 10px; }
+.camrun-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 11px; color: var(--caption); }
+.camrun-viewer-head button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.camrun-nc-raw {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
 /* —— 文件预览弹层（shell.overlay；压过官方 Modal 默认 380px 卡片） —— */
 
 body > div:has(> .file-preview-dialog) {

@@ -385,3 +385,94 @@ export interface PluginInventoryEntry {
 export interface PluginInventorySnapshot {
   entries: PluginInventoryEntry[]
 }
+
+
+/* —— CAM run 只读查询（tool-cam Host 路由 GET /camind/api/cam/runs） ——
+ * 数据源是 run 目录磁盘落盘（$DSH_HOME/cam-runs/<session>/<runId>/），
+ * 不读会话事件投影（免疫 cam/* 事件重启拒绝重载的上游限制）。 */
+
+export type CamRunOverall = 'ok' | 'incomplete' | 'error' | 'planned'
+
+export interface CamRunOpBrief {
+  index: number
+  name: string
+  type: string
+  /** runstate 终态；planned run（无 runstate）为 null。 */
+  status: string | null
+}
+
+export interface CamRunDeliveryFile {
+  name: string
+  bytes: number
+}
+
+export interface CamRunSummary {
+  run_id: string
+  part_id: string | null
+  machine: { id: string | null; display_name: string | null }
+  updated_at: string
+  overall: CamRunOverall
+  ops: CamRunOpBrief[]
+  ops_counts: { ok: number; generated: number; empty: number; error: number; total: number }
+  delivered: boolean
+  delivery: CamRunDeliveryFile[]
+  read_error?: string
+}
+
+export interface CamRunListResult {
+  ok: boolean
+  session: string
+  runs: CamRunSummary[]
+}
+
+export interface CamRunJobBrief {
+  part_id: string | null
+  prt: string | null
+  out_dir: string | null
+  post_name: string | null
+  work_copy: boolean
+  machine_context: { machine_instance_id?: string } | null
+  operations: { index: number; type: string | null; new_name: string | null; template: string | null }[]
+}
+
+/** runstate.json 全文原样透传，这里只钉住页签消费的字段。 */
+export interface CamRunstate {
+  run_id: string
+  suffix?: string
+  job_fingerprint?: string
+  updated_at?: string
+  work_copy?: string
+  ops?: {
+    index: number
+    name: string
+    type: string
+    status: 'ok' | 'generated' | 'empty' | 'error'
+    nc_files?: string[]
+    error?: string
+    actual_name?: string
+  }[]
+}
+
+export interface CamRunDetail {
+  run_id: string
+  part_id: string | null
+  machine: { id: string | null; display_name: string | null }
+  out_dir: string | null
+  post_name: string | null
+  suffix: string | null
+  updated_at: string
+  overall: CamRunOverall
+  delivered: boolean
+  delivery: CamRunDeliveryFile[]
+  /** nc_batch.zip 开包实数 NC 条目名（未交付为空数组）。 */
+  nc_files: string[]
+  nc_error?: string
+  job: CamRunJobBrief | null
+  runstate: CamRunstate | null
+  read_error?: string
+}
+
+export interface CamRunDetailResult {
+  ok: boolean
+  run: CamRunDetail
+}

@@ -1,10 +1,11 @@
 /**
- * 项目专属右侧工作台：展示会话输入上下文与交付物列表。
+ * 项目专属右侧工作台：展示会话输入上下文、交付物列表与 CAM run（「加工」页签）。
  * 它是 custom root 的兄弟列，不占用官方 details（工具调用详情）slot。
  * 文件内容预览走全局 overlay，不在本列内渲染。
  */
 import { useEffect, useSyncExternalStore } from 'react'
 import { api } from './api'
+import { CamRuns } from './CamRuns'
 import { bytesLabel, fileDirFromPath, fileNameFromPath } from './FilePreviewBody'
 import {
   getWorkbenchSnapshot,
@@ -24,6 +25,7 @@ export type WorkbenchSession = {
 const TABS: readonly { id: WorkbenchTab; label: string }[] = [
   { id: 'input', label: '输入' },
   { id: 'deliverables', label: '交付物' },
+  { id: 'cam', label: '加工' },
 ]
 
 function Empty({ children }: { children: string }) {
@@ -90,6 +92,7 @@ export function Workbench({ session }: { session?: WorkbenchSession }) {
             )}
           </div>
         )}
+        {sessionId && snapshot.tab === 'cam' && <CamRuns sessionId={sessionId} />}
         {sessionId && snapshot.tab === 'deliverables' && (
           <div className="workbench-section">
             {deliverables.length === 0 ? <Empty>当前已加载的会话轮次还没有产出文件。</Empty> : (

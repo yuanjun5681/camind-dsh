@@ -5,6 +5,8 @@ import type {
   AgentPresetCatalog,
   AgentPresetRef,
   AppState,
+  CamRunDetailResult,
+  CamRunListResult,
   CommandExecution,
   CreateSessionRequest,
   CredentialView,
@@ -46,9 +48,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   const text = await res.text()
-  const data = text ? JSON.parse(text) as T & { error?: string } : ({} as T)
+  const data = text ? JSON.parse(text) as T & { error?: string; message?: string } : ({} as T)
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error || res.statusText)
+    throw new Error(data.error || data.message || res.statusText)
   }
   return data
 }
@@ -122,6 +124,14 @@ export const api = {
     request<PendingWorkspaceUploadsResult>(`/sessions/${encodeURIComponent(id)}/files`),
   sessionUploads: (id: string) =>
     request<{ files: WorkspaceFile[] }>(`/sessions/${encodeURIComponent(id)}/uploads`),
+  // CAM run 只读查询（tool-cam Host 路由；数据源 = run 目录落盘）。
+  camRuns: (sessionId: string) =>
+    request<CamRunListResult>(`/cam/runs?session=${encodeURIComponent(sessionId)}`),
+  camRunDetail: (sessionId: string, runId: string) =>
+    request<CamRunDetailResult>(`/cam/runs/${encodeURIComponent(sessionId)}/${encodeURIComponent(runId)}`),
+  /** 交付文件/NC 条目的原始下载 URL（不经 request 封装，直接给 <a href> 或 fetch 文本）。 */
+  camDeliveryFileUrl: (sessionId: string, runId: string, file: string) =>
+    `/camind/api/cam/runs/${encodeURIComponent(sessionId)}/${encodeURIComponent(runId)}/delivery/${file.split('/').map(encodeURIComponent).join('/')}`,
   removePendingWorkspaceUpload: (id: string, body: RemovePendingWorkspaceUploadRequest) =>
     request<PendingWorkspaceUploadsResult>(`/sessions/${encodeURIComponent(id)}/files`, {
       method: 'DELETE',
