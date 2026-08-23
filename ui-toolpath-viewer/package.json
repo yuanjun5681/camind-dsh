@@ -1,0 +1,25 @@
+{
+  "name": "camind-ui-toolpath-viewer",
+  "version": "0.1.0",
+  "description": "NC toolpath preview renderer for the keyed cam.nc.preview seat (self-written parser + minimal WebGL lines renderer, no vendor assets).",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

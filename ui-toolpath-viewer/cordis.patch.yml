@@ -1,0 +1,7 @@
+# Toolpath viewer bundle: registers an NC toolpath renderer into the keyed
+# `cam.nc.preview` seat (client-side only, no Host services). The seat is
+# declared by consumers (e.g. the tool-cam delivery card); when nobody declares
+# it, this plugin stays inert.
+- insert:
+    - id: ui-toolpath-viewer
+      name: camind-ui-toolpath-viewer

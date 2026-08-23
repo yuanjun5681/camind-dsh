@@ -108,6 +108,7 @@ const PROFILE_TEMPLATES = {
       'camind-ui-brand': 'link:ui-brand',
       'camind-ui-home': 'link:ui-home',
       'camind-ui-shell': 'link:ui-shell',
+      'camind-ui-toolpath-viewer': 'link:ui-toolpath-viewer',
     },
     bundles: [
       '@deepseek-ai/dsh-base',
@@ -120,6 +121,7 @@ const PROFILE_TEMPLATES = {
       'camind-ui-shell',
       'camind-ui-brand',
       'camind-ui-home',
+      'camind-ui-toolpath-viewer',
       'dsh-markdown-preview',
       'camind-page-memory',
     ],

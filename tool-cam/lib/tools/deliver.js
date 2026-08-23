@@ -16,15 +16,20 @@
 //      生成，结论章节如实写未决项；
 //   3. setup_sheet.md（machine_snapshot + job 渲染：机床号/夹具与工件坐标系/
 //      冻结刀库引用/后处理器/转速进给上限/工序顺序）；
-//   4. append cam/delivered 会话事件（交付包清单 + delivery 目录 + overall）；
-//   5. 返回交付摘要（文件清单/路径/overall/中文建议）。
-// 刀路查看器 v1 不做（旧 Camind 的 cnc-simulator 资产包太重，P3 迭代），
-// 报告备注里写明。
+//   4. 交付三件套镜像进会话工作区 delivery/<run_id>/（设计稿 §3 决策 4「会话
+//      工作区只放当次交付物」；best-effort，失败不影响交付本体）——官方
+//      deliverables 投影靠本工具的 presentCall（generic/edit + locations）
+//      把它们收进会话「交付物」页签，ui-shell 文件预览以会话工作区为界；
+//   5. append cam/delivered 会话事件（交付包清单 + delivery 目录 + overall +
+//      nc_files 开包实数名 + workspace_dir 工作区相对目录）；
+//   6. 返回交付摘要（文件清单/路径/overall/中文建议）。
+// 刀路查看器本体不在本插件（P3 起独立插件 camind-ui-toolpath-viewer，经
+// client bundle 的 keyed slot cam.nc.preview 弱耦合接入），报告备注里写明。
 //
 // 传输级失败（连不上/sha256 不符/zip 开不了包）一律 error 返回且不落盘任何
 // 文件（fail-closed）；只有「回收成功但内容/终态不符」才出包并标 incomplete。
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { resolveRunDir } from '../gate.js'
@@ -82,9 +87,15 @@ export function zipEntryNames(bytes) {
   return names
 }
 
+// 交付三件套（run 目录 delivery/ 与会话工作区镜像共用同一份相对布局；
+// client bundle 的交付卡与 presentCall 的 locations 都以此为准）。
+const DELIVERY_FILES = ['nc_batch.zip', 'delivery_report.md', 'setup_sheet.md']
+
 // 整条交付流程。返回 summary 对象（工具层 json() 后给模型）；任何失败都归一成
 // 中文可行动的 error 对象，不向模型抛异常栈。
-export async function executeCamDeliver({ camPipeline, runDir, runId, note, emit }) {
+// workspaceDir：会话工作区绝对路径（exec.agent.session.header.cwd），可空——
+// 为空则跳过工作区镜像（交付本体不受影响）。
+export async function executeCamDeliver({ camPipeline, runDir, runId, note, emit, workspaceDir }) {
   const fail = (stage, result, advice) => ({
     status: 'error',
     stage,
@@ -161,26 +172,18 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, emit
   const setupPath = path.join(deliveryDir, 'setup_sheet.md')
   writeFileSync(setupPath, buildSetupSheet({ job, state, machine, now }))
 
-  // ---- 5. 事件与摘要 ---------------------------------------------------------
-  const files = [
-    { path: zipPath, kind: 'nc_archive', bytes: zipped.data.bytes.length, sha256: zipped.data.sha256 },
-    { path: reportPath, kind: 'delivery_report' },
-    { path: setupPath, kind: 'setup_sheet' },
-  ]
-  emit('cam/delivered', {
-    run_id: runId,
-    overall,
-    delivery_dir: deliveryDir,
-    files: files.map((f) => ({ ...f })),
-  })
-
+  // ---- 5. 摘要对象（先建好，镜像结果与事件都往这里记） ------------------------
   const summary = {
     status: 'ok',
     run_id: runId,
     overall,
     ...(reason ? { reason } : {}),
     delivery_dir: deliveryDir,
-    files,
+    files: [
+      { path: zipPath, kind: 'nc_archive', bytes: zipped.data.bytes.length, sha256: zipped.data.sha256 },
+      { path: reportPath, kind: 'delivery_report' },
+      { path: setupPath, kind: 'setup_sheet' },
+    ],
     nc: {
       out_dir: job.out_dir,
       expected: check.expected,
@@ -191,10 +194,45 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, emit
     },
     advice: [],
     notes: [
-      '刀路查看器 v1 未提供（P3 迭代）：NC 查看/仿真请在车间侧工具进行。',
-      '会话「交付物」页签与卡片渲染属 P3；当前交付物为 run 目录 delivery/ 下的文件。',
+      '刀路查看器本体由独立插件提供（camind-ui-toolpath-viewer，经交付卡的 cam.nc.preview 席位接入）；未安装时 NC 查看/仿真请在车间侧工具进行。',
     ],
   }
+
+  // ---- 6. 交付三件套镜像进会话工作区（best-effort，失败只记 note） -----------
+  // 设计稿 §3 决策 4：会话工作区只放当次交付物。官方 deliverables 投影按
+  // presentCall 声明的相对路径收集 produced 文件，ui-shell 文件预览以会话
+  // 工作区为界——镜像落盘是两者的共同前提。
+  let workspaceRel = null
+  if (typeof workspaceDir === 'string' && path.isAbsolute(workspaceDir)) {
+    try {
+      const rel = `delivery/${runId}`
+      const targetDir = path.join(workspaceDir, rel)
+      if (!path.resolve(targetDir).startsWith(path.resolve(workspaceDir) + path.sep)) {
+        throw new Error('工作区镜像路径越界（run_id 异常）')
+      }
+      mkdirSync(targetDir, { recursive: true })
+      for (const name of DELIVERY_FILES) {
+        copyFileSync(path.join(deliveryDir, name), path.join(targetDir, name))
+      }
+      workspaceRel = rel
+      summary.workspace_dir = rel
+    } catch (error) {
+      summary.notes.push(`交付物镜像到会话工作区失败（${error.message}）；run 目录 delivery/ 的留档不受影响。`)
+    }
+  } else {
+    summary.notes.push('会话无工作目录，交付物未镜像进会话工作区（「交付物」页签不可见）；run 目录 delivery/ 留档完整。')
+  }
+
+  // ---- 7. 事件 ---------------------------------------------------------------
+  emit('cam/delivered', {
+    run_id: runId,
+    overall,
+    delivery_dir: deliveryDir,
+    files: summary.files.map((f) => ({ ...f })),
+    nc_files: ncNamesInZip,
+    ...(workspaceRel !== null ? { workspace_dir: workspaceRel } : {}),
+  })
+
   const notOk = stateOps.filter((o) => o?.status !== 'ok')
   if (overall === 'ok') {
     summary.advice.push('交付包三件齐备且对账一致（nc_batch.zip / delivery_report.md / setup_sheet.md）。请人工核对报告与设定单后交付车间；NC 上真机前须人工签字放行。')
@@ -213,9 +251,10 @@ export function registerCamDeliver(ctx, camPipeline) {
       'CAM 交付打包：把 run 的执行结果变成交付物。/fs_zip 回收 proxy 侧 out_dir 的 *.nc '
       + '到 run 目录 delivery/nc_batch.zip（sha256 端到端校验；打开 zip 实数 .nc 与 runstate '
       + '记录逐名对账，不信响应头文件数），并生成中文交付报告 delivery_report.md 与加工设定单 '
-      + 'setup_sheet.md。前置：同一 run_id 必须先 cam_run 跑完（本工具读 runstate.json）；'
+      + 'setup_sheet.md；交付三件套同时镜像进会话工作区 delivery/<run_id>/（会话「交付物」'
+      + '页签可见、可预览）。前置：同一 run_id 必须先 cam_run 跑完（本工具读 runstate.json）；'
       + '检查未全过（incomplete/error）也会出包、报告如实写未决项，是否交付由签字人判定。'
-      + '刀路查看器 v1 未提供（P3）。',
+      + '刀路查看器由独立插件提供（未安装时交付卡只列文件清单）。',
     parameters: {
       type: 'object',
       properties: {
@@ -227,6 +266,20 @@ export function registerCamDeliver(ctx, camPipeline) {
     output: {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    // 官方 deliverables 投影（dsh-client-ui-deliverables）从 pending call 视图的
+    // generic/edit + locations 收集「本轮产出文件」——声明它，交付三件套才会进
+    // 会话「交付物」页签与会话尾部的产出 chips。路径是确定的工作区相对布局
+    // （DELIVERY_FILES 三件套），实际落盘在 execute 里完成。
+    presentCall: (args) => {
+      const runId = typeof args?.run_id === 'string' ? args.run_id.trim() : ''
+      if (!runId) return undefined
+      return {
+        card: 'generic',
+        title: `cam_deliver 交付打包（${runId}）`,
+        kind: 'edit',
+        locations: DELIVERY_FILES.map((name) => ({ path: `delivery/${runId}/${name}` })),
+      }
     },
     async execute(args, exec) {
       const runId = typeof args?.run_id === 'string' ? args.run_id.trim() : ''
@@ -252,7 +305,10 @@ export function registerCamDeliver(ctx, camPipeline) {
           // 会话事件是观测面，session 拆离等失败不得影响交付本体。
         }
       }
-      return json(await executeCamDeliver({ camPipeline, runDir, runId, note, emit }))
+      // 会话工作区（交付物镜像目标）；无工作目录的会话（headless 等）传 null。
+      const cwd = session?.header?.cwd
+      const workspaceDir = typeof cwd === 'string' && cwd ? cwd : null
+      return json(await executeCamDeliver({ camPipeline, runDir, runId, note, emit, workspaceDir }))
     },
   })
 }

@@ -25,7 +25,8 @@ import { overallOf } from './tools/run.js'
 import { safeSessionId } from './tools/survey.js'
 
 // run_id 只允许 cam_plan 分配出的字符集（防路径穿越）。
-const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+// delivery-route.js 的下载路由复用同一口径。
+export const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
 function deny(reason) {
   return { kind: 'deny', reason }
