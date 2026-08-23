@@ -25,7 +25,8 @@ dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工�
                     用 link: 引用本工作区的插件（绝对路径，机器相关）
   sessions/         会话存储
   settings.yaml     设置（可能含 API key 等凭据，勿提交、勿外传）
-  .agent-presets/   dsh 运行时 AgentPreset（用户自建，本仓库不同步任何 preset）
+  .agent-presets/   dsh 运行时 AgentPreset；cam-machining 由 init 从版本化源同步
+                    （受管文件以仓库为准），其他用户自建 preset 不删除、不覆盖
   skills/           symlink -> ../skills（DSH_HOME 级被发现，不随 session cwd 变化，
                     任何工作区的会话都能加载；唯一事实源是仓库 skills/）
   uploads/          所有模式共用的会话隔离上传批次（<session>/<batch>/）；ZIP 自动解压
@@ -36,6 +37,9 @@ dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工�
 skills/             版本化的技能库，init 时经 .dsh/skills symlink 挂入 DSH_HOME
 machines/           机床档案种子基线（版本化、走评审；现有 VMC-HJ-01.yaml = 华集 CV-850 立加，
                     旧 Camind seed_cv850.py 的 YAML 转换；init 时拷入 .dsh/machines/）
+agent-presets/      版本化 AgentPreset（参考 AnaSageHarness 同款机制）；cam-machining/
+                    定义「CAM 加工」模式 Agent（preset.yml 展示元数据 + agent.cordis.yml
+                    会话级组合：persona + agent 级固定配置；cam_* 等工具由 profile 全局挂载）
 ui-shell/           独立定制前端（TypeScript）：Host 协议桥 + React SPA；官方 UI slot + Workbench，入口 /camind（/ 302 至此）
 ui-sidebar/         /camind 专用的官方 Sidebar 兼容实现；扩展底部菜单 owner props
 ui-brand/           Camind 品牌插件（`camind-ui-brand`）：always-on 动态
@@ -94,7 +98,7 @@ README.md           主要文档（运行、插件开发教程、桌面打包细
 
 ## 运行与构建命令
 
-新检出/新机器先跑一次初始化（幂等：重建 profile 与依赖、建立 skills symlink、同步机床档案种子到 .dsh/machines/、构建 ui-shell）：
+新检出/新机器先跑一次初始化（幂等：重建 profile 与依赖、建立 skills symlink、同步机床档案种子到 .dsh/machines/、同步受管 AgentPreset 到 .dsh/.agent-presets/、构建 ui-shell）：
 
 ```sh
 npm run init

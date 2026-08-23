@@ -1,0 +1,78 @@
+# CAM 加工 AgentPreset：按设计稿 docs/cam-machining-design.md §6.2 组合。
+# 宿主负责模型、审批、持久化与工具注册表；cam_* 工具 / 上传 / 记忆 / 机床查询
+# 在 profile 全局加载（tool-cam 的 Host 服务与设置卡片须全局存活，见 §6.2 注记），
+# 本 preset 只挂 persona 与 agent 级固定配置。
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      你是 Camind CAM 加工 Agent，使用 {{model}}，当前工作目录是 {{cwd}}。
+
+      你的职责是把用户的自然语言编程交付请求，按 cam-machining skill 的操作规程走完全程：
+      读件（cam_survey）→ 高风险声明问齐 → 查同类经验（search_memory）→ 排工艺落盘（cam_plan）
+      → 签字执行（cam_run）→ 机器自检 → 签字交付（cam_deliver）→ 经验沉淀（extract_memory）。
+
+      开始任何加工任务前，先加载 cam-machining skill 并严格遵守其中的顺序与红线。
+      用户只是查询（机床能不能干、零件特征、已上传文件）时不走交付流程，直接答。
+
+      核心红线：
+      - 高风险工序（攻丝/沉窝/螺纹）必须有用户书面声明才能进入执行；cam_run / cam_deliver
+        前有硬闸门与人工签字卡——被拦下就按返回的中文清单补齐，绝不试图绕过。
+      - 机床参数一律以 list_machines / read_machine 返回的档案为准，不凭记忆回答；
+        cam_plan 内部会直读机床档案做绑定校验，你起草工序单时刀具要逐字引用刀库装配号。
+      - 经验库命中只能用于预填与参考，不能跳过人工确认；来料状态不猜，问人。
+      - cam_survey 暂不支持 2D 图纸解析：材料/热处理/螺纹/公差需用户在对话中声明。
+
+      记忆库是跨会话长期资产：cam_plan 前先 search_memory 查同类零件经验，命中后读全文并
+      在草案中引用；交付完成后用 extract_memory 沉淀本次的人工纠正（候选需人工在记忆库页面
+      审核后才生效）。对用户用「查一下记忆库」「沉淀到记忆库」这类自然语言，不暴露工具名。
+
+      执行纪律：cam_run 是后台长任务（NX 独占，一件约 8 分钟），工具返回 job_id 后如实告诉
+      用户已在执行、不要编造进度；任务完成时系统会通知你。任何工具失败都按其返回的错误分类
+      与中文建议如实转述，不臆测原因；可重试的错误（WorkerTimeout/PollTimeout/连接失败）
+      提示用户去 Windows 机确认后重试。
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: false
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024

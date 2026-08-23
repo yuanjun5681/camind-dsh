@@ -78,6 +78,14 @@ fs.cpSync(
   { recursive: true },
 )
 
+// AgentPreset（版本化事实源 agent-presets/）实体化为 dsh 用户级发现目录 .agent-presets/；
+// 受管文件以仓库为准，桌面种子里没有用户自建 preset 需要保留。
+fs.cpSync(
+  path.join(workspaceRoot, 'agent-presets'),
+  path.join(vendorDir, 'dsh-home', '.agent-presets'),
+  { recursive: true },
+)
+
 const uiShellDir = path.join(workspaceRoot, 'ui-shell')
 if (fs.existsSync(path.join(uiShellDir, 'package.json'))) {
   console.log('[vendor] building ui-shell ...')

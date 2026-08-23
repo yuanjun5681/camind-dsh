@@ -80,7 +80,7 @@
 2. **模型可见的只有 4 个粗粒度工具**，闭集决策选错率低；proxy 的 105 个 worker 端点永远不平铺给模型。
 3. **机床参数不绕模型**：`cam_plan` 经 Cordis `inject: ['machineRegistry']` 直读精确数值；模型工具只服务于"问答"（"这活 CV-850 能不能干"）。
 4. **数据落 DSH_HOME 级**：机床档案 `$DSH_HOME/machines/`、范本原件 `$DSH_HOME/memory/reference/`，均 git 版本化；会话工作区只放当次交付物。
-5. **preset 是用户侧配置**：放 `$DSH_HOME/.agent-presets/`，按本仓库约定不同步进 git；文档只给出内容模板（§6）。
+5. **preset 基线版本化进仓库**：`agent-presets/cam-machining/`（preset.yml + agent.cordis.yml），init 同步到 `$DSH_HOME/.agent-presets/`（受管文件以仓库为准；用户自建 preset 不动）。
 
 ## 4. camind-tool-cam 详细设计
 
@@ -171,9 +171,13 @@
 - `cam-binding` skill：不以 skill 形态迁移。其读者是规划器内部 LLM（旧 `agents: [planner]`），新落位是 `cam_plan` 工具内部 LLM 调用的 prompt 材料（刀具逐字引用冻结刀号、参数拿不准留空交规则、刚性攻丝 feed = spindle × pitch、job_setup 填写纪律）；`policy/binding_policy.yaml` 的判定数字作为插件数据资产由确定性代码读取，「数字不走 LLM 通道」原则原样保留；
 - `quoting` skill：报价是非目标（§8），不迁；将来报价场景设计时随该设计一起处理。
 
-### 6.2 preset「CAM 加工」（`$DSH_HOME/.agent-presets/cam-machining/`，用户侧配置不进仓库）
+### 6.2 preset「CAM 加工」（仓库 `agent-presets/cam-machining/`，已实现 2026-08-23）
 
-组合：`cam_*` 4 工具 + `list_machines`/`read_machine` + 上传 + 记忆 4 工具 + skill `cam-machining`。新建会话选此模式 = 进场领这套装备，无关工具物理不可见。报价等将来场景另建 preset，互不污染。
+版本化进仓库（机制参考 AnaSageHarness 的 agent-presets）：`preset.yml`（展示元数据）+ `agent.cordis.yml`（会话级组合：persona + agent 级固定配置）。`npm run init` 把受管文件同步到 `$DSH_HOME/.agent-presets/`（**以仓库为准覆盖**——与 machines 的「不存在才拷」相反，因为 preset 是纯配置、无运行时改写；用户自建的其他 preset 不删除、不覆盖），desktop 打包经 prepare-vendor 实体化。
+
+组合：`cam_*` 4 工具 + `list_machines`/`read_machine` + 上传 + 记忆 4 工具 + skill `cam-machining`。新建会话选此模式 = 进场领这套装备。报价等将来场景另建 preset，互不污染。
+
+注记（与原决策的偏差）：原决策「preset 是用户侧配置不进仓库」随本次实施反转——基线 preset 进仓库走评审，用户自建 preset 仍留在 DSH_HOME 级。另：cam_* 工具当前在 web/headless **全局加载**（tool-cam 的 Host 服务/设置卡片/闸门须全局存活，preset 只挂 persona 与 agent 级配置），因此「无关工具物理不可见」v1 未达成——标准模式会话也能看到 cam_* 工具（未配置 NX 时会响亮报错）；将来如需收窄，把工具注册从 tool-cam 拆到独立的 preset 挂载插件。
 
 ## 7. 分期与冒烟验证
 

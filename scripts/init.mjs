@@ -165,7 +165,33 @@ function writeIfDifferent(file, content) {
   return true
 }
 
-// 4. profiles：通用上传工具、记忆库、机床档案与 gitRepository 服务在所有 profile 全局加载。
+// 4. AgentPreset：仓库 agent-presets/ 是版本化事实源；初始化时把受管文件复制到
+// DSH_HOME/.agent-presets/，让 dsh 的用户级发现器加载（参考 AnaSageHarness 同款机制）。
+// 与 machines 的「不存在才拷」不同：preset 是纯配置（无运行时改写），受管文件以仓库为准
+// 覆盖更新；用户自建的其他 preset 不删除、不覆盖。
+const MANAGED_PRESETS = ['cam-machining']
+const PRESET_FILES = ['preset.yml', 'agent.cordis.yml']
+
+function ensureAgentPresets() {
+  for (const presetId of MANAGED_PRESETS) {
+    const sourceDir = path.join(root, 'agent-presets', presetId)
+    const targetDir = path.join(dshHome, '.agent-presets', presetId)
+    if (fs.existsSync(targetDir) && !fs.lstatSync(targetDir).isDirectory()) {
+      throw new Error(`${targetDir} 已存在且不是目录；请手动处理后重试`)
+    }
+    fs.mkdirSync(targetDir, { recursive: true })
+    let changed = false
+    for (const filename of PRESET_FILES) {
+      changed = writeIfDifferent(
+        path.join(targetDir, filename),
+        fs.readFileSync(path.join(sourceDir, filename), 'utf8'),
+      ) || changed
+    }
+    step(`AgentPreset ${presetId} ${changed ? '已同步' : '已就位'}`)
+  }
+}
+
+// 5. profiles：通用上传工具、记忆库、机床档案与 gitRepository 服务在所有 profile 全局加载。
 function ensureProfiles() {
   for (const [name, template] of Object.entries(PROFILE_TEMPLATES)) {
     const dir = path.join(dshHome, 'profiles', name)
@@ -183,14 +209,14 @@ function ensureProfiles() {
   }
 }
 
-// 5. 模型调用前提：只检查、不生成（见 README/AGENTS 的安全约定）
+// 6. 模型调用前提：只检查、不生成（见 README/AGENTS 的安全约定）
 function checkManualInputs() {
   if (!process.env.DEEPSEEK_API_KEY && !fs.existsSync(path.join(root, '.env'))) {
     warnings.push('未检测到 DEEPSEEK_API_KEY 或根目录 .env（模型调用前提；也可在 Web UI 的 Settings → Models 里配）')
   }
 }
 
-// 6. ui-shell：Host 直接服务 dist/，未构建时 /ui 返回 503
+// 7. ui-shell：Host 直接服务 dist/，未构建时 /ui 返回 503
 function buildUiShell() {
   step('ui-shell：npm install && npm run build')
   run('npm', ['install'], path.join(root, 'ui-shell'))
@@ -200,6 +226,7 @@ function buildUiShell() {
 checkPrerequisites()
 ensureSkillsLink()
 ensureMachinesSeed()
+ensureAgentPresets()
 ensureProfiles()
 checkManualInputs()
 buildUiShell()

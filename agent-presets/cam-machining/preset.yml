@@ -1,0 +1,4 @@
+# CAM 加工 AgentPreset 的展示元数据；运行时由 scripts/init.mjs 同步到 DSH_HOME/.agent-presets/。
+name: CAM 加工
+description: CAM 编程交付 Agent：读件 → 声明问齐 → 排工艺 → 签字执行 → 机器自检 → 签字交付 → 经验沉淀，内置 cam_* 工具与 cam-machining skill。
+order: 2
