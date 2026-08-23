@@ -34,7 +34,8 @@ dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工�
                     所有工作区的会话共用；独立 git 仓库，写操作自动 commit
   machines/         机床档案运行时存储（init 从仓库 machines/ 种子拷入，目标已存在不覆盖；
                     独立 git 仓库，写操作自动 commit）
-skills/             版本化的技能库，init 时经 .dsh/skills symlink 挂入 DSH_HOME
+skills/             版本化的技能库，init 时经 .dsh/skills symlink 挂入 DSH_HOME；
+                    现有 cam-machining/（CAM 加工操作规程，设计稿 §6.1）
 machines/           机床档案种子基线（版本化、走评审；现有 VMC-HJ-01.yaml = 华集 CV-850 立加，
                     旧 Camind seed_cv850.py 的 YAML 转换；init 时拷入 .dsh/machines/）
 agent-presets/      版本化 AgentPreset（参考 AnaSageHarness 同款机制）；cam-machining/

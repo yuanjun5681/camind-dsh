@@ -155,7 +155,7 @@
 
 ## 6. SKILL 与 preset
 
-### 6.1 skill `cam-machining`（`skills/cam-machining/SKILL.md`，经 `.dsh/skills` symlink 全局生效）
+### 6.1 skill `cam-machining`（`skills/cam-machining/SKILL.md`，经 `.dsh/skills` symlink 全局生效；已实现 2026-08-23）
 
 内容大纲（全是规矩，不含可执行物）：
 
