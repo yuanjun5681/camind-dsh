@@ -2,6 +2,7 @@
 // 知识库 knowledge/<name>.md（type: Knowledge）与经验库 experience/exp-*.md（type: Experience）。
 // 磁盘 markdown 是唯一真相源；写操作 best-effort 自动 git commit（失败仅告警）；只读操作不 git init。
 
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -18,6 +19,10 @@ const CATEGORIES = ['industry', 'process', 'circuit', 'enterprise', 'general']
 const STATUSES = ['draft', 'stable', 'deprecated']
 const DEFAULT_LIMIT = 8
 const MAX_LIMIT = 500
+// 范本原件归档：$DSH_HOME/memory/reference/<sha8>_<文件名>.prt（经验条目的 refs 指向这里）。
+const REF_DIR = 'reference'
+const REF_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,140}\.prt$/i
+const SIGNATURE_KEY_RE = /^[a-z0-9_]{1,24}$/
 
 function fail(message) {
   throw new Error(message)
@@ -45,6 +50,32 @@ function firstSentence(text, max = 80) {
   return sentence.length <= max ? sentence : `${sentence.slice(0, max - 1)}…`
 }
 
+// 特征签名：扁平 string 键值对（材料/孔数档/工序类型/关键尺寸档等，OKF 合法扩展键），
+// 检索「元数据粗排」阶段做逐键精确过滤，语义重排不变。
+// 写路径严格（strict：非法即报错），读路径宽松（脏键静默跳过，挡住手编条目炸列表）。
+function cleanSignature(value, { strict = false } = {}) {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    if (strict) fail('signature 必须是扁平键值对对象。')
+    return null
+  }
+  const out = {}
+  for (const [rawKey, rawVal] of Object.entries(value)) {
+    const key = String(rawKey).trim().toLowerCase()
+    const val = String(rawVal ?? '').trim()
+    if (!SIGNATURE_KEY_RE.test(key) || !val) {
+      if (strict && key && val) fail(`signature 键非法：${rawKey}（小写字母/数字/下划线，≤24 字符）`)
+      continue
+    }
+    out[key] = val.slice(0, 48)
+    if (Object.keys(out).length > 12) {
+      if (strict) fail('signature 键数超过上限（12）。')
+      break
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
 export function renderExperienceBody(situation, lesson, action) {
   return `**情境**：${String(situation ?? '').trim()}\n\n**教训**：${String(lesson ?? '').trim()}\n\n**做法**：${String(action ?? '').trim()}\n`
 }
@@ -69,6 +100,19 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
   function requireRoot() {
     if (!root) fail('DSH_HOME 未设置，记忆库不可用。')
     return root
+  }
+
+  // refs：归档原件的 bundle 相对路径列表（条目是索引、原件是附件）；
+  // 只接受 reference/<文件名>.prt 且原件必须已在盘上（先 archiveReference 再引用）。
+  function checkRefs(value) {
+    const refs = asStringList(value)
+    for (const ref of refs) {
+      if (!ref.startsWith(`${REF_DIR}/`) || !REF_FILE_RE.test(ref.slice(REF_DIR.length + 1))) {
+        fail(`refs 只接受 ${REF_DIR}/<文件名>.prt 形式的 bundle 相对路径：${ref}`)
+      }
+      if (!existsSync(path.join(requireRoot(), ref))) fail(`refs 引用的原件不存在：${ref}`)
+    }
+    return refs
   }
 
   function dirOf(type) {
@@ -116,6 +160,11 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
       summary.trigger = typeof fm.trigger === 'string' ? fm.trigger : ''
       summary.confidence = typeof fm.confidence === 'number' ? fm.confidence : null
       summary.evidence_count = Array.isArray(fm.evidence) ? fm.evidence.length : 0
+      summary.metadata_status = ['pending', 'ready', 'failed'].includes(fm.metadata_status) ? fm.metadata_status : 'ready'
+      const signature = cleanSignature(fm.signature)
+      if (signature) summary.signature = signature
+      const refs = asStringList(fm.refs).filter((ref) => ref.startsWith(`${REF_DIR}/`))
+      if (refs.length > 0) summary.refs = refs
     }
     return summary
   }
@@ -172,6 +221,19 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
     if (filter.category) rows = rows.filter(({ summary }) => summary.category === filter.category)
     if (filter.tag) rows = rows.filter(({ summary }) => summary.tags.includes(filter.tag))
     if (filter.circuit_type) rows = rows.filter(({ summary }) => summary.circuit_types.includes(filter.circuit_type))
+    // 特征签名精确过滤（设计稿 §5.2）：提供的键逐键完全匹配（大小写不敏感）；
+    // 无 signature 的条目（含全部知识条目）在给出签名过滤时一律排除。
+    if (filter.signature && typeof filter.signature === 'object') {
+      const wanted = cleanSignature(filter.signature, { strict: true })
+      if (wanted) {
+        const pairs = Object.entries(wanted).map(([k, v]) => [k, v.toLowerCase()])
+        rows = rows.filter(({ entry }) => {
+          const sig = cleanSignature(entry.frontmatter?.signature)
+          if (!sig) return false
+          return pairs.every(([k, v]) => String(sig[k] ?? '').toLowerCase() === v)
+        })
+      }
+    }
     const scored = rows.map((row) => ({
       ...row.summary,
       score: terms.length === 0 ? 0 : scoreOf(row, terms),
@@ -344,14 +406,22 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
   }
 
   async function extractExperience(exec, fields = {}) {
+    const pending = fields.metadata_status === 'pending'
     const title = String(fields.title ?? '').trim()
     const trigger = String(fields.trigger ?? '').trim()
     const situation = String(fields.situation ?? '').trim()
     const lesson = String(fields.lesson ?? '').trim()
     const action = String(fields.action ?? '').trim()
-    for (const [label, value] of [['title', title], ['trigger', trigger], ['situation', situation], ['lesson', lesson], ['action', action]]) {
+    // pending（范本反推）模式允许 title 留空：占位为条目名，由元数据补全流程后补
+    // （backfill 仅在 title 为空或等于条目名时覆盖）。
+    const required = pending
+      ? [['trigger', trigger], ['situation', situation], ['lesson', lesson], ['action', action]]
+      : [['title', title], ['trigger', trigger], ['situation', situation], ['lesson', lesson], ['action', action]]
+    for (const [label, value] of required) {
       if (!value) fail(`${label} 不能为空。`)
     }
+    const signature = cleanSignature(fields.signature, { strict: true })
+    const refs = checkRefs(fields.refs)
     const now = new Date()
     const ym = now.toISOString().slice(0, 7)
     const slug = kebabize(title) || 'lesson'
@@ -364,16 +434,19 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
     const sessionId = typeof exec?.agent?.id === 'string' && exec.agent.id ? exec.agent.id : 'unknown'
     const frontmatter = {
       type: 'Experience',
-      title,
-      description: firstSentence(lesson),
+      title: title || name,
+      description: fields.description !== undefined ? String(fields.description).trim() : firstSentence(lesson),
       tags: asStringList(fields.tags),
       circuit_types: asStringList(fields.circuit_types),
       trigger,
       confidence: 0.55,
       evidence: [{ source: 'session', ref: sessionId, outcome: 'pass', at: now.toISOString().slice(0, 10) }],
       status: 'draft',
+      metadata_status: pending ? 'pending' : 'ready',
       generated: { by: fields.actor ?? 'dsh-agent/unknown', at: now.toISOString() },
     }
+    if (signature) frontmatter.signature = signature
+    if (refs.length > 0) frontmatter.refs = refs
     await writeEntry('experience', name, frontmatter, renderExperienceBody(situation, lesson, action), `feat(experience): distill ${name}`)
     return { name }
   }
@@ -431,6 +504,41 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
     return { name, status: target }
   }
 
+  function safeReferenceBase(name) {
+    const base = path.basename(String(name ?? '')).replace(/[^A-Za-z0-9._-]+/g, '_')
+    const stem = base.replace(/\.prt$/i, '').replace(/^[^A-Za-z0-9]+/, '')
+    return `${stem.slice(0, 100) || 'part'}.prt`
+  }
+
+  async function autoCommitRefs(message) {
+    if (!gitRepository) return
+    try {
+      await gitRepository.commit({ worktreePath: requireRoot(), message, addGlobs: [REF_DIR] })
+    } catch (error) {
+      console.warn(`[tool-memory] 范本原件自动提交失败（忽略，不影响读写）：${error.message}`)
+    }
+  }
+
+  // 归档 .prt 范本原件到 reference/<sha8>_<文件名>.prt（内容哈希前缀去重，同名同内容复用），
+  // best-effort 自动 git commit（范本原件随记忆库 git 版本化，设计稿 §1 决策 4）。
+  async function archiveReference(_exec, { sourceAbs, originalName } = {}) {
+    const source = String(sourceAbs ?? '')
+    if (!source || !existsSync(source)) fail(`范本原件不存在：${sourceAbs}`)
+    if (!/\.prt$/i.test(source)) fail(`范本原件只支持 .prt：${originalName ?? source}`)
+    const bytes = readFileSync(source)
+    const sha8 = createHash('sha256').update(bytes).digest('hex').slice(0, 8)
+    const base = `${sha8}_${safeReferenceBase(originalName ?? source)}`
+    mkdirSync(path.join(requireRoot(), REF_DIR), { recursive: true })
+    const target = path.join(requireRoot(), REF_DIR, base)
+    const existed = existsSync(target)
+    if (!existed) {
+      writeFileSync(target, bytes)
+      await ensureRepo()
+      await autoCommitRefs(`feat(memory): archive reference ${base}`)
+    }
+    return { ref: `${REF_DIR}/${base}`, archived: !existed, sha8, bytes: bytes.length }
+  }
+
   return Object.freeze({
     root: () => root,
     categories: () => [...CATEGORIES],
@@ -443,5 +551,6 @@ export function createMemoryBankService({ gitRepository, memoryRoot } = {}) {
     deleteEntry,
     extractExperience,
     setExperienceStatus,
+    archiveReference,
   })
 }

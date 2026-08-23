@@ -151,6 +151,14 @@
 
 ### 5.2 tool-memory 小升级（范本库被经验库吸收）
 
+> **已实现**（2026-08-23）：schema 两字段 + signature 精确过滤 + extract_memory 范本模式 + page-memory 补全流程复用。落地要点：
+>
+> - `signature` 扁平 string 键值对（键小写字母/数字/下划线 ≤24，值 ≤48，≤12 键；写路径严格报错、读路径脏键静默跳过）；`refs` 只接受 `reference/<文件名>.prt` 且原件必须已在盘上；两个字段进经验 summary（检索结果可见），经验 summary 同时补 `metadata_status`（存量条目默认 ready，无迁移）。
+> - 检索：`search_memory` 新增 `signature` 参数，`listEntries` 在元数据粗排前做逐键 AND 完全匹配（大小写不敏感）；给出签名过滤时无签名的条目（含全部知识条目）一律排除；语义重排不变。
+> - `extract_memory` 范本模式（`source_prt` 入参）：来源二选一——记忆库 reference/ 已归档文件名（可带前缀）或当前 session 上传清单（uploads 服务解析，跨 session/越界由 manifest 挡住）；`memoryBank.archiveReference` 归档为 `reference/<sha8>_<文件名>.prt`（内容哈希前缀去重，同内容复用，best-effort 自动 git commit 随记忆库版本化）；随后与 cam_survey 同一协议（uploadFile 到 `input/memory_<session>_<sha8>_<名>` + submit+poll `/cam_survey`）反推几何事实，LLM 一次调用生成 trigger/三段式/signature（args.signature 可覆盖合并，此处优先）；条目落 `status: draft + metadata_status: pending`、title 占位为条目名。camPipeline/uploads/llm 全部执行时点防御式 `ctx.get`，tool-memory 不新增 inject 耦合；任一缺席中文响亮报错。
+> - page-memory 复用零新增页面：`metadata.js` 补全泛化为 (type, name)——经验只生成 title/description/tags（正文三段式不动），`server.js` 列表路由对任何 pending 条目自愈调度补全（inFlight 去重），客户端经验 tab 卡片/详情复用「生成中/生成失败」徽章与 3s 轮询，经验详情新增「特征签名」徽章行与「范本原件」ref 列表。
+> - 验证：`/tmp` 脚本驱动服务与工具全链（schema/过滤/归档/范本模式 mock camPipeline+llm/补全 pending→ready 与失败 →failed）29 项断言全过。
+
 范本（老师傅历史编程成品）的本质是经验的另一来源：经验库装"从人工纠正里沉淀的判断"，范本是"从成品里反推的判断"。不做独立插件，扩展两处：
 
 1. **经验 schema 加两个可选字段**（OKF 合法扩展键）：
@@ -190,7 +198,7 @@
 
 1. **P1 camind-tool-cam**：proxy 客户端 + run 状态表 + 4 工具 + 闸门 + 事件（先无自定义卡片，会话里纯文本结论即可跑通）——**已落地 4/4 工具（cam_survey / cam_plan / cam_run / cam_deliver）+ 闸门（拦 cam_run / cam_deliver）+ runstate + 会话事件（cam/stage、cam/check-report、cam/delivered），P1 工具面齐**（2026-08-23；自定义卡片渲染器在 P3）；
 2. **P2 camind-service-machine** + skill + preset；
-3. **P3 会话卡片渲染器 + 刀路查看器 + 设置页「NX 工作台」**（§4.5 设置页已完成）；**P4 经验库扩展**。P3 拆两个插件（2026-08-23 决策）：会话卡片（预检清单/检查报告/交付卡）挂在 tool-cam 的 client bundle；**刀路查看器独立为 `camind-ui-toolpath-viewer`**（NC 解析 + WebGL 回放 + keyed 渲染器席位）——职责是呈现而非执行、vendor 资产（旧 Camind `viewer_assets` 的 cnc-simulator，244KB）与构建形态不同、消费方不止交付卡一处（交付物页签、将来报价预览）、WebGL 失败可独立降级。tool-cam 交付卡经 slot 弱耦合消费：viewer 在则渲染回放，不在退化为文件清单。**查看器已实现（2026-08-23）**，要点：
+3. **P3 会话卡片渲染器 + 刀路查看器 + 设置页「NX 工作台」**（§4.5 设置页已完成）；**P4 经验库扩展（已完成 2026-08-23，见 §5.2 注记）**。P3 拆两个插件（2026-08-23 决策）：会话卡片（预检清单/检查报告/交付卡）挂在 tool-cam 的 client bundle；**刀路查看器独立为 `camind-ui-toolpath-viewer`**（NC 解析 + WebGL 回放 + keyed 渲染器席位）——职责是呈现而非执行、vendor 资产（旧 Camind `viewer_assets` 的 cnc-simulator，244KB）与构建形态不同、消费方不止交付卡一处（交付物页签、将来报价预览）、WebGL 失败可独立降级。tool-cam 交付卡经 slot 弱耦合消费：viewer 在则渲染回放，不在退化为文件清单。**查看器已实现（2026-08-23）**，要点：
    - **GPL 决策**：旧 cnc-simulator 资产的核心两文件（parseGcode.js / RenderPath.js）是 GPL-3.0-or-later，资产台账 `asset_licenses.json` 标 `CONDITIONAL_GPL_PATH`、`external_authorized: false`、proprietary 外部分发 `BLOCK_UNTIL_VENDOR_FREE`——移植会感染整个 client bundle，故解析器与渲染器全部自写（BSD 的 gl-matrix/webgl-utils 也一并弃用，不再需要）；且 dsh client seed 表无 three.js（手写 bundle 不能装 npm 浏览器依赖），渲染器为自写最小 WebGL lines。
    - **解析器**（`lib/nc-parser.js`，纯函数零依赖 ESM，node 可直接 import 验证）：Fanuc 方言（`%` 定界、O 程序号、N 行号、`(...)` 注释、`;` 行尾注释、`/` 跳段、字母+十进制字）；G0/G1/G2/G3 模态运动分段（快移/切削/圆弧），G17/18/19 平面（G17 精确，G18/G19 在 (Z,X)/(Y,Z) 框架跑同套圆弧数学），G90/G91 绝对/增量，G20/G21 只记录不换算；圆弧按弦差 0.05 细分成线段（IJK 增量圆心 + R 形[负 R 取大弧] + 整圆 + 螺旋第三轴线性插值）；**G73/G74/G76/G81..G89 固定循环只记录不展开**——每孔画一条 R 面→Z 深进给线并记 `cycles[]`（位置/深度/R 面/行号），啄钻与暂停子步不模拟，模态 X/Y 行重复执行到 G80 或组 1 G 码取消；G28/G30 参考点返回只画中间点快移段（到参考点那段无程序坐标，不模拟）；坏行（注释未闭合/杂散字符/无模态运动的轴字）整行跳过并计数，解析对 NC 内容永不 throw；段数上限 100 万防失控（`meta.truncated`）。
    - **bundle 形态**：client.js 是单文件手写 bundle，`PARSER CORE` 标记区间内联 lib/nc-parser.js 的同一字节（区间头注释附 diff 校验命令）——dsh 模块加载器的 require 只解析 seed 词与裸包名（`dsh-client-modules` makeRequire），相对路径直接 throw，故不能同包多文件。

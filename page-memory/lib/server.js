@@ -42,7 +42,7 @@ function readBody(req) {
 
 // --- endpoint handlers -----------------------------------------------------------
 
-function listEntries(ctx, res, url) {
+function listEntries(ctx, res, url, schedule) {
   const entries = ctx.memoryBank.listEntries({
     type: url.searchParams.get('type') ?? undefined,
     q: url.searchParams.get('q') ?? undefined,
@@ -52,6 +52,11 @@ function listEntries(ctx, res, url) {
     circuit_type: url.searchParams.get('circuit_type') ?? undefined,
     limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : 500,
   })
+  // 自愈调度：任何 pending 条目（含 tool-memory extract_memory 范本模式落盘的经验）
+  // 随下一次列表请求进入补全；inFlight 去重，ready/failed 后不再触发
+  for (const entry of entries) {
+    if (entry.metadata_status === 'pending') schedule(entry.type, entry.name)
+  }
   sendJson(res, 200, { memory_root: ctx.memoryBank.root(), entries })
 }
 
@@ -71,7 +76,7 @@ async function uploadKnowledge(ctx, res, req, schedule) {
   for (const file of files) {
     try {
       const result = await ctx.memoryBank.importKnowledge(undefined, { filename: file?.filename, content: file?.content })
-      if (result.metadata_status === 'pending') schedule(result.name)
+      if (result.metadata_status === 'pending') schedule('knowledge', result.name)
       imported.push({ filename: file?.filename, ...result })
     } catch (error) {
       errors.push({ filename: file?.filename, error: error.message })
@@ -104,7 +109,7 @@ async function updateEntry(ctx, res, type, name, req, schedule) {
     patch.metadata_status = title && description ? 'ready' : 'pending'
   }
   const result = await bank.updateEntry(undefined, type, name, patch)
-  if (type === 'knowledge' && patch.metadata_status === 'pending') schedule(name)
+  if (type === 'knowledge' && patch.metadata_status === 'pending') schedule('knowledge', name)
   sendJson(res, 200, result)
 }
 
@@ -130,7 +135,7 @@ export async function handleMemoryApi(ctx, req, res) {
 
     if (segments[0] !== 'entries') return sendJson(res, 404, { error: '未知接口。' })
 
-    if (req.method === 'GET' && segments.length === 1) return listEntries(ctx, res, url)
+    if (req.method === 'GET' && segments.length === 1) return listEntries(ctx, res, url, schedule)
     if (req.method === 'POST' && segments.length === 3 && segments[1] === 'knowledge' && segments[2] === 'upload') {
       return await uploadKnowledge(ctx, res, req, schedule)
     }

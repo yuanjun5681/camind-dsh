@@ -403,14 +403,18 @@ function KnowledgeCard({ entry, navigate }) {
 }
 
 function ExperienceCard({ entry, navigate }) {
+  const pending = entry.metadata_status === 'pending'
+  const failed = entry.metadata_status === 'failed'
   return h('button', {
     type: 'button',
-    className: `pmm-card${entry.status === 'deprecated' ? ' dim' : ''}`,
+    className: `pmm-card${entry.status === 'deprecated' || pending || failed ? ' dim' : ''}`,
     onClick: () => navigate(`${route}/experience/${encodeURIComponent(entry.name)}`),
   },
     h('div', { className: 'pmm-card-head' },
       h(Badge, { tone: STATUS_TONES[entry.status] ?? null }, STATUS_LABELS[entry.status] ?? entry.status),
       h('span', { className: 'pmm-card-title' }, entry.title),
+      pending ? h(Badge, { tone: 'warn' }, '生成中') : null,
+      failed ? h(Badge, { tone: 'error' }, '生成失败') : null,
       h('span', { className: 'pmm-card-chevron' }, h(IconChevronRightOutline14, { size: 14 }))),
     h('p', { className: 'pmm-card-name' },
       h('span', { className: 'name' }, entry.name),
@@ -433,7 +437,7 @@ function LibraryPage({ navigate, tab }) {
   const fileRef = useRef(null)
 
   const entries = state.phase === 'ready' ? state.data.entries : []
-  const hasPending = tab === 'knowledge' && entries.some((entry) => entry.metadata_status === 'pending')
+  const hasPending = entries.some((entry) => entry.metadata_status === 'pending')
   useEffect(() => {
     if (!hasPending) return undefined
     const timer = setInterval(refresh, 3000)
@@ -659,7 +663,7 @@ function DetailPage({ navigate, type, name }) {
   const doPromote = () => run(async () => { await apiPost(`/entries/experience/${encodeURIComponent(name)}/promote`); refresh() })
   const doDeprecate = () => run(async () => { await apiPost(`/entries/experience/${encodeURIComponent(name)}/deprecate`); refresh() })
 
-  const metadataBadge = type === 'knowledge' && summary.metadata_status !== 'ready'
+  const metadataBadge = summary.metadata_status && summary.metadata_status !== 'ready'
     ? h(Badge, { tone: summary.metadata_status === 'pending' ? 'warn' : 'error' },
       summary.metadata_status === 'pending' ? '元数据生成中' : '元数据生成失败')
     : null
@@ -689,10 +693,12 @@ function DetailPage({ navigate, type, name }) {
           h(IconTrashOutline16, { size: 14 }), '删除'))),
     h('div', { className: 'pmm-dbody pmm-scroll' },
       h('div', { className: 'pmm-dbody-inner' },
-        type === 'knowledge' && pending
-          ? h('div', { className: 'pmm-banner warn' }, '元数据（标题 / 描述 / 分类 / 标签）正在由 AI 自动生成，数秒后自动刷新。')
+        pending
+          ? h('div', { className: 'pmm-banner warn' }, type === 'knowledge'
+            ? '元数据（标题 / 描述 / 分类 / 标签）正在由 AI 自动生成，数秒后自动刷新。'
+            : '元数据（标题 / 描述 / 标签）正在由 AI 自动生成，数秒后自动刷新。')
           : null,
-        type === 'knowledge' && summary.metadata_status === 'failed'
+        summary.metadata_status === 'failed'
           ? h('div', { className: 'pmm-banner error' }, h(IconWarningOutline16, { size: 14 }), '元数据自动生成失败。可点「编辑」手动填写，保存即生效。')
           : null,
         h('h2', { className: 'pmm-doc-title' }, fm.title ?? name),
@@ -719,6 +725,18 @@ function DetailPage({ navigate, type, name }) {
             h('div', { className: 'pmm-sec' },
               h('p', { className: 'pmm-sec-title' }, '做法'),
               h('p', { className: 'pmm-sec-body' }, entry.sections?.action || '—')),
+            fm.signature && typeof fm.signature === 'object' && Object.keys(fm.signature).length > 0
+              ? h('div', { className: 'pmm-sec' },
+                h('p', { className: 'pmm-sec-title' }, '特征签名'),
+                h('div', { className: 'pmm-doc-badges' },
+                  Object.entries(fm.signature).map(([key, value]) =>
+                    h(Badge, { key, mono: true }, `${key}: ${value}`))))
+              : null,
+            Array.isArray(fm.refs) && fm.refs.length > 0
+              ? h('div', { className: 'pmm-sec' },
+                h('p', { className: 'pmm-sec-title' }, '范本原件'),
+                fm.refs.map((ref, index) => h('p', { className: 'pmm-mono', key: index }, ref)))
+              : null,
             Array.isArray(fm.evidence) && fm.evidence.length > 0
               ? h('div', { className: 'pmm-sec' },
                 h('p', { className: 'pmm-sec-title' }, '证据链'),

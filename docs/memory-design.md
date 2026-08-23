@@ -22,7 +22,7 @@
 
 知识条目 frontmatter：`name`（kebab-case = 文件名，禁 `exp-` 前缀）、`title`、`description`（≤1024，召回关键，必填）、`category`（`industry|process|circuit|enterprise|general`）、`circuit_types`（最强检索信号）、`tags`、`related`、`enabled`、`source`、`metadata_status`。单文件 ≤512KB。
 
-经验条目 frontmatter：`name`（强制 `exp-` 前缀，`exp-YYYY-MM-<token>-NN`）、`status`（candidate/validated/deprecated）、`confidence`（蒸馏初值 0.55，随证据调整）、`trigger`（触发条件）、`evidence`（`[{source, ref, outcome, at}]`）、`circuit_types`/`tags`/`related`。正文三段式 `**情境**：/ **教训**：/ **做法**：`，单文件 ≤256KB。
+经验条目 frontmatter：`name`（强制 `exp-` 前缀，`exp-YYYY-MM-<token>-NN`）、`status`（candidate/validated/deprecated）、`confidence`（蒸馏初值 0.55，随证据调整）、`trigger`（触发条件）、`evidence`（`[{source, ref, outcome, at}]`）、`circuit_types`/`tags`/`related`。正文三段式 `**情境**：/ **教训**：/ **做法**：`，单文件 ≤256KB。可选扩展：`metadata_status`（范本反推等着补全标题/描述的条目落 `pending`，复用知识同款补全流程）、`signature`（特征签名扁平键值对，检索粗排精确过滤）、`refs`（归档原件 bundle 相对路径，见 CAM 设计稿 §5.2）。
 
 ### 1.3 检索与消费
 
@@ -112,7 +112,7 @@ OKF（Open Knowledge Format）是 Google 提出的知识交换格式，自我定
 | 信任 `generated` / `verified` | 工具写入记 `generated.by`；人工 promote 记 `verified` |
 | 溯源 `sources` | 可选，工具/页面不强制 |
 | Actor 约定 | agent 用 `<agent>/<model>`，人用 `human:`，自动流程用 `process:` |
-| 领域字段 | OKF 合法扩展键：`category` / `circuit_types` / `aliases` / `trigger` / `confidence` / `evidence` / `metadata_status` |
+| 领域字段 | OKF 合法扩展键：`category` / `circuit_types` / `aliases` / `trigger` / `confidence` / `evidence` / `metadata_status` / `signature` / `refs` |
 | 条目关联 | 不做 `related` 字段与图边；需要关联时直接写正文 markdown 链接（推荐 bundle 相对 `/knowledge/<name>.md` 形式，断链合法） |
 | 保留文件名 | `index.md`、`log.md` 禁止用作条目名；`log.md` v1 不生成（git 历史覆盖） |
 

@@ -25,6 +25,7 @@ export function registerSearchMemory(ctx, memoryBank, { rerank, expand } = {}) {
         status: { type: 'string', enum: ['draft', 'stable', 'deprecated'], description: '按生命周期过滤；默认排除 deprecated' },
         tag: { type: 'string', description: '按标签过滤' },
         circuit_type: { type: 'string', description: '按电路类型过滤（如 bgr、ldo）' },
+        signature: { type: 'object', additionalProperties: { type: 'string' }, description: '按特征签名精确过滤（仅命中带 signature 的经验条目）：键值对逐键完全匹配，如 {"holes":"6-20","ops":"drilling+tapping"}' },
         limit: { type: 'integer', description: '返回条数上限，默认 8，最大 50' },
       },
     },
@@ -32,7 +33,13 @@ export function registerSearchMemory(ctx, memoryBank, { rerank, expand } = {}) {
       try {
         const limit = Number.isInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, MAX_LIMIT) : DEFAULT_LIMIT
         const q = String(args?.q ?? '').trim()
-        const filter = { type: args?.type, status: args?.status, tag: args?.tag, circuit_type: args?.circuit_type }
+        const filter = {
+          type: args?.type,
+          status: args?.status,
+          tag: args?.tag,
+          circuit_type: args?.circuit_type,
+          signature: args?.signature && typeof args.signature === 'object' && !Array.isArray(args.signature) ? args.signature : undefined,
+        }
         if (!q) {
           const entries = memoryBank.listEntries({ ...filter, limit })
           if (entries.length === 0) return '记忆库还是空的。后续工作中得到值得沉淀的领域事实或教训时，可分别用 save_memory / extract_memory 保存。'
