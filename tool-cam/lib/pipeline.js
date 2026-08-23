@@ -12,6 +12,10 @@
 //   data.result 提取 error_class；
 // - 文件传输：uploadFile（/fs_upload，客户端算 sha256 放 X-CAM-SHA256）、
 //   listDir（/fs_list）、stat（/fs_stat，缺失文件回 ok + exists=false）；
+// - 回收侧传输：zipDir（/fs_zip 目录打包回收）与 downloadFile（/fs_download
+//   单文件回收）——成功时返回文件流而非 JSON 信封；响应头 X-CAM-SHA256 端到端
+//   校验（不符整体拒收），X-CAM-Files 头不可信（真机事故在案：头=9 实为 22
+//   字节空包），开包实数是调用方职责，本层只给字节；
 // - ensureReady（/health 开工前健康门禁，ready=false 附 diagnosis）与
 //   windowsPath（src/dst 等非自动解析路径参数的显式绝对化，base_dir 取 /ping）。
 //
@@ -23,8 +27,8 @@
 // 不向模型抛异常栈。
 //
 // 后续迭代的扩展点（§4.1，本文件内继续生长，不另起服务）：
-// - 回收侧传输（/fs_zip 开包实数、/fs_download 头校验）；
-// （run 目录 op 状态表/断点续跑与机器自检编排已落在 lib/tools/run.js。）
+// （run 目录 op 状态表/断点续跑与机器自检编排已落在 lib/tools/run.js；
+//   回收侧开包实数对账与交付拼装已落在 lib/tools/deliver.js。）
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -285,6 +289,73 @@ export function createCamPipeline(ctx, getConfig) {
     return isLocalFailure(envelope) ? normalizeLocal(envelope) : classify('/fs_upload', envelope)
   }
 
+  // 回收侧传输的公共段（client.py _download_stream 的移植）：/fs_zip 与
+  // /fs_download 成功时返回文件流而不是 JSON 信封——content-type 是
+  // application/json 时按信封处理（必为 error；ok JSON 是契约外形态）；
+  // 文件流校验响应头 X-CAM-SHA256，不符判 ChecksumMismatch 整体拒收
+  // （字节已不可信，不落盘、不归 retryable 分类）。X-CAM-Files 头不可信，
+  // 本层不读它——开包实数是调用方职责。
+  async function downloadStream(endpoint, params) {
+    const conn = await configured()
+    if (conn.status === 'error') return conn
+    let response
+    try {
+      response = await fetch(`${conn.baseURL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-CAM-Agent-Token': conn.token },
+        body: JSON.stringify({ params: params ?? {} }),
+        signal: AbortSignal.timeout(TRANSFER_TIMEOUT_MS),
+      })
+    } catch (error) {
+      return failure({
+        errorType: 'unreachable',
+        retryable: true,
+        msg: `无法连接 NX 工作台（${conn.baseURL}）：${error?.cause?.message ?? error.message}。请确认 Windows 侧 CAM-Agent proxy 已启动、网络可达。`,
+      })
+    }
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.startsWith('application/json')) {
+      const envelope = await response.json().catch(() => null)
+      if (!envelope || typeof envelope.status !== 'string') {
+        return failure({
+          errorType: 'bad_response',
+          msg: `${endpoint} 返回了无法解析的 JSON 响应（HTTP ${response.status}）。`,
+        })
+      }
+      if (envelope.status === 'ok') {
+        return failure({
+          errorType: 'bad_response',
+          msg: `${endpoint} 契约外响应：文件端点应返回文件流，实际返回了 ok JSON 信封。`,
+        })
+      }
+      return classify(endpoint, envelope)
+    }
+    const bytes = Buffer.from(await response.arrayBuffer())
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const declared = (response.headers.get('X-CAM-SHA256') ?? '').trim().toLowerCase()
+    if (declared && declared !== digest) {
+      return failure({
+        errorType: 'ChecksumMismatch',
+        msg: `${endpoint} 传输校验失败：响应头声明 sha256 ${declared.slice(0, 12)}…，`
+          + `实收字节算出 ${digest.slice(0, 12)}…——字节不可信，已整体拒收（未落盘）。`
+          + '可重试；重试仍不符请到 Windows 侧检查 proxy。',
+      })
+    }
+    return ok({ bytes, sha256: digest })
+  }
+
+  // 目录打包回收（批量取交付物的唯一正道，别循环 downloadFile 单文件取）：
+  // include 是 worker 侧的通配过滤（如 ['*.nc']），缺省整目录。
+  async function zipDir(remoteRelPath, include) {
+    const params = { path: remoteRelPath }
+    if (Array.isArray(include) && include.length > 0) params.include = include
+    return downloadStream('/fs_zip', params)
+  }
+
+  async function downloadFile(remoteRelPath) {
+    return downloadStream('/fs_download', { path: remoteRelPath })
+  }
+
   async function listDir(remoteRelPath = '.') {
     return call('/fs_list', { path: remoteRelPath }, 30)
   }
@@ -377,5 +448,5 @@ export function createCamPipeline(ctx, getConfig) {
     return envelope
   }
 
-  return { connectionInfo, ping, call, run, uploadFile, listDir, stat, ensureReady, windowsPath }
+  return { connectionInfo, ping, call, run, uploadFile, zipDir, downloadFile, listDir, stat, ensureReady, windowsPath }
 }

@@ -535,7 +535,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   summary.overall = overall
   if (reason) summary.reason = reason
   if (overall === 'ok') {
-    summary.advice.push('全部工序 NC 在盘且对账一致。交付打包（cam_deliver）属后续迭代：当前请到 proxy 侧 out_dir 人工回收 NC。')
+    summary.advice.push('全部工序 NC 在盘且对账一致。下一步可 cam_deliver 交付打包（/fs_zip 回收 NC + 生成交付报告与加工设定单，调用时过签字闸门）。')
   } else if (overall === 'incomplete') {
     summary.advice.push('可用 cam_run resume=true 断点续跑：ok 工序跳过、generated 只补 post、其余重跑。')
     if (emptyOps.length > 0) {

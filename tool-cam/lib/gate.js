@@ -1,13 +1,16 @@
-// cam_run 硬闸门（设计稿 docs/cam-machining-design.md §4.3）——
-// tools/pre-execute 瀑布监听器，只拦 cam_run，其余工具一律 next() 秒过。
+// cam_run / cam_deliver 硬闸门（设计稿 docs/cam-machining-design.md §4.3）——
+// tools/pre-execute 瀑布监听器，只拦这两个工具，其余一律 next() 秒过。
 //
-// 红线：闸门只认 run 目录落盘文件（job.json + declarations.json），不认对话
-// 记忆。高风险工序（tap_holes 类型或带 risk 标记，口径与 cam_plan 落盘侧共用
-// lib/risk.js）逐项对 declarations：缺失 → deny + 中文缺失清单（模型拿清单
-// 回去问人，问齐后需重新 cam_plan 落盘——会产生新 run_id）；齐全 → ask +
-// 签字卡文案，由 tools 管线自动路由 approval 缝（无应答方/策略 never →
-// 平台自动转 deny，fail-closed 是平台行为；批准一次性有效，approval/asked +
-// approval/decided 审计由平台写 session 日志）。
+// 红线：闸门只认 run 目录落盘文件（job.json + declarations.json + runstate.json），
+// 不认对话记忆。cam_run：高风险工序（tap_holes 类型或带 risk 标记，口径与
+// cam_plan 落盘侧共用 lib/risk.js）逐项对 declarations：缺失 → deny + 中文缺失
+// 清单（模型拿清单回去问人，问齐后需重新 cam_plan 落盘——会产生新 run_id）；
+// 齐全 → ask + 签字卡文案。cam_deliver：run 目录/job.json 缺失 → deny（先
+// cam_plan），runstate.json 缺失 → deny（先 cam_run）；否则一律 ask 签字卡
+// （件号/机床/工序数/检查 overall/NC 个数；检查未全过时醒目标注「检查未全过，
+// 交付含未决项」——fail-closed 的判定权交签字人）。ask 由 tools 管线自动路由
+// approval 缝（无应答方/策略 never → 平台自动转 deny，fail-closed 是平台行为；
+// 批准一次性有效，approval/asked + approval/decided 审计由平台写 session 日志）。
 //
 // cordis waterfall 语义（本版本源码实证）：next() 不接受值——放行必须
 // return next()；deny/ask 必须**直接 return 决策对象、不调用 next()**
@@ -18,6 +21,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { normalizeRiskKind, opRiskKind, riskKindLabel } from './risk.js'
+import { overallOf } from './tools/run.js'
 import { safeSessionId } from './tools/survey.js'
 
 // run_id 只允许 cam_plan 分配出的字符集（防路径穿越）。
@@ -110,20 +114,82 @@ export function evaluateCamRunGate({ dshHome, sessionId, runId }) {
   }
 }
 
+// cam_deliver 的纯决策函数（与 cordis 接线分离）：只认 run 目录落盘文件。
+// 检查 overall 用与 cam_run 收尾同一条 fail-closed 判定（overallOf，复用
+// run.js 口径，两处各写一份必然漂移）；NC 个数取 runstate ok 工序的记录数。
+export function evaluateCamDeliverGate({ dshHome, sessionId, runId }) {
+  if (!dshHome) return deny('DSH_HOME 未设置，闸门无法核对 run 目录（fail-closed）。')
+  const resolved = resolveRunDir(dshHome, sessionId, runId)
+  if (resolved.error) return resolved.error
+  const { dir } = resolved
+
+  const jobPath = path.join(dir, 'job.json')
+  const statePath = path.join(dir, 'runstate.json')
+  if (!existsSync(jobPath)) {
+    return deny(
+      `cam_deliver 被闸门拦下：run 目录 ${dir} 不存在或缺 job.json。`
+      + '请先用 cam_plan 校验并落盘工序单（它会返回 run_id）。',
+    )
+  }
+  if (!existsSync(statePath)) {
+    return deny(
+      `cam_deliver 被闸门拦下：${dir} 缺 runstate.json——本 run 还没执行过（或没执行完）。`
+      + '请先对该 run_id 调用 cam_run 跑完，再 cam_deliver 交付。',
+    )
+  }
+
+  let job
+  let state
+  try {
+    job = JSON.parse(readFileSync(jobPath, 'utf8'))
+    state = JSON.parse(readFileSync(statePath, 'utf8'))
+  } catch (error) {
+    return deny(`cam_deliver 被闸门拦下：run 目录文件无法解析（${error.message}）。请人工检查 run 目录后再试。`)
+  }
+
+  const ops = Array.isArray(state?.ops) ? state.ops : []
+  const { overall, reason } = overallOf(ops, null)
+  const ncCount = ops
+    .filter((o) => o?.status === 'ok')
+    .flatMap((o) => (Array.isArray(o?.nc_files) ? o.nc_files : []))
+    .length
+  const partId = job?.part_id ?? '未知'
+  const machineId = job?.machine_context?.machine_instance_id ?? '未知'
+  const warn = overall === 'ok'
+    ? ''
+    : '⚠️ **检查未全过，交付含未决项**——fail-closed 的判定权交签字人：'
+      + '交付报告会如实列出未决项，是否按现状交付由你决定。\n'
+  return {
+    kind: 'ask',
+    reason:
+      'CAM 交付签字（cam_deliver）：\n'
+      + warn
+      + `  件号：${partId}\n`
+      + `  机床：${machineId}\n`
+      + `  工序数：${ops.length}\n`
+      + `  检查结论：${overall}${overall === 'ok' ? '（全部工序 NC 在盘）' : `（${reason ?? '有工序未达 ok'}）`}\n`
+      + `  NC 个数：${ncCount}（runstate ok 工序记录）\n`
+      + `  run_id：${runId}\n`
+      + '批准后将从 proxy 侧 out_dir 打包回收 *.nc（sha256 校验 + 开包实数对账），'
+      + '并在 run 目录生成 delivery/ 交付包（NC 批次 + 交付报告 + 加工设定单）。',
+  }
+}
+
 export function registerCamGate(ctx) {
   ctx.on('tools/pre-execute', (exec, next) => {
-    if (exec.name !== 'cam_run') return next()
+    if (exec.name !== 'cam_run' && exec.name !== 'cam_deliver') return next()
     try {
       const runId = typeof exec.arguments?.run_id === 'string' ? exec.arguments.run_id.trim() : ''
-      if (!runId) return deny('cam_run 缺参数 run_id（cam_plan 落盘时返回的值）。')
-      return evaluateCamRunGate({
+      if (!runId) return deny(`${exec.name} 缺参数 run_id（cam_plan 落盘时返回的值）。`)
+      const args = {
         dshHome: process.env.DSH_HOME ?? '',
         sessionId: safeSessionId(exec.agent?.id),
         runId,
-      })
+      }
+      return exec.name === 'cam_run' ? evaluateCamRunGate(args) : evaluateCamDeliverGate(args)
     } catch (error) {
       // 闸门自身异常一律 fail-closed（deny），不放过执行。
-      return deny(`cam_run 闸门核对失败（${error.message}），已按 fail-closed 拒绝执行。`)
+      return deny(`${exec.name} 闸门核对失败（${error.message}），已按 fail-closed 拒绝执行。`)
     }
   })
 }

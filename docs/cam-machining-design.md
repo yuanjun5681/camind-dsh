@@ -104,13 +104,13 @@
 | `cam_survey` | 读件：解析 3D 模型（特征/孔位/尺寸）+ 解析 2D 图纸（材料/热处理/螺纹/公差/颜色规则）+ 交叉核对 | 经 proxy `/cam_survey` 等只读端点；输出事实与疑似高风险候选清单；不做任何判断。**v1 已实现（3D；2D 图纸解析下一迭代）** |
 | `cam_plan` | 事实 + 用户声明 → 排工艺（三阶段套路）、选刀、定参数，产出显式工序单 `job.json`（`camindbase_job: "0"` schema 沿用旧 Camind jobspec） | 内部 `inject` machineRegistry 取机床参数；选刀纯规则；plan 前模型应先 `search_memory`（skill 规定）。**v1 已实现：不内建自动排工艺规则引擎——工序单草案由会话模型按 skill 起草，cam_plan 只做确定性校验 + 机床绑定 + 冻结落盘（`$DSH_HOME/cam-runs/<session>/<run>/` 的 job.json/declarations.json/machine_snapshot.json），v1 不调 proxy；全自动规则排产是后续迭代** |
 | `cam_run` | `job.json` → proxy 后台执行（work copy → prepare → 逐 op submit+poll → 出 NC），自动含机器自检（NC 对账/翻面验证/特征核对） | **闸门**：`tools/pre-execute` 检查高风险声明齐全（不齐 → deny + 中文缺失清单）→ 齐全则返回 `{kind:'ask'}` 弹签字卡。**v1 已实现（2026-08-23）：work copy（主模型不被写）→ prepare（init_setup）→ 逐 op 执行（copy_postprocess / from_scratch_workpiece_op；face_select_generate/tap_holes 落「v1 不支持」error 终态）→ NC 对账 + 空刀路 fail-closed 自检；`ctx.jobs` 后台执行 + runstate 断点续跑（ok 跳过/generated 补 post/指纹不符拒绝）+ `cam/stage`、`cam/check-report` 会话事件；翻面/特征核对后续迭代。真机实证（2026-08-23）：**撞名时 worker 自动改名**（请求 `X` → 实建 `X_01`）且 `postprocess.files` 按实际名键控——判读必须以返回的 `copy.new_name` 为准，实际名记入 runstate 供续跑对准** |
-| `cam_deliver` | 汇总检查结论，生成中文交付报告 + 加工设定单 + 刀路查看器，经 `/fs_zip`/`/fs_download` 回收产物，打包为会话交付物 | 同样过 approval 签字；检查未过也要人确认才打包（报告写清每项决定来源） |
+| `cam_deliver` | 汇总检查结论，生成中文交付报告 + 加工设定单 + 刀路查看器，经 `/fs_zip`/`/fs_download` 回收产物，打包为会话交付物 | 同样过 approval 签字；检查未过也要人确认才打包（报告写清每项决定来源）。**v1 已实现（2026-08-23，`lib/tools/deliver.js` + `lib/report.js`）**：`/fs_zip` 回收 out_dir 的 `*.nc` 到 run 目录 `delivery/nc_batch.zip`（sha256 端到端校验、**开包实数对账**、不信 `X-CAM-Files` 头；对账不符 → 结论 incomplete 且报告写明缺的 NC，不静默）+ 中文交付报告 `delivery_report.md`（件号/机床/后处理器/工序逐项结论含每项决定来源[runstate 终态 / machine_snapshot 冻结值 / declarations 留档]/高风险声明留档/NC 清单与对账/检查结论/备注）+ 加工设定单 `setup_sheet.md`（机床/夹具与工件坐标系/冻结刀库引用/后处理器/转速进给上限/工序顺序）+ `cam/delivered` 事件；检查未过（incomplete/error）也出包、结论章如实写未决项；传输级失败（连不上/sha256 不符/开不了包）error 返回且不落盘。**偏差：刀路查看器（cnc-simulator 资产包太重）与 toolpath_manifest 留 P3，报告备注写明** |
 
 "问人"不是工具：缺声明时模型在对话里直接问，或用 `ask_user_question` 把 `cam_survey` 发现的候选孔预填成多选卡（推荐项置首），用户勾选后续跑。
 
 ### 4.3 硬闸门（tools/pre-execute 监听器）
 
-> **已实现**（2026-08-23，`tool-cam/lib/gate.js`；v1 只拦 `cam_run`，`cam_deliver` 随其迭代一并接入）。
+> **已实现**（2026-08-23，`tool-cam/lib/gate.js`；已拦 `cam_run` + `cam_deliver`：`cam_run` 核对高风险声明——缺失 → deny 中文缺失清单、齐全 → ask 签字卡；`cam_deliver` 要求 run 目录与 runstate.json 俱在（缺 job.json → deny「先 cam_plan」，缺 runstate → deny「先 cam_run」），否则一律 ask 签字卡（件号/机床/工序数/检查 overall/NC 个数），检查未全过时文案醒目标注「检查未全过，交付含未决项」——fail-closed 的判定权交签字人）。
 
 瀑布监听器，只拦截 `cam_run` / `cam_deliver`：
 
@@ -123,7 +123,7 @@
 
 ### 4.4 会话事件与卡片（client bundle）
 
-- 扩展 `SessionEventMap`：`cam/stage`（阶段推进）、`cam/check-report`（自检结论）、`cam/delivered`（交付包清单）——持久、可回放，ui-shell「交付物」页签从事件取 artifact；
+- 扩展 `SessionEventMap`：`cam/stage`（阶段推进）、`cam/check-report`（自检结论）、`cam/delivered`（交付包清单）——持久、可回放，ui-shell「交付物」页签从事件取 artifact。**三个事件的 Host 侧 append 已落地（2026-08-23，run.js / deliver.js）；卡片渲染器与「交付物」页签接线留 P3**；
 - 注册 `ConversationNodeDefinition` + keyed renderer（client bundle 手写格式照 page-memory/lib/client.js）：预检清单卡、检查报告卡（通过/需复核 + 逐项结论）、交付卡（文件列表 + 下载）。
 
 ### 4.5 连接配置与设置界面（照抄官方 dsh-web-search-deepseek 双件套，已核实 dsh 0.1.1-rc.2；**初版已实现**：settings namespace + keyed 设置卡片 + ping，2026-08-23）
@@ -179,7 +179,7 @@
 
 分期：
 
-1. **P1 camind-tool-cam**：proxy 客户端 + run 状态表 + 4 工具 + 闸门 + 事件（先无自定义卡片，会话里纯文本结论即可跑通）——**已落地 3/4 工具（cam_survey / cam_plan / cam_run）+ 闸门 + runstate + 会话事件，剩 cam_deliver**；
+1. **P1 camind-tool-cam**：proxy 客户端 + run 状态表 + 4 工具 + 闸门 + 事件（先无自定义卡片，会话里纯文本结论即可跑通）——**已落地 4/4 工具（cam_survey / cam_plan / cam_run / cam_deliver）+ 闸门（拦 cam_run / cam_deliver）+ runstate + 会话事件（cam/stage、cam/check-report、cam/delivered），P1 工具面齐**（2026-08-23；自定义卡片渲染器在 P3）；
 2. **P2 camind-service-machine** + skill + preset；
 3. **P3 会话卡片渲染器 + 设置页「NX 工作台」**（§4.5）；**P4 经验库扩展**。
 
