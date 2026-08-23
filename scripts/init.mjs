@@ -53,6 +53,28 @@ function ensureSkillsLink() {
   step('skills symlink 已创建：.dsh/skills -> ../skills')
 }
 
+// 3. machines：仓库 machines/ 是种子基线（版本化、走评审）；运行时活动档案在
+// $DSH_HOME/machines/。「目标不存在才拷」——绝不覆盖现场已改过的档案；现场改动要
+// 升级为基线时人工拷回仓库（见 docs/cam-machining-design.md §5.1）。注意不能像
+// skills 那样用 symlink：机床档案是可写数据，运行时写操作（gitRepository 自动 commit）
+// 必须落在 DSH_HOME 级，不能写进源码仓库当前分支。
+function ensureMachinesSeed() {
+  const src = path.join(root, 'machines')
+  if (!fs.existsSync(src)) return
+  const dest = path.join(dshHome, 'machines')
+  fs.mkdirSync(dest, { recursive: true })
+  for (const entry of fs.readdirSync(src).sort()) {
+    if (!entry.endsWith('.yaml')) continue
+    const target = path.join(dest, entry)
+    if (fs.existsSync(target)) {
+      step(`machines 种子 ${entry} 已在运行时档案中（保留现场版本，不覆盖）`)
+      continue
+    }
+    fs.copyFileSync(path.join(src, entry), target)
+    step(`machines 种子 ${entry} 已拷入 .dsh/machines/`)
+  }
+}
+
 // profile 模板：机器相关的只有 link: 绝对路径，运行时计算即可，因此整体可模板化重建；
 // package.json 内容完全由模板推导，过期（如检出目录移动过）直接重写。
 const PROFILE_TEMPLATES = {
@@ -135,7 +157,7 @@ function writeIfDifferent(file, content) {
   return true
 }
 
-// 3. profiles：通用上传工具、记忆库与 gitRepository 服务在所有 profile 全局加载。
+// 4. profiles：通用上传工具、记忆库与 gitRepository 服务在所有 profile 全局加载。
 function ensureProfiles() {
   for (const [name, template] of Object.entries(PROFILE_TEMPLATES)) {
     const dir = path.join(dshHome, 'profiles', name)
@@ -153,14 +175,14 @@ function ensureProfiles() {
   }
 }
 
-// 4. 模型调用前提：只检查、不生成（见 README/AGENTS 的安全约定）
+// 5. 模型调用前提：只检查、不生成（见 README/AGENTS 的安全约定）
 function checkManualInputs() {
   if (!process.env.DEEPSEEK_API_KEY && !fs.existsSync(path.join(root, '.env'))) {
     warnings.push('未检测到 DEEPSEEK_API_KEY 或根目录 .env（模型调用前提；也可在 Web UI 的 Settings → Models 里配）')
   }
 }
 
-// 5. ui-shell：Host 直接服务 dist/，未构建时 /ui 返回 503
+// 6. ui-shell：Host 直接服务 dist/，未构建时 /ui 返回 503
 function buildUiShell() {
   step('ui-shell：npm install && npm run build')
   run('npm', ['install'], path.join(root, 'ui-shell'))
@@ -169,6 +191,7 @@ function buildUiShell() {
 
 checkPrerequisites()
 ensureSkillsLink()
+ensureMachinesSeed()
 ensureProfiles()
 checkManualInputs()
 buildUiShell()

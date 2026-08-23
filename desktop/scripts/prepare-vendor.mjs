@@ -70,6 +70,14 @@ fs.cpSync(
   { recursive: true },
 )
 
+// machines 种子基线同理实体化：运行时活动档案在 DSH_HOME/machines/，
+// 现场改动由该目录自己的 git 历史承载（见 docs/cam-machining-design.md §5.1）。
+fs.cpSync(
+  path.join(workspaceRoot, 'machines'),
+  path.join(vendorDir, 'dsh-home', 'machines'),
+  { recursive: true },
+)
+
 const uiShellDir = path.join(workspaceRoot, 'ui-shell')
 if (fs.existsSync(path.join(uiShellDir, 'package.json'))) {
   console.log('[vendor] building ui-shell ...')

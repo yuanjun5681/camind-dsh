@@ -1,0 +1,252 @@
+# 机床档案种子基线：VMC-HJ-01 华集 CV-850 一号立加
+#
+# 来源：旧 Camind backend/scripts/seed_cv850.py（设计出处 machining_center_management_design §6）。
+# 约定：本文件是仓库内的种子基线（版本化、走评审）；运行时活动档案在 $DSH_HOME/machines/，
+# 由 scripts/init.mjs 以「目标不存在才拷」同步，绝不覆盖现场改动。现场改动要升级为基线时，
+# 人工拷回本仓库提 PR（见 docs/cam-machining-design.md §5.1）。
+#
+# 「未就绪」标记原样保留：刀具 measured 全空（上机前人工复核）、后处理器 DRAFT、
+# 仿真机床包未就绪——不得当作已验证数据消费。
+
+schema_version: 1
+machine_id: VMC-HJ-01
+display_name: 华集 CV-850 一号立加
+workshop: 一号车间
+cell: A-01
+version: 1              # profile 修订号（对应旧库 profile r1，已批准并启用）
+approval: active        # draft | active | deprecated
+magazine_version: 1     # 刀库修订号
+
+identity:
+  machine_type: VMC_3AXIS   # 三轴立式加工中心
+  axes: 3
+  manufacturer: 苏州华集数控科技有限公司
+  model: CV-850
+
+kinematics:
+  # 现场确认值；与型号名义（通常 X=850）不一致，来源待现场复核
+  travel_mm: { X: [0, 750], Y: [0, 450], Z: [-500, 0] }
+  rapid_mm_min: 48000
+  max_cut_feed_mm_min: 10000
+  acceleration_m_s2: null
+
+spindle:
+  rpm_min: 50
+  rpm_max: 12000
+  power_kw: 7.5
+  interface: BT40
+  torque_curve: null
+
+table:
+  length_mm: 1000
+  width_mm: 500
+  max_load_kg: 700
+
+magazine_design:
+  capacity: 24
+  max_tool_length_mm: 300
+  max_tool_diameter_mm: 150
+  large_tool_diameter_mm: 76
+  max_tool_weight_kg: 8
+  tool_change_time_s: 2.8
+
+controller:
+  vendor: Mitsubishi
+  family: M8
+  model: M80 TypeA
+  software: null
+  rigid_tapping: true
+  helical_interpolation: true
+  through_spindle_coolant: true
+  supported_cycles: [G81, G82, G83, G84, G73, G85, G76]
+  work_offsets: [G54, G55, G56, G57, G58, G59]
+  dnc_available: true
+
+fixtures:
+  - { fixture_id: VISE_FRONT, name: 正面平口虎钳, height_mm: 110, max_opening_mm: 180, default_offset: G54, usage: 正面加工 }
+  - { fixture_id: VISE_BACK, name: 反面平口虎钳, height_mm: 110, max_opening_mm: 180, default_offset: G55, usage: 翻面加工 }
+  - { fixture_id: VACUUM_CHUCK, name: 真空吸盘, size_mm: [400, 400, 80], default_offset: G54, usage: 薄板或大平面件 }
+
+# 材料切削参数规则：按「材料 + 刀具装配号 + 用途」匹配；REFERENCE_BASELINE 口径，
+# 首件确认类备注原样保留
+material_rules:
+  - { material: AL6061, tool_assembly_id: END_MILL_D10_ROUGH, usage: 开粗, rpm: 8000, feed_mm_min: 2400, ap_mm: 10, ae_mm: 2, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: 参考范围 7000～9000 rpm }
+  - { material: AL6061, tool_assembly_id: END_MILL_D10_FINISH, usage: 精加工（工序用途待确认：ap/ae 更像底面精加工）, rpm: 6000, feed_mm_min: 1800, ap_mm: 0.3, ae_mm: 0.2, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: 首件确认表面效果 }
+  - { material: AL6061, tool_assembly_id: END_MILL_D8, usage: 开粗, rpm: 7500, feed_mm_min: 1900, ap_mm: 8, ae_mm: 1.6, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: 参考范围 7000～10000 rpm }
+  - { material: AL6061, tool_assembly_id: END_MILL_D4, usage: 精加工, rpm: 11000, feed_mm_min: 1200, ap_mm: 0.2, ae_mm: 0.1, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: 不得超过机床 12000 rpm }
+  - { material: AL6061, tool_assembly_id: CHAMFER_D6, usage: 倒角, rpm: 8000, feed_mm_min: 1200, ap_mm: null, ae_mm: null, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: 倒角量由任务决定 }
+  - { material: AL6061, tool_assembly_id: DRILL_D5, usage: 钻孔, rpm: 4300, feed_mm_min: 770, ap_mm: null, ae_mm: null, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: M6 底孔参考 }
+  - { material: AL6061, tool_assembly_id: REAMER_D6, usage: 精孔, rpm: 700, feed_mm_min: 170, ap_mm: null, ae_mm: null, coolant: FLOOD, source_kind: REFERENCE_BASELINE, confidence: REFERENCE, note: 高风险精孔，首件确认 }
+
+post:
+  id: 三菱M80_华集CV850
+  nx_version: NX2506
+  files: { Y3m-B.tcl: null, Y3m-B.def: null, Y3m-B.pui: null, Y3m-B.ini: null }
+  qualification_status: DRAFT   # 后处理器未完成资格认定
+
+simulation:
+  machine_model_available: false
+  kinematics_available: false
+  driver_available: false
+
+# 现场机床包（几何仿真用 NX 模型等）：完成前保持 false/null，绝不伪装就绪
+nx_kit:
+  geometry_simulation_enabled: false
+  machine_model_ref: null
+  kinematics_ref: null
+  simulation_driver_ref: null
+  asset_manifest: { schema_version: 1, assets: [] }
+
+safety:
+  magazine_freshness_hours: 24    # 刀库清单超过此时长视为过期，需现场核对
+  unknown_life_action: 人工复核
+
+capabilities:
+  constrained_cam_status: READY       # 可生成机床约束程序
+  auto_release_status: NOT_READY      # 上机前需要人工复核
+
+review_summary: 可生成机床约束程序 · 上机前需要人工复核
+
+# 刀库现状（24 位全登记）。measured 全空 = 无实测刀长/H/D，review_items 为上机前待确认项
+magazine:
+  capacity: 24
+  pockets:
+    - pocket: 1
+      control_tool_id: T1
+      status: UNKNOWN
+      tool: { tool_assembly_id: SETUP_PROBE, name: 对刀/找正工具（寻边器或测头，待现场确认）, kind: PROBE }
+      measured: null
+      review_items: [确认 T1 实际是寻边器还是测头, 不作为切削刀具]
+    - { pocket: 2, control_tool_id: T2, status: EMPTY, tool: null, measured: null, review_items: [] }
+    - pocket: 3
+      control_tool_id: T3
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D10_ROUGH, name: D10开粗立铣刀, kind: END_MILL, cutting_diameter_mm: 10, flute_length_mm: 25, flute_count: 3, tool_overall_length_mm: 75, shank_diameter_mm: 10, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T3 仍是 D10开粗立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 4
+      control_tool_id: T4
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D2, name: D2立铣刀, kind: END_MILL, cutting_diameter_mm: 2, flute_length_mm: 6, flute_count: 2, tool_overall_length_mm: 50, shank_diameter_mm: 4, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T4 仍是 D2立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 5
+      control_tool_id: T5
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D3, name: D3立铣刀, kind: END_MILL, cutting_diameter_mm: 3, flute_length_mm: 8, flute_count: 2, tool_overall_length_mm: 50, shank_diameter_mm: 6, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T5 仍是 D3立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 6
+      control_tool_id: T6
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D4, name: D4立铣刀, kind: END_MILL, cutting_diameter_mm: 4, flute_length_mm: 11, flute_count: 2, tool_overall_length_mm: 50, shank_diameter_mm: 6, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T6 仍是 D4立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 7
+      control_tool_id: T7
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D6, name: D6立铣刀, kind: END_MILL, cutting_diameter_mm: 6, flute_length_mm: 15, flute_count: 3, tool_overall_length_mm: 60, shank_diameter_mm: 6, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T7 仍是 D6立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 8
+      control_tool_id: T8
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D8, name: D8立铣刀, kind: END_MILL, cutting_diameter_mm: 8, flute_length_mm: 20, flute_count: 3, tool_overall_length_mm: 65, shank_diameter_mm: 8, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T8 仍是 D8立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 9
+      control_tool_id: T9
+      status: UNKNOWN
+      tool: { tool_assembly_id: END_MILL_D10_FINISH, name: D10精加工立铣刀, kind: END_MILL, cutting_diameter_mm: 10, flute_length_mm: 25, flute_count: 3, tool_overall_length_mm: 75, shank_diameter_mm: 10, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T9 仍是 D10精加工立铣刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 10
+      control_tool_id: T10
+      status: UNKNOWN
+      tool: { tool_assembly_id: CHAMFER_D6, name: D6倒角刀, kind: CHAMFER_MILL, cutting_diameter_mm: 6, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T10 仍是 D6倒角刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 11
+      control_tool_id: T11
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D2.5, name: Ø2.5 钻头, kind: DRILL, cutting_diameter_mm: 2.5, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T11 仍是 Ø2.5 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 12
+      control_tool_id: T12
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D3, name: Ø3 钻头, kind: DRILL, cutting_diameter_mm: 3, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T12 仍是 Ø3 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 13
+      control_tool_id: T13
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D4, name: Ø4 钻头, kind: DRILL, cutting_diameter_mm: 4, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T13 仍是 Ø4 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 14
+      control_tool_id: T14
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D4.2, name: Ø4.2 钻头, kind: DRILL, cutting_diameter_mm: 4.2, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T14 仍是 Ø4.2 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 15
+      control_tool_id: T15
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D5, name: Ø5 钻头, kind: DRILL, cutting_diameter_mm: 5, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T15 仍是 Ø5 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 16
+      control_tool_id: T16
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D6, name: Ø6 钻头, kind: DRILL, cutting_diameter_mm: 6, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T16 仍是 Ø6 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 17
+      control_tool_id: T17
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D6.8, name: Ø6.8 钻头, kind: DRILL, cutting_diameter_mm: 6.8, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T17 仍是 Ø6.8 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 18
+      control_tool_id: T18
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D8, name: Ø8 钻头, kind: DRILL, cutting_diameter_mm: 8, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T18 仍是 Ø8 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 19
+      control_tool_id: T19
+      status: UNKNOWN
+      tool: { tool_assembly_id: DRILL_D9, name: Ø9 钻头, kind: DRILL, cutting_diameter_mm: 9, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T19 仍是 Ø9 钻头, 确认实际刀长、伸出和 H/D]
+    - pocket: 20
+      control_tool_id: T20
+      status: UNKNOWN
+      tool: { tool_assembly_id: REAMER_D3, name: Ø3 铰刀, kind: REAMER, cutting_diameter_mm: 3, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T20 仍是 Ø3 铰刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 21
+      control_tool_id: T21
+      status: UNKNOWN
+      tool: { tool_assembly_id: REAMER_D4, name: Ø4 铰刀, kind: REAMER, cutting_diameter_mm: 4, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T21 仍是 Ø4 铰刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 22
+      control_tool_id: T22
+      status: UNKNOWN
+      tool: { tool_assembly_id: REAMER_D5, name: Ø5 铰刀, kind: REAMER, cutting_diameter_mm: 5, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T22 仍是 Ø5 铰刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 23
+      control_tool_id: T23
+      status: UNKNOWN
+      tool: { tool_assembly_id: REAMER_D6, name: Ø6 铰刀, kind: REAMER, cutting_diameter_mm: 6, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T23 仍是 Ø6 铰刀, 确认实际刀长、伸出和 H/D]
+    - pocket: 24
+      control_tool_id: T24
+      status: UNKNOWN
+      tool: { tool_assembly_id: REAMER_D10, name: Ø10 铰刀, kind: REAMER, cutting_diameter_mm: 10, holder_interface: BT40 }
+      measured: null
+      review_items: [上机前确认 T24 仍是 Ø10 铰刀, 确认实际刀长、伸出和 H/D]

@@ -31,7 +31,11 @@ dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工�
   uploads/          所有模式共用的会话隔离上传批次（<session>/<batch>/）；ZIP 自动解压
   memory/           OKF 记忆库 bundle（knowledge/ + experience/），DSH_HOME 级共享、
                     所有工作区的会话共用；独立 git 仓库，写操作自动 commit
+  machines/         机床档案运行时存储（init 从仓库 machines/ 种子拷入，目标已存在不覆盖；
+                    独立 git 仓库，写操作自动 commit）
 skills/             版本化的技能库，init 时经 .dsh/skills symlink 挂入 DSH_HOME
+machines/           机床档案种子基线（版本化、走评审；现有 VMC-HJ-01.yaml = 华集 CV-850 立加，
+                    旧 Camind seed_cv850.py 的 YAML 转换；init 时拷入 .dsh/machines/）
 ui-shell/           独立定制前端（TypeScript）：Host 协议桥 + React SPA；官方 UI slot + Workbench，入口 /camind（/ 302 至此）
 ui-sidebar/         /camind 专用的官方 Sidebar 兼容实现；扩展底部菜单 owner props
 ui-brand/           Camind 品牌插件（`camind-ui-brand`）：always-on 动态
@@ -73,7 +77,7 @@ README.md           主要文档（运行、插件开发教程、桌面打包细
 
 ## 运行与构建命令
 
-新检出/新机器先跑一次初始化（幂等：重建 profile 与依赖、建立 skills symlink、构建 ui-shell）：
+新检出/新机器先跑一次初始化（幂等：重建 profile 与依赖、建立 skills symlink、同步机床档案种子到 .dsh/machines/、构建 ui-shell）：
 
 ```sh
 npm run init
