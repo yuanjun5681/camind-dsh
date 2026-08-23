@@ -101,7 +101,7 @@
 
 | 工具 | 职责 | 要点 |
 |---|---|---|
-| `cam_survey` | 读件：解析 3D 模型（特征/孔位/尺寸）+ 解析 2D 图纸（材料/热处理/螺纹/公差/颜色规则）+ 交叉核对 | 经 proxy `/cam_survey` 等只读端点；输出事实与疑似高风险候选清单；不做任何判断 |
+| `cam_survey` | 读件：解析 3D 模型（特征/孔位/尺寸）+ 解析 2D 图纸（材料/热处理/螺纹/公差/颜色规则）+ 交叉核对 | 经 proxy `/cam_survey` 等只读端点；输出事实与疑似高风险候选清单；不做任何判断。**v1 已实现（3D；2D 图纸解析下一迭代）** |
 | `cam_plan` | 事实 + 用户声明 → 排工艺（三阶段套路）、选刀、定参数，产出显式工序单 `job.json`（`camindbase_job: "0"` schema 沿用旧 Camind jobspec） | 内部 `inject` machineRegistry 取机床参数；选刀纯规则；plan 前模型应先 `search_memory`（skill 规定） |
 | `cam_run` | `job.json` → proxy 后台执行（work copy → prepare → 逐 op submit+poll → 出 NC），自动含机器自检（NC 对账/翻面验证/特征核对） | **闸门**：`tools/pre-execute` 检查高风险声明齐全（不齐 → deny + 中文缺失清单）→ 齐全则返回 `{kind:'ask'}` 弹签字卡 |
 | `cam_deliver` | 汇总检查结论，生成中文交付报告 + 加工设定单 + 刀路查看器，经 `/fs_zip`/`/fs_download` 回收产物，打包为会话交付物 | 同样过 approval 签字；检查未过也要人确认才打包（报告写清每项决定来源） |

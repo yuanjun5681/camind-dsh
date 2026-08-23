@@ -1,18 +1,21 @@
-// camind-tool-cam — CAM 加工场景插件（初版：NX 工作台连接配置 + ping）。
+// camind-tool-cam — CAM 加工场景插件（当前：NX 工作台连接配置 + ping +
+// camPipeline 长任务/文件传输 + cam_survey 读件工具[仅 3D]）。
 // Host 半：camPipeline Cordis 服务（lib/pipeline.js）+ settings namespace
 // `cam-nx`（照官方 dsh-web-search-deepseek 双件套，热更新）+ web 下的
 // POST /camind/api/cam/ping（设置卡片「测试连接」用；webServer 仅 web
 // profile 提供，故路由是带自己 inject 的子插件，headless 下自然不激活）。
 // 浏览器半是 lib/client.js（官方 Settings → 插件 → 插件配置 里的 keyed 卡片）。
-// 4 个 CAM 模型工具、tools/pre-execute 闸门、断点续跑属后续迭代（设计稿 §4）。
+// cam_plan/cam_run/cam_deliver、tools/pre-execute 闸门、断点续跑、2D 图纸
+// 解析属后续迭代（设计稿 §4）。
 
 import z from '@deepseek-ai/schemastery'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 import { createCamPipeline, DEFAULT_TOKEN_ENV } from './lib/pipeline.js'
+import { registerCamSurvey } from './lib/tools/survey.js'
 
 export const name = 'tool-cam'
-export const inject = ['credentials']
+export const inject = ['credentials', 'tools', 'uploads']
 
 // 双字段形态对齐官方模板：tokenEnv 是凭据引用（界面写 .credentials.yaml），
 // token 是组合层直存（role('secret')，describe 时被结构性剥离）。
@@ -40,6 +43,7 @@ export function apply(ctx, config) {
 
   const camPipeline = createCamPipeline(ctx, () => current())
   ctx.provide('camPipeline', camPipeline)
+  registerCamSurvey(ctx, camPipeline, ctx.uploads)
 
   // 仅 web profile：子插件 inject webServer，headless 下保持不激活、不影响服务本体。
   ctx.plugin({
@@ -70,5 +74,5 @@ export function apply(ctx, config) {
     },
   })
 
-  console.log('[tool-cam] loaded；registered: camPipeline 服务（connectionInfo/ping）、settings namespace cam-nx')
+  console.log('[tool-cam] loaded；registered: camPipeline 服务（connectionInfo/ping/call/run/uploadFile/listDir/stat）、settings namespace cam-nx、工具 cam_survey')
 }
