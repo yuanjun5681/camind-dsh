@@ -1,0 +1,26 @@
+{
+  "name": "camind-service-machine",
+  "version": "0.1.0",
+  "description": "Machine registry: read/validate/snapshot machine profiles from $DSH_HOME/machines/*.yaml (machineRegistry Cordis service + read-only model tools).",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./registry": "./lib/registry.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "tools/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "yaml": "^2.8.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

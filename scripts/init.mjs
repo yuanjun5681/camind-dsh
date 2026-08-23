@@ -81,6 +81,7 @@ const PROFILE_TEMPLATES = {
   headless: {
     dependencies: {
       'camind-service-git-repository': 'link:service-git-repository',
+      'camind-service-machine': 'link:service-machine',
       'camind-tool-cam': 'link:tool-cam',
       'camind-tool-memory': 'link:tool-memory',
       'camind-tool-upload': 'link:tool-upload',
@@ -90,6 +91,7 @@ const PROFILE_TEMPLATES = {
       '@deepseek-ai/dsh-headless',
       'camind-tool-upload',
       'camind-service-git-repository',
+      'camind-service-machine',
       'camind-tool-memory',
       'camind-tool-cam',
     ],
@@ -99,6 +101,7 @@ const PROFILE_TEMPLATES = {
       'dsh-markdown-preview': '^0.3.0',
       'camind-page-memory': 'link:page-memory',
       'camind-service-git-repository': 'link:service-git-repository',
+      'camind-service-machine': 'link:service-machine',
       'camind-tool-cam': 'link:tool-cam',
       'camind-tool-memory': 'link:tool-memory',
       'camind-tool-upload': 'link:tool-upload',
@@ -111,6 +114,7 @@ const PROFILE_TEMPLATES = {
       '@deepseek-ai/dsh-web-app',
       'camind-tool-upload',
       'camind-service-git-repository',
+      'camind-service-machine',
       'camind-tool-memory',
       'camind-tool-cam',
       'camind-ui-shell',
@@ -161,7 +165,7 @@ function writeIfDifferent(file, content) {
   return true
 }
 
-// 4. profiles：通用上传工具、记忆库与 gitRepository 服务在所有 profile 全局加载。
+// 4. profiles：通用上传工具、记忆库、机床档案与 gitRepository 服务在所有 profile 全局加载。
 function ensureProfiles() {
   for (const [name, template] of Object.entries(PROFILE_TEMPLATES)) {
     const dir = path.join(dshHome, 'profiles', name)

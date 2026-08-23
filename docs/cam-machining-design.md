@@ -102,7 +102,7 @@
 | 工具 | 职责 | 要点 |
 |---|---|---|
 | `cam_survey` | 读件：解析 3D 模型（特征/孔位/尺寸）+ 解析 2D 图纸（材料/热处理/螺纹/公差/颜色规则）+ 交叉核对 | 经 proxy `/cam_survey` 等只读端点；输出事实与疑似高风险候选清单；不做任何判断。**v1 已实现（3D；2D 图纸解析下一迭代）** |
-| `cam_plan` | 事实 + 用户声明 → 排工艺（三阶段套路）、选刀、定参数，产出显式工序单 `job.json`（`camindbase_job: "0"` schema 沿用旧 Camind jobspec） | 内部 `inject` machineRegistry 取机床参数；选刀纯规则；plan 前模型应先 `search_memory`（skill 规定） |
+| `cam_plan` | 事实 + 用户声明 → 排工艺（三阶段套路）、选刀、定参数，产出显式工序单 `job.json`（`camindbase_job: "0"` schema 沿用旧 Camind jobspec） | 内部 `inject` machineRegistry 取机床参数；选刀纯规则；plan 前模型应先 `search_memory`（skill 规定）。**v1 已实现：不内建自动排工艺规则引擎——工序单草案由会话模型按 skill 起草，cam_plan 只做确定性校验 + 机床绑定 + 冻结落盘（`$DSH_HOME/cam-runs/<session>/<run>/` 的 job.json/declarations.json/machine_snapshot.json），v1 不调 proxy；全自动规则排产是后续迭代** |
 | `cam_run` | `job.json` → proxy 后台执行（work copy → prepare → 逐 op submit+poll → 出 NC），自动含机器自检（NC 对账/翻面验证/特征核对） | **闸门**：`tools/pre-execute` 检查高风险声明齐全（不齐 → deny + 中文缺失清单）→ 齐全则返回 `{kind:'ask'}` 弹签字卡 |
 | `cam_deliver` | 汇总检查结论，生成中文交付报告 + 加工设定单 + 刀路查看器，经 `/fs_zip`/`/fs_download` 回收产物，打包为会话交付物 | 同样过 approval 签字；检查未过也要人确认才打包（报告写清每项决定来源） |
 
@@ -132,6 +132,8 @@
 ## 5. 机床档案与经验库扩展
 
 ### 5.1 camind-service-machine
+
+> **已实现**（2026-08-23）：`machineRegistry` 服务（list/get/snapshot，只读）+ `list_machines`/`read_machine` 工具；v1 无写方法、不挂 gitRepository（无写操作则无需自动 commit，挂接留待写接口迭代）。
 
 - 存储：`$DSH_HOME/machines/<machine-id>.yaml`（一台一个文件；frontmatter 式字段：行程/主轴/工作台/控制器/刀库 T 位/刀具名义+实测/夹具/材料切削参数 + `version`/`approval` 状态），写操作经 `gitRepository` best-effort 自动 commit（独立 git 仓库，同 memory 约定）；
 - **种子基线在仓库** `machines/<machine-id>.yaml`（版本化、走评审；现有 `machines/VMC-HJ-01.yaml` 即旧 Camind `seed_cv850.py` 的 YAML 转换，「未就绪」标记——刀具 measured 空、post DRAFT——原样保留）：`npm run init` 与 desktop `prepare-vendor` 以「目标不存在才拷」同步进 `$DSH_HOME/machines/`，**绝不覆盖运行时改动**；不用 skills 式 symlink，因为机床档案是可写数据，运行时写必须落在 DSH_HOME 级而非源码仓库当前分支。现场改动要升级为出厂基线时，人工把 YAML 拷回仓库提 PR（单向同步 + 人工回流）；

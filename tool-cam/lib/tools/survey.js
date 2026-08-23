@@ -35,18 +35,18 @@ function adviceOf(result) {
   return '无法判定错误类别：请把错误信息如实转述给用户。'
 }
 
-function safeSessionId(value) {
+export function safeSessionId(value) {
   return String(value ?? 'global').replace(/[^A-Za-z0-9_-]/g, '_')
 }
 
 // 远端文件名只保留安全字符（路径分隔符等压成下划线，防 Windows 侧解析意外）。
-function safeRemoteName(name) {
+export function safeRemoteName(name) {
   return String(name).replace(/[\\/]/g, '_')
 }
 
 // 在当前 session 的全部上传批次里按文件名/清单路径找文件；跨 session 与越界
 // 由 uploads 服务的 manifest 校验挡住（这里只读到 batch.files 的声明清单）。
-function resolvePart(uploads, exec, requested) {
+export function resolvePart(uploads, exec, requested) {
   const batches = uploads.listBatches(exec)
   const matches = []
   for (const batch of batches) {

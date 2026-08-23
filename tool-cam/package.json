@@ -1,7 +1,7 @@
 {
   "name": "camind-tool-cam",
   "version": "0.1.0",
-  "description": "CAM machining pipeline: CAM-Agent proxy client (camPipeline service: submit+poll long tasks, fs transfer), the cam_survey model tool, and the NX workbench settings card.",
+  "description": "CAM machining pipeline: CAM-Agent proxy client (camPipeline service: submit+poll long tasks, fs transfer), the cam_survey/cam_plan model tools, and the NX workbench settings card.",
   "type": "module",
   "main": "index.js",
   "exports": {
