@@ -94,6 +94,11 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
             + 'from_scratch_workpiece_op(new_name,geometry) / face_select_generate(template,new_name) / '
             + 'tap_holes(new_name,hole_centers,attack_dia,pitch)。new_name 必须含 {suffix} 占位；'
             + '刀具用 tool_assembly_id（或刀库控制刀号 tool 如 T6）逐字引用；'
+            + 'from_scratch_workpiece_op 的 geometry/parent/program/method/subtype 是 NX 对象名'
+            + '（字母数字下划线，如 FS_WORKPIECE、MCS_MAIN、CAVITY_MILL），不是中文工序描述；'
+            + 'from_scratch_workpiece_op 还必须给 tool=件内 NX 刀名（init_setup 造 AP_MILL_D<直径>，'
+            + '如 AP_MILL_D10；缺省 worker 会找 "D10" 并因件里没这把刀报 missing groups）——'
+            + 'tool 与 tool_assembly_id 是两个命名空间，两者都要；'
             + 'spindle/feed 拿不准留空；攻丝/沉窝类在 declarations 里要有对应声明。',
           items: { type: 'object' },
         },
@@ -186,6 +191,20 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
               errors.push(`${label}.${key} 必须是正数。`)
             }
           }
+          // from_scratch_workpiece_op 的 worker 标识符必须是 NX 对象名形态——
+          // 中文描述会被 worker 当组名创建/查找，组建不了直接早退（实证
+          // 2026-08-25：geometry 填「M6攻丝底孔 Ø5 × 6」→ 判不出 fail-closed）。
+          if (op.type === 'from_scratch_workpiece_op') {
+            for (const key of ['geometry', 'parent', 'program', 'method', 'subtype', 'nx_type']) {
+              const val = op[key]
+              if (val !== undefined && val !== null && (typeof val !== 'string' || !/^[A-Za-z0-9_]+$/.test(val))) {
+                errors.push(
+                  `${label}.${key}「${val}」不是有效的 NX 对象名（字母/数字/下划线）。`
+                  + '该字段是 CAM 组/类型名（如 FS_WORKPIECE、MCS_MAIN、CAVITY_MILL），不是中文工序描述。',
+                )
+              }
+            }
+          }
         }
       }
 
@@ -215,7 +234,10 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
             }
           }
           if (op.tool !== undefined && op.tool !== null) {
-            if (!controlIds.has(op.tool) && !assemblyIds.has(op.tool)) {
+            // from_scratch_workpiece_op 的 tool 是 worker 件内 NX 刀名（如 init_setup
+            // 自动造的 AP_MILL_D10），不是刀库引用——不做 TOOL_NOT_LOADED 校验，
+            // 刀库绑定用 tool_assembly_id 表达。
+            if (op.type !== 'from_scratch_workpiece_op' && !controlIds.has(op.tool) && !assemblyIds.has(op.tool)) {
               errors.push(
                 `${label} 引用的刀号「${op.tool}」不在 ${machineId} 的刀库里（TOOL_NOT_LOADED）。`
                 + `控制刀号现有：${[...controlIds].join('、') || '（空）'}。`,

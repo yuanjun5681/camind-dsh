@@ -27,7 +27,10 @@ version: 1.0.0
    已知零件特征（材料/孔数档/工序类型）时可用 `signature` 参数精确过滤范本经验；
    经验只能预填，不能替代本单确认（见 §3 红线）。
 4. `cam_plan` 落盘工序单：起草 operations 时刀具逐字引用 `read_machine` 刀库里的
-   tool_assembly_id；`post_name` 必须填**精确的后处理器名**（如「三菱备刀」），不带
+   tool_assembly_id；from_scratch_workpiece_op 还要另给 `tool`=件内 NX 刀名
+   （init_setup 会造 AP_MILL_D<直径>，如 AP_MILL_D10；缺省 worker 找 "D10" 必报
+   missing groups）——`tool` 与 `tool_assembly_id` 是两个命名空间，不是二选一。
+   `post_name` 必须填**精确的后处理器名**（如「三菱备刀」），不带
    机床型号/系统修饰词，拿不准就问——错名会让整批 NC 报废。校验或绑定被阻断时，
    按返回的中文清单逐项修正后重调。
 5. `cam_run` 签字执行：闸门先核对声明（缺 → deny，按清单问齐后**重新 cam_plan

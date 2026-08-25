@@ -124,7 +124,18 @@ export function createdMetricsOf(data) {
   const error = data?.error
     ?? (typeof metrics.error === 'string' ? metrics.error : undefined)
     ?? data?.commit_error ?? data?.generate_error
-  return { created, path_exists: pathExists, toolpath_length: toolpathLength, error }
+  // created 判不出时把 worker 诊断带出来（如 _create_workpiece_group 早退的
+  // group 段：parent_found/error），别让 fail-closed 吃掉真因。
+  let detail
+  if (created === undefined) {
+    const group = data?.group
+    if (group && typeof group === 'object') {
+      detail = typeof group.error === 'string' ? group.error : undefined
+      if (!detail && group.parent_found === false) detail = `父组 ${group.parent_name ?? '?'} 未找到`
+    }
+    if (!detail) detail = `worker 返回键：${Object.keys(data ?? {}).join(', ') || '(空)'}`
+  }
+  return { created, path_exists: pathExists, toolpath_length: toolpathLength, error, detail }
 }
 
 // 续跑决策（flow.py:488-502）：ok 跳过、generated 只补 post、其余重跑。
@@ -444,7 +455,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     const m = createdMetricsOf(ran.data ?? {})
     if (m.error) return { status: OP_ERROR, error: m.error }
     if (m.created === undefined) {
-      return { status: OP_ERROR, error: 'worker 返回既无 op 段、也无 created 字段——判不出，fail-closed；请人工核对该工序在件里的状态。' }
+      return { status: OP_ERROR, error: `worker 返回既无 op 段、也无 created 字段——判不出，fail-closed；请人工核对该工序在件里的状态。${m.detail ? `worker 诊断：${m.detail}` : ''}` }
     }
     if (!m.created) return { status: OP_ERROR, error: '工序创建失败' }
     if (!m.path_exists || !m.toolpath_length) {

@@ -39,9 +39,11 @@ export function safeSessionId(value) {
   return String(value ?? 'global').replace(/[^A-Za-z0-9_-]/g, '_')
 }
 
-// 远端文件名只保留安全字符（路径分隔符等压成下划线，防 Windows 侧解析意外）。
+// 远端文件名只保留 ASCII 可打印字符（路径分隔符与非 ASCII 一律压成下划线）：
+// X-CAM-Path 是 HTTP 头，非 ASCII 在 fetch 侧直接抛 ByteString 错（实证
+// 2026-08-25「ZM26030-704程式.prt」上传失败）；sha8 前缀保唯一性，可读性其次。
 export function safeRemoteName(name) {
-  return String(name).replace(/[\\/]/g, '_')
+  return String(name).replace(/[\\/]/g, '_').replace(/[^\x20-\x7E]/g, '_')
 }
 
 // 在当前 session 的全部上传批次里按文件名/清单路径找文件；跨 session 与越界
