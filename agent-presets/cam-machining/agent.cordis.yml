@@ -57,6 +57,11 @@
   config:
     allowParallelInProgress: false
 
+# cam_run 后台长任务的 job 控制器：dsh-web-app 在基础层把 tool-jobs 关掉了，
+# 必须在 agent 组合里补挂，否则 jobs.start() 拒绝（no job controller serves this agent）。
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
 - id: compaction
   name: cordis:group
   group: true
