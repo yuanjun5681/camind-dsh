@@ -61,7 +61,7 @@
 
 URL 归位由 `OfficialSidebar.tsx` 的单个仲裁 effect 负责：侧栏打开已有会话 → `/s/:id`；空白新会话 → `/`；首条消息把空白会话变成已有会话（id 不变、只翻 `blank`）时，自动从 `/` 归位到 `/s/:id`——少了这一跳，提交后会停在 `/`，Workbench（只在 `/s/:id` 子布局）永远不会出现。
 
-Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物。输入页签展示会话工作目录、运行状态与本次上传文件；交付物页签列出会话轮次产出的文件。工作台各「预览」入口（交付物/加工/输入区文件列表）经 `previewClient` 桥调用 camind-ui-preview 插件的 `filePreview` 服务：目标文件写入插件预览态并切到主对话区的「预览」标签页（插件注册进官方 `conversation.view`，跟在「对话」「轨迹」之后；预览数据走插件自己的 Host 路由 `/camind/api/preview/sessions/<id>/file`）。全局 `DiffOverlay`（代码对比，分栏/统一）挂在 `shell.overlay`，任意界面可通过 `diffOverlayActions` 或 `window.__camindDiff__` 打开同一组件。
+Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物。输入页签展示会话工作目录、运行状态与本次上传文件；交付物页签列出会话轮次产出的文件（数据源是会话投影快照的 tool-result 节点 callView，由常驻的 `DeliverablesSync` 无头组件同步进 workbenchStore——不依赖聊天区挂载，刷新后停在「预览」标签也能恢复；聊天区 turnTail chips 仍复用官方投影渲染）。工作台各「预览」入口（交付物/加工/输入区文件列表）经 `previewClient` 桥调用 camind-ui-preview 插件的 `filePreview` 服务：目标文件写入插件预览态并切到主对话区的「预览」标签页（插件注册进官方 `conversation.view`，跟在「对话」「轨迹」之后；预览数据走插件自己的 Host 路由 `/camind/api/preview/sessions/<id>/file`）。全局 `DiffOverlay`（代码对比，分栏/统一）挂在 `shell.overlay`，任意界面可通过 `diffOverlayActions` 或 `window.__camindDiff__` 打开同一组件。
 
 其余 slot：
 

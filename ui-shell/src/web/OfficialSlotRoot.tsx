@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent, t
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getLayoutSnapshot, layoutActions, subscribeLayout } from './officialLayout'
 import { Workbench, type WorkbenchSession } from './Workbench'
+import { DeliverablesSync } from './DeliverablesSync'
 import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'
 
 const SIDEBAR_DEFAULT = 280
@@ -86,6 +87,7 @@ function SessionDetailLayout({ current, panels, renderSlot, viewport }: SessionD
       <main className="official-conversation">
         {renderSlot('conversation', {})}
       </main>
+      {current && <DeliverablesSync sessionId={current.id} />}
       <div className="official-workbench-column">
         {workbenchVisible && (
           <>

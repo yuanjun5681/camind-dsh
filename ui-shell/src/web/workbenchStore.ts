@@ -79,13 +79,13 @@ export const workbenchActions = {
       pendingUploads: { ...snapshot.pendingUploads, [sessionId]: [...batches] },
     })
   },
-  addDeliverables(sessionId: string, paths: readonly string[]) {
+  setDeliverables(sessionId: string, paths: readonly string[]) {
+    // 无头同步（DeliverablesSync）写回：内容没变就跳过 publish。
     const previous = snapshot.deliverables[sessionId] ?? []
-    const next = [...new Set([...previous, ...paths])]
-    if (next.length === previous.length && next.every((path, index) => previous[index] === path)) return
+    if (previous.length === paths.length && previous.every((path, index) => path === paths[index])) return
     publish({
       ...snapshot,
-      deliverables: { ...snapshot.deliverables, [sessionId]: next },
+      deliverables: { ...snapshot.deliverables, [sessionId]: [...paths] },
     })
   },
   setCamRuns(sessionId: string, runs: readonly CamRunSummary[]) {
