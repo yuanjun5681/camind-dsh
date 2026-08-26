@@ -16,6 +16,10 @@
 //      fail-closed；翻面验证/特征核对属后续迭代（设计稿 §4.1）；
 //   6. 汇总 fail-closed（旧 overall_action）：有 error → error；有工序缺 NC
 //      或空刀路 → incomplete（拒绝放行，可续跑补齐）；全 ok 且对账一致 → ok。
+//   7. 过程时间线：每条阶段事件带时间戳 append 进 runstate.history（随 runstate
+//      原子落盘，resume 续跑往后追加如实记录多轮），op 记录 started_at/
+//      finished_at/timeout_seconds，收尾 check 结论落 state.check——工作台
+//      「加工」页签时间线的数据源（会话事件重启拒绝重载，run 目录才是事实源）。
 //
 // v1 支持的 op 类型：copy_postprocess（/cam_copy_postprocess）与
 // from_scratch_workpiece_op（/cam_build_workpiece_op + /postprocess 补 NC）；
@@ -232,6 +236,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     notes: [],
     advice: [],
   }
+  let state = null
   const persist = (state) => {
     state.updated_at = new Date().toISOString()
     writeJsonAtomic(statePath, state)
@@ -246,6 +251,12 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       ...(result.retryable !== undefined ? { retryable: result.retryable } : {}),
     }
     summary.advice.push(extraAdvice ?? adviceOf(result))
+    // 失败也进时间线（过程视图要知道死在哪一步）；state 尚未建立的读盘期
+    // 失败没有 run 可记，跳过。会话卡由下面的 cam/check-report 收尾。
+    if (state && Array.isArray(state.history)) {
+      state.history.push({ ts: new Date().toISOString(), stage: 'failed', failed_stage: stage, msg: result.msg })
+      persist(state)
+    }
     emit('cam/check-report', {
       run_id: runId, overall: 'error', failed_stage: stage, msg: result.msg,
     })
@@ -258,7 +269,6 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   const job = jobFile.value
   const fingerprint = fingerprintOfJob(jobFile.raw)
 
-  let state = null
   if (existsSync(statePath)) {
     const stateFile = readJsonFile(statePath)
     if (stateFile.error) return failStage('load', { errorType: 'local_io', msg: `runstate.json 无法解析：${stateFile.error}。保险起见请人工检查 run 目录后继续。` })
@@ -289,14 +299,30 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       run_id: runId,
       suffix,
       job_fingerprint: fingerprint,
-      ops: resolved.map(({ index, op, name }) => ({ index, name, type: op?.type ?? 'unknown', status: 'pending' })),
+      history: [],
+      ops: resolved.map(({ index, op, name }) => ({
+        index,
+        name,
+        type: op?.type ?? 'unknown',
+        status: 'pending',
+        timeout_seconds: opTimeoutOf(op),
+      })),
     }
   } else {
     state.suffix = suffix
     state.job_fingerprint = fingerprint
   }
+  if (!Array.isArray(state.history)) state.history = [] // 旧格式 runstate 无 history
   summary.suffix = suffix
   persist(state)
+
+  // 过程时间线：每条阶段事件带时间戳 append 进 state.history 并原子落盘，
+  // 会话事件 cam/stage 原样照发（卡片折叠语义不变）。
+  const mark = (payload) => {
+    state.history.push({ ts: new Date().toISOString(), ...payload })
+    persist(state)
+    emit('cam/stage', { run_id: runId, ...payload })
+  }
 
   if (isCancelled()) {
     summary.aborted = true
@@ -306,14 +332,14 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   }
 
   // ---- 0. 开工前健康门禁（旧 client.ensure_ready；不靠模型自觉） ------------
-  emit('cam/stage', { run_id: runId, stage: 'ensure_ready' })
+  mark({ stage: 'ensure_ready' })
   const ready = await camPipeline.ensureReady()
   if (ready.status !== 'ok') return failStage('ensure_ready', ready)
 
   // ---- 1. 上传 part（已在盘上则跳过） ---------------------------------------
-  emit('cam/stage', { run_id: runId, stage: 'upload' })
   const st = await camPipeline.stat(job.prt)
   if (st.status !== 'ok') return failStage('upload', st)
+  mark({ stage: 'upload', skipped: st.data?.exists === true || undefined })
   if (st.data?.exists === true) {
     summary.notes.push(`proxy 侧已存在 ${job.prt}，跳过上传。`)
   } else {
@@ -334,7 +360,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   }
 
   // ---- 2. work copy（主模型永不被写；失败即中止） ---------------------------
-  emit('cam/stage', { run_id: runId, stage: 'work_copy' })
+  mark({ stage: 'work_copy' })
   const workPrt = workCopyPathOf(job.prt, suffix)
   let needCopy = true
   if (resume && typeof state.work_copy === 'string' && state.work_copy) {
@@ -363,7 +389,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
 
   // ---- 3. prepare（裸件建 CAM setup；job.json 声明了才做） ------------------
   if (job.prepare?.init_setup && !state.prepared) {
-    emit('cam/stage', { run_id: runId, stage: 'prepare' })
+    mark({ stage: 'prepare' })
     const cfg = typeof job.prepare.init_setup === 'object' && job.prepare.init_setup !== null
       ? job.prepare.init_setup
       : {}
@@ -477,20 +503,21 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     })
   }
 
-  emit('cam/stage', { run_id: runId, stage: 'ops', total: resolved.length })
+  mark({ stage: 'ops', total: resolved.length })
   for (const entry of resolved) {
     const prev = state.ops[entry.index]
     const decision = resume ? resumeDecisionOf(prev?.status) : 'rerun'
     if (decision === 'skip') {
       summary.ops.push({ ...prev, decision: 'skip' })
-      emit('cam/stage', { run_id: runId, stage: 'op', index: entry.index, name: entry.name, status: 'skip' })
+      mark({ stage: 'op', index: entry.index, name: entry.name, status: 'skip' })
       continue
     }
     if (isCancelled()) {
       summary.aborted = true
       break
     }
-    emit('cam/stage', { run_id: runId, stage: 'op', index: entry.index, name: entry.name, action: decision === 'post' ? 'post' : 'full' })
+    mark({ stage: 'op', index: entry.index, name: entry.name, action: decision === 'post' ? 'post' : 'full' })
+    const startedAt = new Date().toISOString()
     const result = decision === 'post'
       ? await postOnly({ op: entry.op, name: prev?.actual_name ?? entry.name })
       : await runOp(entry)
@@ -499,6 +526,10 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       name: entry.name,
       type: entry.op?.type ?? 'unknown',
       status: result.status,
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      // init 条目算好的限时随执行记录走（record 整体覆盖 init 条目）。
+      timeout_seconds: prev?.timeout_seconds ?? opTimeoutOf(entry.op),
       ...(result.actual_name && result.actual_name !== entry.name ? { actual_name: result.actual_name } : {}),
       ...(result.nc_files ? { nc_files: result.nc_files } : {}),
       ...(result.error ? { error: result.error } : {}),
@@ -507,19 +538,20 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     state.ops[entry.index] = record
     persist(state)
     summary.ops.push({ ...record, decision })
-    emit('cam/stage', { run_id: runId, stage: 'op', index: entry.index, name: entry.name, status: result.status })
+    mark({ stage: 'op', index: entry.index, name: entry.name, status: result.status })
   }
 
   if (summary.aborted) {
-    persist(state)
     summary.overall = 'error'
     summary.error = { error_type: 'cancelled', msg: '任务被停止（job_kill）。已完成的工序保留在 runstate，cam_run resume=true 可续跑。' }
+    state.history.push({ ts: new Date().toISOString(), stage: 'aborted', msg: summary.error.msg })
+    persist(state)
     emit('cam/check-report', { run_id: runId, overall: 'error', msg: summary.error.msg })
     return summary
   }
 
   // ---- 5. 收尾自检（v1 最小集合：NC 对账 + 空刀路 fail-closed） -------------
-  emit('cam/stage', { run_id: runId, stage: 'check' })
+  mark({ stage: 'check' })
   const expectedNames = summary.ops
     .filter((o) => o.status === OP_OK)
     .flatMap((o) => (o.nc_files ?? []).map(basenameOf))
@@ -533,6 +565,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   const emptyOps = summary.ops.filter((o) => o.status === OP_EMPTY).map((o) => o.name)
   check.empty_ops = emptyOps
   summary.check = check
+  state.check = { at: new Date().toISOString(), ...check } // 对账结论落盘：时间线尾部数据源
   summary.nc = {
     out_dir: job.out_dir,
     expected: check.expected ?? expectedNames.length,
@@ -572,7 +605,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     empty_ops: emptyOps,
     reason,
   })
-  emit('cam/stage', { run_id: runId, stage: 'done', status: overall })
+  mark({ stage: 'done', status: overall })
   return summary
 }
 

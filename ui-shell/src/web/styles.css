@@ -448,35 +448,29 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0;
-  border: 0;
-  background: transparent;
   color: var(--text);
-  text-align: left;
-  cursor: pointer;
 }
 .camrun-badge {
   flex: none;
   border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 16px;
+  padding: 2px 9px;
+  font-size: 12px;
+  line-height: 17px;
 }
 .camrun-badge-ok { color: var(--added); background: color-mix(in srgb, var(--added) 14%, transparent); }
 .camrun-badge-warn { color: var(--warn); background: var(--warn-bg); }
 .camrun-badge-err { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .camrun-badge-muted { color: var(--caption); background: var(--bg-hover-solid); }
+.camrun-badge-run { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .camrun-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
-.camrun-ops { flex: none; display: flex; align-items: center; gap: 4px; }
-.camrun-ops-empty { color: var(--caption); font-size: 11px; }
 .camrun-op-dot {
   width: 8px;
   height: 8px;
@@ -489,16 +483,29 @@ a { color: inherit; text-decoration: none; }
 .camrun-op-dot[data-status="generated"],
 .camrun-op-dot[data-status="empty"] { background: var(--warn); }
 .camrun-op-dot[data-status="error"] { background: var(--danger); }
-.camrun-toggle { flex: none; color: var(--caption); font-size: 11px; }
-.camrun-head:hover .camrun-toggle { color: var(--text); }
-.camrun-facts { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.camrun-facts > div { min-width: 0; display: flex; align-items: baseline; gap: 5px; font-size: 11px; }
+.camrun-live { margin: 8px 0 0; color: var(--accent); font-size: 12px; line-height: 1.55; }
+.camrun-tl { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.camrun-tl > li { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 13px; }
+.camrun-tl-time { flex: none; color: var(--caption); font-size: 12px; font-variant-numeric: tabular-nums; }
+.camrun-tl-icon { flex: none; width: 13px; text-align: center; }
+.camrun-tl > li[data-tone="ok"] .camrun-tl-icon { color: var(--added); }
+.camrun-tl > li[data-tone="warn"] .camrun-tl-icon { color: var(--warn); }
+.camrun-tl > li[data-tone="err"] .camrun-tl-icon { color: var(--danger); }
+.camrun-tl > li[data-tone="run"] .camrun-tl-icon { color: var(--accent); }
+.camrun-tl > li[data-tone="muted"] .camrun-tl-icon { color: var(--caption); }
+.camrun-tl-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
+.camrun-tl-sub { color: var(--caption); font-size: 12px; }
+.camrun-tl-err { color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+.camrun-section-title { margin: 12px 0 6px; color: var(--muted); font-size: 13px; }
+/* 基本信息区：每行一条，dt/dd 经 display:contents 直接进两列网格，label 列自动对齐。 */
+.camrun-facts { margin: 8px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: 12px; }
+.camrun-facts > div { display: contents; }
 .camrun-facts dt { color: var(--caption); }
 .camrun-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-.camrun-note { margin: 8px 0 0; color: var(--caption); font-size: 11px; line-height: 1.55; }
-.camrun-warn { margin: 8px 0 0; color: var(--warn); font-size: 11px; line-height: 1.55; }
+.camrun-note { margin: 8px 0 0; color: var(--caption); font-size: 12px; line-height: 1.55; }
+.camrun-warn { margin: 8px 0 0; color: var(--warn); font-size: 12px; line-height: 1.55; }
 .camrun-files { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
-.camrun-file { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.camrun-file { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
 .camrun-file-name {
   flex: 1;
   min-width: 0;
@@ -514,28 +521,26 @@ a { color: inherit; text-decoration: none; }
   padding: 0;
   background: transparent;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
 }
 .camrun-file-actions button:disabled { color: var(--caption); cursor: default; }
-.camrun-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-.camrun-detail h4 { margin: 12px 0 6px; color: var(--muted); font-size: 12px; }
 .camrun-op-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.camrun-op-list li { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 12px; }
+.camrun-op-list li { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 13px; }
 .camrun-op-list .camrun-op-dot { align-self: center; }
 .camrun-op-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.camrun-op-status { flex: none; color: var(--caption); font-size: 11px; }
-.camrun-op-error { flex: none; max-width: 100%; color: var(--danger); font-size: 11px; overflow-wrap: anywhere; }
+.camrun-op-status { flex: none; color: var(--caption); font-size: 12px; }
+.camrun-op-error { flex: none; max-width: 100%; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
 .camrun-viewer { margin-top: 10px; }
-.camrun-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 11px; color: var(--caption); }
+.camrun-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--caption); }
 .camrun-viewer-head button {
   border: 0;
   padding: 0;
   background: transparent;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
@@ -547,7 +552,7 @@ a { color: inherit; text-decoration: none; }
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 /* —— 文件预览弹层（shell.overlay；压过官方 Modal 默认 380px 卡片） —— */

@@ -435,6 +435,32 @@ export interface CamRunJobBrief {
   operations: { index: number; type: string | null; new_name: string | null; template: string | null }[]
 }
 
+/** runstate.history 条目：cam_run 过程时间线（每阶段一条，op 有起/止两条）。 */
+export interface CamRunHistoryEntry {
+  ts: string
+  stage: string // ensure_ready/upload/work_copy/prepare/ops/op/check/done/failed/aborted
+  index?: number
+  name?: string
+  action?: 'post' | 'full'
+  status?: string
+  total?: number
+  skipped?: boolean
+  failed_stage?: string
+  msg?: string
+}
+
+/** runstate.check：cam_run 收尾自检结论（NC 对账 + 空刀路）。 */
+export interface CamRunCheck {
+  at?: string
+  listing_ok?: boolean
+  expected?: number
+  found?: number
+  missing?: string[]
+  total_nc_in_dir?: number
+  empty_ops?: string[]
+  msg?: string
+}
+
 /** runstate.json 全文原样透传，这里只钉住页签消费的字段。 */
 export interface CamRunstate {
   run_id: string
@@ -442,14 +468,19 @@ export interface CamRunstate {
   job_fingerprint?: string
   updated_at?: string
   work_copy?: string
+  history?: CamRunHistoryEntry[]
+  check?: CamRunCheck
   ops?: {
     index: number
     name: string
     type: string
-    status: 'ok' | 'generated' | 'empty' | 'error'
+    status: 'pending' | 'ok' | 'generated' | 'empty' | 'error'
     nc_files?: string[]
     error?: string
     actual_name?: string
+    started_at?: string
+    finished_at?: string
+    timeout_seconds?: number
   }[]
 }
 
