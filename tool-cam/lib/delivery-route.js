@@ -57,7 +57,8 @@ function basenameOf(p) {
 // 最小 ZIP 读取（中央目录 + 本地头）：与 deliver.js 的 zipEntryNames 同源纪律——
 // X-CAM-Files 头不可信、条目实数以包内结构为准。只支持 method 0（stored）与
 // 8（deflate）；ZIP64/加密包不支持（NC 包量级到不了，遇到按 500 报错，不静默）。
-function readZipEntry(bytes, wantName) {
+// deliver.js 复用本函数把 NC 开包落进会话工作区（导出）。
+export function readZipEntry(bytes, wantName) {
   const EOCD_SIG = 0x06054b50
   const CDIR_SIG = 0x02014b50
   const LOCAL_SIG = 0x04034b50

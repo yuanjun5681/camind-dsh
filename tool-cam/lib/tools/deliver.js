@@ -16,8 +16,10 @@
 //      生成，结论章节如实写未决项；
 //   3. setup_sheet.md（machine_snapshot + job 渲染：机床号/夹具与工件坐标系/
 //      冻结刀库引用/后处理器/转速进给上限/工序顺序）；
-//   4. 交付三件套镜像进会话工作区 delivery/<run_id>/（设计稿 §3 决策 4「会话
-//      工作区只放当次交付物」；best-effort，失败不影响交付本体）——官方
+//   4. 交付物镜像进会话工作区 delivery/<run_id>/（设计稿 §3 决策 4「会话
+//      工作区只放当次交付物」；best-effort，失败不影响交付本体）：三件套 +
+//      nc/ 目录（.nc 从校验过的 zip 实数开包落盘——NC 程序本身是核心交付物，
+//      应可单文件预览/打开；zip 仍是传输正本，run 目录不重复落盘）——官方
 //      deliverables 投影靠本工具的 presentCall（generic/edit + locations）
 //      把它们收进会话「交付物」页签，ui-shell 文件预览以会话工作区为界；
 //   5. 返回交付摘要（文件清单/路径/overall/中文建议）。
@@ -30,10 +32,11 @@
 // 传输级失败（连不上/sha256 不符/zip 开不了包）一律 error 返回且不落盘任何
 // 文件（fail-closed）；只有「回收成功但内容/终态不符」才出包并标 incomplete。
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { resolveRunDir } from '../gate.js'
+import { readZipEntry } from '../delivery-route.js'
+import { resolveRunDir, RUN_ID_PATTERN } from '../gate.js'
 import { buildDeliveryReport, buildSetupSheet, opStatusCn } from '../report.js'
 import { overallOf, reconcileNc } from './run.js'
 import { safeSessionId } from './survey.js'
@@ -91,6 +94,34 @@ export function zipEntryNames(bytes) {
 // 交付三件套（run 目录 delivery/ 与会话工作区镜像共用同一份相对布局；
 // client bundle 的交付卡与 presentCall 的 locations 都以此为准）。
 const DELIVERY_FILES = ['nc_batch.zip', 'delivery_report.md', 'setup_sheet.md']
+
+const SAFE_NC_NAME = /^[A-Za-z0-9._-]+\.nc$/i
+
+// presentCall 只有 args（无 exec/session 上下文）：runId 唯一（时间戳+件号），
+// 跨 session 目录扫唯一匹配读 runstate 的 ok 工序 NC 名，把 nc/<name> 声明进
+// locations；找不到/多找/读不出都退化为只声明三件套（执行侧按 zip 实数展开，
+// 声明与落盘的差异沿用「文件不存在」如实显示的既有取舍）。
+export function presentableNcNames(runId) {
+  try {
+    if (!RUN_ID_PATTERN.test(runId)) return []
+    const dshHome = process.env.DSH_HOME
+    if (!dshHome) return []
+    const root = path.join(dshHome, 'cam-runs')
+    const hits = readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && existsSync(path.join(root, e.name, runId)))
+      .map((e) => path.join(root, e.name, runId))
+    if (hits.length !== 1) return []
+    const state = JSON.parse(readFileSync(path.join(hits[0], 'runstate.json'), 'utf8'))
+    return [...new Set(
+      (Array.isArray(state?.ops) ? state.ops : [])
+        .filter((o) => o?.status === 'ok')
+        .flatMap((o) => (Array.isArray(o?.nc_files) ? o.nc_files : []).map(basenameOf))
+        .filter((name) => SAFE_NC_NAME.test(name)),
+    )]
+  } catch {
+    return []
+  }
+}
 
 // 整条交付流程。返回 summary 对象（工具层 json() 后给模型）；任何失败都归一成
 // 中文可行动的 error 对象，不向模型抛异常栈。
@@ -215,6 +246,15 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
       for (const name of DELIVERY_FILES) {
         copyFileSync(path.join(deliveryDir, name), path.join(targetDir, name))
       }
+      // NC 开包落 nc/：NC 程序本身是核心交付物，工作区里应可单文件预览/打开。
+      // 字节来自 sha256 已校验的 zip（readZipEntry 按条目名开包，32 MiB 上限）。
+      const ncDir = path.join(targetDir, 'nc')
+      mkdirSync(ncDir, { recursive: true })
+      for (const name of ncNamesInZip) {
+        const content = readZipEntry(zipped.data.bytes, name)
+        if (content !== null && SAFE_NC_NAME.test(name)) writeFileSync(path.join(ncDir, name), content)
+      }
+      summary.nc.workspace_extracted = ncNamesInZip.length
       workspaceRel = rel
       summary.workspace_dir = rel
     } catch (error) {
@@ -269,7 +309,10 @@ export function registerCamDeliver(ctx, camPipeline) {
         card: 'generic',
         title: `cam_deliver 交付打包（${runId}）`,
         kind: 'edit',
-        locations: DELIVERY_FILES.map((name) => ({ path: `delivery/${runId}/${name}` })),
+        locations: [
+          ...DELIVERY_FILES.map((name) => ({ path: `delivery/${runId}/${name}` })),
+          ...presentableNcNames(runId).map((name) => ({ path: `delivery/${runId}/nc/${name}` })),
+        ],
       }
     },
     async execute(args, exec) {
