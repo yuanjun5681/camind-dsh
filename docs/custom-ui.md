@@ -61,12 +61,12 @@
 
 URL 归位由 `OfficialSidebar.tsx` 的单个仲裁 effect 负责：侧栏打开已有会话 → `/s/:id`；空白新会话 → `/`；首条消息把空白会话变成已有会话（id 不变、只翻 `blank`）时，自动从 `/` 归位到 `/s/:id`——少了这一跳，提交后会停在 `/`，Workbench（只在 `/s/:id` 子布局）永远不会出现。
 
-Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物。输入页签展示会话工作目录、运行状态与本次上传文件；交付物页签列出会话轮次产出的文件，点击在全局 `FilePreviewOverlay`（`shell.overlay`）预览。全局 `DiffOverlay`（代码对比，分栏/统一）也挂在 `shell.overlay`，任意界面可通过 `diffOverlayActions` 或 `window.__camindDiff__` 打开同一组件。
+Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物。输入页签展示会话工作目录、运行状态与本次上传文件；交付物页签列出会话轮次产出的文件。工作台各「预览」入口（交付物/加工/输入区文件列表）经 `previewClient` 桥调用 camind-ui-preview 插件的 `filePreview` 服务：目标文件写入插件预览态并切到主对话区的「预览」标签页（插件注册进官方 `conversation.view`，跟在「对话」「轨迹」之后；预览数据走插件自己的 Host 路由 `/camind/api/preview/sessions/<id>/file`）。全局 `DiffOverlay`（代码对比，分栏/统一）挂在 `shell.overlay`，任意界面可通过 `diffOverlayActions` 或 `window.__camindDiff__` 打开同一组件。
 
 其余 slot：
 
 - conversation 子 slot（官方定义，ui-shell 以 inject 方式注册业务扩展）：`conversation.input.left`（文件上传按钮；所有模式使用 DSH_HOME 会话隔离批次，ZIP 自动解压）、`conversation.input.dock`（待发送文件附件 rail 与拖拽分流器的生命周期锚点；组件通过 portal 落在官方 Composer 卡片内、textarea 上方，不污染 draft；图片继续桥接官方图片草稿）、`conversation.chat.turnTail`。
-- `shell.overlay`：ui-shell 挂 `FilePreviewOverlay`（全屏级文件预览）与 `DiffOverlay`（全局代码对比，工作台只是调用方）。
+- `shell.overlay`：ui-shell 挂 `DiffOverlay`（全局代码对比，工作台只是调用方）。
 - sidebar 子 slot（ui-sidebar 声明）：`sidebar.brand.mark` / `sidebar.brand.name` 是 0.1.1 起的上游原生席位；`sidebar.workspaces`、`sidebar.settings` 沿用官方契约，owner props 刻意保持不变；`sidebar.footer.action` 是官方 list 席位，owner props 本地扩展为 `{ wide, pathname, navigate }`（官方契约的超集，存量插件忽略多余字段），类型靠 `declare module` 增广，见 `ui-sidebar/src/client/contract/slots.ts`。
 - 侧栏最底部是账号行（ui-sidebar 本地改动）：flex between 布局，左侧用户块（本地无账号体系，固定显示名 `user`，首字母圆形头像 + 名字），右侧 `sidebar.settings`——固定以 `wide: false` 传给官方 occupant，使其渲染 36px 圆形纯图标 trigger 而非整行带标签按钮；折叠 rail 下只保留该图标，与官方行为一致。
 

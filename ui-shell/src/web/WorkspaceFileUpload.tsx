@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { DropOverlay } from '../../vendor/dsh-client-ui-attachment/src/DropOverlay'
 import type { UploadedFile } from '@shared/protocol'
 import { api } from './api'
+import { previewFile } from './previewClient'
 import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'
 
 const MAX_UPLOAD_FILES = 32
@@ -403,7 +404,7 @@ export function WorkspaceUploadDock({
                 type="button"
                 className="workspace-upload-attachment-preview"
                 title={`预览 ${file.name}`}
-                onClick={() => workbenchActions.preview(sessionId, file.path)}
+                onClick={() => previewFile(sessionId, file.path)}
               >
                 <span className="workspace-upload-attachment-icon" aria-hidden="true">▤</span>
                 <span className="workspace-upload-attachment-name">{file.name}</span>

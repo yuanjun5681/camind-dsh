@@ -12,7 +12,6 @@ import type {
   CredentialView,
   DiscoveredModel,
   FsListing,
-  FilePreview,
   GitWorkspaceStatus,
   LlmProviderConfig,
   ModelCatalog,
@@ -137,10 +136,6 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify(body),
     }),
-  previewFile: (id: string, path: string) =>
-    request<FilePreview>(`/sessions/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`),
-  rawFileUrl: (id: string, path: string) =>
-    `/camind/api/sessions/${encodeURIComponent(id)}/file?raw=1&path=${encodeURIComponent(path)}`,
   gitStatus: (id: string) =>
     request<GitWorkspaceStatus>(`/sessions/${encodeURIComponent(id)}/git`),
   clientPlugins: () => request<ClientPluginGraph>('/client-plugins'),

@@ -27,8 +27,10 @@
 //
 // 后台执行：整条流程包进 ctx.jobs 后台任务（kind cam-run），工具立即返回
 // {status:'accepted', job_id}，完成时平台自动叫醒模型，job_output 可读最终
-// 汇总；jobs 服务不可用时退化同步执行。阶段切换与自检结论写 session 事件
-// cam/stage 与 cam/check-report（持久、可回放）。
+// 汇总；jobs 服务不可用时退化同步执行。过程时间线落 runstate.history（见上）；
+// 不写会话事件——dsh-session-persistence 拒绝重载含未知且未标 ignorable 事件
+// 类型的会话（append() 无 ignorable 形参、0.1.1-rc.2 无注册面），cam/* 会话
+// 事件（cam/stage、cam/check-report）已于 2026-08-26 实证事故后停发。
 //
 // 高风险声明核对不在这里——见 lib/gate.js 的 tools/pre-execute 闸门（本工具
 // 被执行即说明闸门已放行）。
@@ -225,7 +227,7 @@ function basenameOf(p) {
 
 // 整条执行流程（后台 job 的 run 体 / 退化同步执行共用）。任何阶段失败都
 // 汇总成中文可行动的 summary（overall=error），不向模型抛异常栈。
-export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHome, emit, isCancelled }) {
+export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHome, isCancelled }) {
   const statePath = path.join(runDir, 'runstate.json')
   const summary = {
     status: 'ok',
@@ -252,14 +254,11 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     }
     summary.advice.push(extraAdvice ?? adviceOf(result))
     // 失败也进时间线（过程视图要知道死在哪一步）；state 尚未建立的读盘期
-    // 失败没有 run 可记，跳过。会话卡由下面的 cam/check-report 收尾。
+    // 失败没有 run 可记，跳过。
     if (state && Array.isArray(state.history)) {
       state.history.push({ ts: new Date().toISOString(), stage: 'failed', failed_stage: stage, msg: result.msg })
       persist(state)
     }
-    emit('cam/check-report', {
-      run_id: runId, overall: 'error', failed_stage: stage, msg: result.msg,
-    })
     return summary
   }
 
@@ -316,12 +315,10 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   summary.suffix = suffix
   persist(state)
 
-  // 过程时间线：每条阶段事件带时间戳 append 进 state.history 并原子落盘，
-  // 会话事件 cam/stage 原样照发（卡片折叠语义不变）。
+  // 过程时间线：每条阶段事件带时间戳 append 进 state.history 并原子落盘。
   const mark = (payload) => {
     state.history.push({ ts: new Date().toISOString(), ...payload })
     persist(state)
-    emit('cam/stage', { run_id: runId, ...payload })
   }
 
   if (isCancelled()) {
@@ -546,7 +543,6 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     summary.error = { error_type: 'cancelled', msg: '任务被停止（job_kill）。已完成的工序保留在 runstate，cam_run resume=true 可续跑。' }
     state.history.push({ ts: new Date().toISOString(), stage: 'aborted', msg: summary.error.msg })
     persist(state)
-    emit('cam/check-report', { run_id: runId, overall: 'error', msg: summary.error.msg })
     return summary
   }
 
@@ -596,15 +592,6 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     }
   }
   persist(state)
-  emit('cam/check-report', {
-    run_id: runId,
-    overall,
-    expected_nc: summary.nc.expected,
-    found_nc: summary.nc.found,
-    missing: check.missing ?? [],
-    empty_ops: emptyOps,
-    reason,
-  })
   mark({ stage: 'done', status: overall })
   return summary
 }
@@ -657,14 +644,6 @@ export function registerCamRun(ctx, camPipeline) {
         })
       }
 
-      const session = exec?.agent?.session
-      const emit = (type, payload) => {
-        try {
-          session?.append(type, payload)
-        } catch {
-          // 会话事件是观测面，session 拆离等失败不得影响执行本体。
-        }
-      }
       const labelFile = readJsonFile(path.join(runDir, 'job.json'))
       const partId = labelFile.value?.part_id ?? runId
 
@@ -686,7 +665,7 @@ export function registerCamRun(ctx, camPipeline) {
                 cancelled = true
               },
               done: executeCamRun({
-                camPipeline, runDir, runId, resume, dshHome, emit, isCancelled: () => cancelled,
+                camPipeline, runDir, runId, resume, dshHome, isCancelled: () => cancelled,
               })
                 .then((summary) => (summary.aborted
                   ? { status: 'killed', detail: 'job_kill 停止', output: json(summary) }
@@ -712,7 +691,7 @@ export function registerCamRun(ctx, camPipeline) {
       activeRun = runId
       try {
         const summary = await executeCamRun({
-          camPipeline, runDir, runId, resume, dshHome, emit, isCancelled: () => false,
+          camPipeline, runDir, runId, resume, dshHome, isCancelled: () => false,
         })
         summary.notes.push('jobs 服务不可用，本次为前台同步执行（无 job_id，完成即返回）。')
         return json(summary)

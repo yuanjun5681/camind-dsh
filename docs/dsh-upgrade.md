@@ -47,5 +47,6 @@ dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧
 - vendor 快照与 ui-sidebar 是**人工维护**的上游源码复制，sync 脚本只校验不更新；升级漏了这两处会在 check 阶段报出来。
 - ui-home 用结构选择器 CSS 隐藏官方 HeroShell（锚点 `[data-phase="hero"]`/`[data-composer-seat]`/`[data-chain-overlay-fallback]`，见 `ui-home/lib/client.js` 头注释）。升级后冒烟时确认新会话页 `/` 不再出现官方鱼标/「探索未至之境」/预览徽章；官方 hero 的 DOM 结构若变，需同步该选择器。
 - ui-home 另有一条 hero 阶段 `[data-conversation-scroll]` 的 `overflow: visible` 覆盖：官方斜杠菜单/popupSelect 从 composer 向上展开（底部锚定 absolute，最高 320px），首页布局里 hero 滚动容器只有 composer 栈那么高，`overflow-y: auto` 会把弹层剪到只剩一行。升级后冒烟时在 `/` 输入 `/` 确认命令列表完整浮在示例卡片上方；官方若改弹层定位或滚动容器结构，需复核该规则。
+- 「预览」标签页（camind-ui-preview 插件，注册进官方 `conversation.view` id=preview）的切页动作走官方未公开内部面：`slots.hostFace().storeOf(chat 视图 entry, sessionId).actions.setView('preview')`（`ui-preview/lib/client.js`，防御式降级——失效时不切页但 tab 仍在）。升级后冒烟时点一次「预览」确认自动切到「预览」标签；若官方公开了切页 API 或 chatStore 结构变了，同步该处。另有一条同文件内的结构选择器 `[data-phase]:has(.campv-view) [data-composer-seat]`（预览 tab 激活时隐藏底部 composer 输入组件）：官方 conversation 根/composer 的 DOM 结构或 data 锚点若变，需复核该规则。
 - 升级不要重跑 `npm run init`：init 只负责新检出的环境重建（profile、skills symlink、ui-shell 构建），版本变化按上面步骤执行；完成后日常运行仍是 `node scripts/dsh.mjs web`。
 - 升级后先用 `--dump-config` 快速验证组合，再考虑重建 `.dsh/` 数据（磁盘格式可能不兼容）。

@@ -533,45 +533,8 @@ a { color: inherit; text-decoration: none; }
 .camrun-op-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .camrun-op-status { flex: none; color: var(--caption); font-size: 12px; }
 .camrun-op-error { flex: none; max-width: 100%; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
-.camrun-viewer { margin-top: 10px; }
-.camrun-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--caption); }
-.camrun-viewer-head button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-.camrun-nc-raw {
-  max-height: 240px;
-  overflow: auto;
-  margin: 0;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-/* —— 文件预览弹层（shell.overlay；压过官方 Modal 默认 380px 卡片） —— */
+/* —— 文件预览壳（DiffOverlay 复用；「预览」标签页本体在 camind-ui-preview 插件，自带样式） —— */
 
-body > div:has(> .file-preview-dialog) {
-  padding: 8px;
-  align-items: stretch;
-}
-.file-preview-dialog.file-preview-dialog {
-  width: 100%;
-  height: auto;
-  max-width: none;
-  min-height: 0;
-  flex: 1;
-  align-self: stretch;
-  gap: 0;
-  padding: 0;
-  border-radius: 12px;
-}
 .file-preview-chrome {
   display: flex;
   flex-direction: column;

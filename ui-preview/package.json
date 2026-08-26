@@ -1,0 +1,25 @@
+{
+  "name": "camind-ui-preview",
+  "version": "0.1.0",
+  "description": "会话内容预览：Host 会话文件预览路由 + 主对话区「预览」标签页（conversation.view id=preview）+ filePreview 客户端服务（他插件的预览入口）。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

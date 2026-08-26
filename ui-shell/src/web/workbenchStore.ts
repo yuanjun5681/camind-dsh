@@ -1,7 +1,8 @@
 /**
- * ui-shell 工作台与文件预览弹层的轻量外部状态。
+ * ui-shell 工作台的轻量外部状态。
  * 会话事实仍归官方 runtime；这里只保存纯展示状态，不复制 conversation store。
- * preview 只驱动 shell.overlay 里的弹层，不切换工作台 tab、不强制打开工作台。
+ * 内容预览（预览态 + 切页）已拆到 camind-ui-preview 插件，ui-shell 各预览
+ * 按钮经 previewClient 桥调用其 filePreview 服务。
  */
 import type { CamRunSummary, WorkspaceFile, WorkspaceUploadBatch } from '@shared/protocol'
 
@@ -10,7 +11,6 @@ export type WorkbenchTab = 'input' | 'deliverables' | 'cam'
 export interface WorkbenchSnapshot {
   open: boolean
   tab: WorkbenchTab
-  preview?: { sessionId: string; path: string }
   uploads: Readonly<Record<string, readonly WorkspaceFile[]>>
   pendingUploads: Readonly<Record<string, readonly WorkspaceUploadBatch[]>>
   deliverables: Readonly<Record<string, readonly string[]>>
@@ -96,12 +96,5 @@ export const workbenchActions = {
       ...snapshot,
       camRuns: { ...snapshot.camRuns, [sessionId]: [...runs] },
     })
-  },
-  preview(sessionId: string, path: string) {
-    publish({ ...snapshot, preview: { sessionId, path } })
-  },
-  closePreview() {
-    if (!snapshot.preview) return
-    publish({ ...snapshot, preview: undefined })
   },
 }

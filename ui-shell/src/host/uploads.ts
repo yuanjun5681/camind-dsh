@@ -23,7 +23,6 @@ import { Unzip, UnzipInflate } from 'fflate'
 export const DSH_HOME = process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh')
 export const UPLOADS_ROOT = path.join(DSH_HOME, 'uploads')
 export const UPLOAD_BATCH_RE = /^upload-[A-Za-z0-9_-]+$/
-export const UPLOAD_REF_RE = /^upload:\/\/(upload-[A-Za-z0-9_-]+)\/(.+)$/
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const MAX_UPLOAD_FILES = 32
@@ -445,22 +444,4 @@ export function consumePendingUploadBatches(sessionId: string, batchIds: readonl
     if (!UPLOAD_BATCH_RE.test(batchId)) continue
     rmSync(path.join(sessionDir, batchId, PENDING_MARKER), { force: true })
   }
-}
-
-export async function resolveUploadReference(sessionId: string, requested: string) {
-  const match = UPLOAD_REF_RE.exec(requested)
-  if (!match) return null
-  const [, batchId, rawRelative] = match
-  const relative = rawRelative.includes('/') ? rawRelative : `files/${rawRelative}`
-  const normalized = path.posix.normalize(relative.replace(/\\/g, '/'))
-  if (normalized === '..' || normalized.startsWith('../') || path.posix.isAbsolute(normalized)) {
-    throw new Error('上传文件引用超出当前批次')
-  }
-  const batchDir = path.join(UPLOADS_ROOT, safeSessionId(sessionId), batchId)
-  const candidate = path.join(batchDir, ...normalized.split('/'))
-  const rootInfo = await stat(batchDir)
-  if (!rootInfo.isDirectory()) throw new Error(`上传批次不存在：${batchId}`)
-  const info = await stat(candidate)
-  if (!info.isFile()) throw new Error('上传引用不是文件')
-  return { root: batchDir, file: candidate, relative: requested }
 }

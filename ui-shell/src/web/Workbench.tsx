@@ -6,7 +6,8 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { api } from './api'
 import { CamRuns } from './CamRuns'
-import { bytesLabel, fileDirFromPath, fileNameFromPath } from './FilePreviewBody'
+import { bytesLabel, fileDirFromPath, fileNameFromPath } from './format'
+import { previewFile } from './previewClient'
 import {
   getWorkbenchSnapshot,
   subscribeWorkbench,
@@ -84,7 +85,7 @@ export function Workbench({ session }: { session?: WorkbenchSession }) {
             {uploads.length === 0 ? <Empty>尚未通过 Composer 上传文件。</Empty> : (
               <div className="workbench-file-list">
                 {uploads.map((file) => (
-                  <button type="button" key={file.path} onClick={() => workbenchActions.preview(sessionId, file.path)}>
+                  <button type="button" key={file.path} onClick={() => previewFile(sessionId, file.path)}>
                     <span>{file.name}</span><small>{bytesLabel(file.size)}</small>
                   </button>
                 ))}
@@ -106,7 +107,7 @@ export function Workbench({ session }: { session?: WorkbenchSession }) {
                       className="workbench-deliverable"
                       title={path}
                       key={path}
-                      onClick={() => workbenchActions.preview(sessionId, path)}
+                      onClick={() => previewFile(sessionId, path)}
                     >
                       <span className="workbench-deliverable-name">{name}</span>
                       {dir ? <span className="workbench-deliverable-dir">{dir}/</span> : null}

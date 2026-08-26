@@ -16,7 +16,7 @@ import { api } from './api'
 import { layoutShim } from './officialLayout'
 import { OfficialSlotRoot } from './OfficialSlotRoot'
 import { DeliverableFiles, selectPreviewableDeliverables } from './DeliverableFiles'
-import { FilePreviewOverlay } from './FilePreviewOverlay'
+import { bindPreviewClient } from './previewClient'
 import { DiffOverlay } from './DiffOverlay'
 import {
   WorkspaceFileUploadButton,
@@ -115,6 +115,9 @@ const customShell = {
   inject: ['slots', 'layout', 'sessions'],
   apply(ctx: ClientContext) {
     const slots = (ctx as OfficialClient).slots
+    // 内容预览入口桥：预览本体在 camind-ui-preview 插件（路由 + 「预览」标签页），
+    // 本壳各「预览」按钮经 previewClient 转发其 filePreview 服务。
+    bindPreviewClient(ctx)
     slots.register({
       name: 'root',
       priority: -1,
@@ -179,12 +182,6 @@ const customShell = {
       priority: -100,
       select: selectPreviewableDeliverables as (owner: never) => unknown,
     }, DeliverableFiles))
-
-    slots.inject('shell.overlay', () => slots.register({
-      name: 'shell.overlay',
-      id: 'file-preview',
-      order: 10,
-    }, FilePreviewOverlay))
 
     slots.inject('shell.overlay', () => slots.register({
       name: 'shell.overlay',

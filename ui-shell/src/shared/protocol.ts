@@ -198,17 +198,6 @@ export interface RemovePendingWorkspaceUploadRequest {
   path: string
 }
 
-export interface FilePreview {
-  path: string
-  name: string
-  size: number
-  mediaType: string
-  kind: 'text' | 'image' | 'pdf' | 'binary'
-  /** 仅 text 预览返回；其余类型走受 session cwd 约束的 raw URL。 */
-  text?: string
-  truncated?: boolean
-}
-
 export interface GitFileStatus {
   path: string
   status: string

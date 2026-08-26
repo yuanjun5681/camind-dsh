@@ -20,9 +20,10 @@
 //      工作区只放当次交付物」；best-effort，失败不影响交付本体）——官方
 //      deliverables 投影靠本工具的 presentCall（generic/edit + locations）
 //      把它们收进会话「交付物」页签，ui-shell 文件预览以会话工作区为界；
-//   5. append cam/delivered 会话事件（交付包清单 + delivery 目录 + overall +
-//      nc_files 开包实数名 + workspace_dir 工作区相对目录）；
-//   6. 返回交付摘要（文件清单/路径/overall/中文建议）。
+//   5. 返回交付摘要（文件清单/路径/overall/中文建议）。
+// 不写会话事件——dsh-session-persistence 拒绝重载含未知且未标 ignorable
+// 事件类型的会话（0.1.1-rc.2 无注册面），cam/delivered 已于 2026-08-26 实证
+// 事故后停发；交付事实以 run 目录 delivery/ 留档为准。
 // 刀路查看器本体不在本插件（P3 起独立插件 camind-ui-toolpath-viewer，经
 // client bundle 的 keyed slot cam.nc.preview 弱耦合接入），报告备注里写明。
 //
@@ -95,7 +96,7 @@ const DELIVERY_FILES = ['nc_batch.zip', 'delivery_report.md', 'setup_sheet.md']
 // 中文可行动的 error 对象，不向模型抛异常栈。
 // workspaceDir：会话工作区绝对路径（exec.agent.session.header.cwd），可空——
 // 为空则跳过工作区镜像（交付本体不受影响）。
-export async function executeCamDeliver({ camPipeline, runDir, runId, note, emit, workspaceDir }) {
+export async function executeCamDeliver({ camPipeline, runDir, runId, note, workspaceDir }) {
   const fail = (stage, result, advice) => ({
     status: 'error',
     stage,
@@ -223,16 +224,6 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, emit
     summary.notes.push('会话无工作目录，交付物未镜像进会话工作区（「交付物」页签不可见）；run 目录 delivery/ 留档完整。')
   }
 
-  // ---- 7. 事件 ---------------------------------------------------------------
-  emit('cam/delivered', {
-    run_id: runId,
-    overall,
-    delivery_dir: deliveryDir,
-    files: summary.files.map((f) => ({ ...f })),
-    nc_files: ncNamesInZip,
-    ...(workspaceRel !== null ? { workspace_dir: workspaceRel } : {}),
-  })
-
   const notOk = stateOps.filter((o) => o?.status !== 'ok')
   if (overall === 'ok') {
     summary.advice.push('交付包三件齐备且对账一致（nc_batch.zip / delivery_report.md / setup_sheet.md）。请人工核对报告与设定单后交付车间；NC 上真机前须人工签字放行。')
@@ -297,18 +288,10 @@ export function registerCamDeliver(ctx, camPipeline) {
         return json({ status: 'error', stage: 'args', msg: `run 目录 ${runDir} 缺 runstate.json——本 run 还没执行过。请先调用 cam_run 跑完，再 cam_deliver 交付。` })
       }
 
-      const session = exec?.agent?.session
-      const emit = (type, payload) => {
-        try {
-          session?.append(type, payload)
-        } catch {
-          // 会话事件是观测面，session 拆离等失败不得影响交付本体。
-        }
-      }
       // 会话工作区（交付物镜像目标）；无工作目录的会话（headless 等）传 null。
-      const cwd = session?.header?.cwd
+      const cwd = exec?.agent?.session?.header?.cwd
       const workspaceDir = typeof cwd === 'string' && cwd ? cwd : null
-      return json(await executeCamDeliver({ camPipeline, runDir, runId, note, emit, workspaceDir }))
+      return json(await executeCamDeliver({ camPipeline, runDir, runId, note, workspaceDir }))
     },
   })
 }

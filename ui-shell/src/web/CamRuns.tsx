@@ -9,15 +9,12 @@
  * 组件只在页签激活时挂载：列表 5s 轮询；详情随 updated_at 前移重拉；执行中的
  * 卡片 1s 走表刷新「已运行」。
  *
- * 刀路查看器接线：camind-ui-toolpath-viewer 把渲染器注册进 keyed slot
- * `cam.nc.preview`（key `toolpath-viewer`，owner props { content, fileName }）。
- * 本组件直接读 slot 注册表（entriesOfSlot + subscribe）拿到组件并渲染——ui-shell
- * 是 slot runtime 的宿主且与官方 bundle 共享同一 React 实例（dsh-client-web 静态表
- * 经 Vite dedupe 与壳内 react 同源），ToolpathViewer 只消费 owner props（无
- * inject/store/locale 席位），绕过官方 renderer 的 standard-kit 注入无损失；
- * 席位声明仍在 tool-cam 交付卡（本组件不重复声明——slot 系统对重复声明抛错）。
+ * 「查看刀路」已迁入 camind-ui-preview（2026-08-26）：按钮经 delivery 路由取
+ * NC 文本后调 previewClient.previewContent，「预览」标签页渲染刀路（NC 查看器
+ * 席位 cam.nc.preview 与该插件声明，camind-ui-toolpath-viewer 注册）；本组件
+ * 不再内嵌查看器。
  */
-import { useEffect, useState, useSyncExternalStore, type ComponentType } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type {
   CamRunDetail,
   CamRunHistoryEntry,
@@ -26,11 +23,9 @@ import type {
   CamRunstate,
 } from '@shared/protocol'
 import { api } from './api'
-import { bytesLabel } from './FilePreviewBody'
-import { getOfficialClient } from './officialClient'
+import { bytesLabel } from './format'
+import { previewContent, previewFile } from './previewClient'
 import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'
-
-type ToolpathViewerComponent = ComponentType<{ content: string; fileName?: string }>
 
 const OVERALL_VIEW: Record<CamRunOverall, { label: string; modifier: string }> = {
   ok: { label: '通过', modifier: 'ok' },
@@ -102,33 +97,10 @@ function useNow(intervalMs: number | null): number {
   return now
 }
 
-/** 读 slot 注册表拿刀路查看器组件；未注册（插件缺席/未加载完）返回 null。 */
-function useToolpathViewer(): ToolpathViewerComponent | null {
-  const [component, setComponent] = useState<ToolpathViewerComponent | null>(null)
-  useEffect(() => {
-    const client = getOfficialClient()
-    if (!client) return
-    const update = () => {
-      const entry = client.slots
-        .entriesOfSlot('cam.nc.preview')
-        .find((item) => item.options?.key === 'toolpath-viewer')
-      setComponent(() => (entry?.component as ToolpathViewerComponent | undefined) ?? null)
-    }
-    update()
-    return client.slots.subscribe('cam.nc.preview', update)
-  }, [])
-  return component
-}
-
 type DetailState =
   | { phase: 'loading' }
   | { phase: 'ready'; detail: CamRunDetail }
   | { phase: 'error'; message: string }
-
-type NcViewerState =
-  | { fileName: string; phase: 'loading' }
-  | { fileName: string; phase: 'ready'; content: string }
-  | { fileName: string; phase: 'error'; message: string }
 
 type TimelineRow =
   | { key: string; kind: 'stage'; ts: string; stage: string; status?: string; total?: number; skipped?: boolean; failedStage?: string; msg?: string }
@@ -222,7 +194,7 @@ function DeliveryFileRow({ sessionId, runId, file }: { sessionId: string; runId:
           <button
             type="button"
             title="预览会话工作区镜像（镜像缺失时会报文件不存在，可改用下载）"
-            onClick={() => workbenchActions.preview(sessionId, `delivery/${runId}/${file.name}`)}
+            onClick={() => previewFile(sessionId, `delivery/${runId}/${file.name}`)}
           >
             预览
           </button>
@@ -230,6 +202,35 @@ function DeliveryFileRow({ sessionId, runId, file }: { sessionId: string; runId:
         <a href={api.camDeliveryFileUrl(sessionId, runId, file.name)}>下载</a>
       </span>
     </div>
+  )
+}
+
+/** 「查看刀路」按钮：取 NC 文本 → 预览 tab（camind-ui-preview）渲染刀路。 */
+function NcToolpathButton({ sessionId, runId, name }: { sessionId: string; runId: string; name: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        title="在「预览」标签页查看刀路"
+        onClick={() => {
+          setBusy(true)
+          setError(undefined)
+          void fetch(api.camDeliveryFileUrl(sessionId, runId, `nc/${name}`), { headers: { Accept: 'text/plain' } })
+            .then(async (response) => {
+              if (!response.ok) throw new Error(`HTTP ${response.status}`)
+              previewContent(sessionId, name, await response.text())
+            })
+            .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+            .finally(() => setBusy(false))
+        }}
+      >
+        查看刀路
+      </button>
+      {error !== undefined && <span className="camrun-op-error">读取失败：{error}</span>}
+    </>
   )
 }
 
@@ -299,10 +300,8 @@ function CamRunCard({
 }: {
   sessionId: string
   run: CamRunSummary
-  viewerComponent: ToolpathViewerComponent | null
 }) {
   const [detailState, setDetailState] = useState<DetailState | null>(null)
-  const [ncViewer, setNcViewer] = useState<NcViewerState | null>(null)
 
   // 无折叠：挂载即拉详情；列表轮询发现 updated_at 前移（cam_run 落盘）自动重拉。
   useEffect(() => {
@@ -331,17 +330,6 @@ function CamRunCard({
     }
   }
 
-  async function openNcViewer(name: string) {
-    setNcViewer({ fileName: name, phase: 'loading' })
-    try {
-      const response = await fetch(api.camDeliveryFileUrl(sessionId, run.run_id, `nc/${name}`), { headers: { Accept: 'text/plain' } })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setNcViewer({ fileName: name, phase: 'ready', content: await response.text() })
-    } catch (error) {
-      setNcViewer({ fileName: name, phase: 'error', message: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
   const machine = run.machine.display_name ?? run.machine.id
   const overallView = active ? RUNNING_VIEW : (OVERALL_VIEW[run.overall] ?? OVERALL_VIEW.planned)
   const opsTotal = runstate?.ops?.length ?? run.ops.length
@@ -354,7 +342,6 @@ function CamRunCard({
   const check = runstate?.check
   const checkWarn = check !== undefined
     && (check.listing_ok === false || (check.missing?.length ?? 0) > 0 || (check.empty_ops?.length ?? 0) > 0)
-  const Viewer = viewerComponent
 
   return (
     <section className="camrun-card">
@@ -431,33 +418,12 @@ function CamRunCard({
                 <span className="camrun-file-name" title={name}>{name}</span>
                 <span className="camrun-file-actions">
                   <a href={api.camDeliveryFileUrl(sessionId, run.run_id, `nc/${name}`)}>下载</a>
-                  {Viewer !== null && (
-                    <button
-                      type="button"
-                      disabled={ncViewer?.phase === 'loading'}
-                      onClick={() => void openNcViewer(name)}
-                    >
-                      查看刀路
-                    </button>
-                  )}
+                  <NcToolpathButton sessionId={sessionId} runId={run.run_id} name={name} />
                 </span>
               </div>
             ))}
           </div>
         </>
-      )}
-      {ncViewer !== null && (
-        <div className="camrun-viewer">
-          <div className="camrun-viewer-head">
-            <span>刀路预览：{ncViewer.fileName}</span>
-            <button type="button" onClick={() => setNcViewer(null)}>收起</button>
-          </div>
-          {ncViewer.phase === 'loading' && <p className="camrun-note">读取 NC 中…</p>}
-          {ncViewer.phase === 'error' && <p className="camrun-warn" role="status">NC 读取失败：{ncViewer.message}</p>}
-          {ncViewer.phase === 'ready' && (Viewer !== null
-            ? <Viewer content={ncViewer.content} fileName={ncViewer.fileName} />
-            : <pre className="camrun-nc-raw">{ncViewer.content}</pre>)}
-        </div>
       )}
     </section>
   )
@@ -468,7 +434,6 @@ export function CamRuns({ sessionId }: { sessionId: string }) {
   const runs = snapshot.camRuns[sessionId] ?? []
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string>()
-  const viewerComponent = useToolpathViewer()
 
   // 页签激活（本组件挂载）期间：立即拉一次 + 5s 轮询；内容没变 store 不 publish。
   useEffect(() => {
@@ -500,7 +465,7 @@ export function CamRuns({ sessionId }: { sessionId: string }) {
   return (
     <div className="workbench-section camrun-list">
       {runs.map((run) => (
-        <CamRunCard key={run.run_id} sessionId={sessionId} run={run} viewerComponent={viewerComponent} />
+        <CamRunCard key={run.run_id} sessionId={sessionId} run={run} />
       ))}
     </div>
   )

@@ -22,7 +22,6 @@ import type {
   CreateWorkspaceRequest,
   ExecuteCommandRequest,
   FsListing,
-  FilePreview,
   GitWorkspaceStatus,
   ModelCatalog,
   ModelChoice,
@@ -50,7 +49,6 @@ import {
   markUploadBatchPending,
   pendingUploadBatches,
   removePendingUpload,
-  resolveUploadReference,
   saveUploadBatch,
 } from './uploads.js'
 import type { UploadManifest } from './uploads.js'
@@ -89,8 +87,6 @@ export const inject = [
 const IMAGE_MEDIA = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const MAX_UPLOAD_REQUEST_BYTES = 96 * 1024 * 1024
-const MAX_TEXT_PREVIEW_BYTES = 1024 * 1024
-const MAX_RAW_PREVIEW_BYTES = 20 * 1024 * 1024
 const execFile = promisify(execFileCallback)
 
 const TEXT_EXTENSIONS = new Set([
@@ -253,17 +249,6 @@ function mediaTypeOf(file: string): string {
   if (MEDIA_TYPES[ext]) return MEDIA_TYPES[ext]
   if (TEXT_EXTENSIONS.has(ext)) return ext === '.json' ? 'application/json' : 'text/plain'
   return 'application/octet-stream'
-}
-
-function previewKind(mediaType: string): FilePreview['kind'] {
-  if (mediaType.startsWith('text/') || mediaType === 'application/json' || mediaType === 'image/svg+xml') return 'text'
-  if (mediaType.startsWith('image/')) return 'image'
-  if (mediaType === 'application/pdf') return 'pdf'
-  return 'binary'
-}
-
-function hasSensitiveSegment(relative: string): boolean {
-  return relative.split(path.sep).some((segment) => segment === '.git' || segment === '.dsh' || segment.startsWith('.env'))
 }
 
 function bindModelSelection(agentCtx: AgentScopedContext, selection: ModelSelectionRef): void {
@@ -689,84 +674,6 @@ export function apply(ctx: HostContext) {
     throw new Error('当前会话没有工作目录')
   }
 
-  /** 将用户请求约束在 session cwd 或本会话上传批次内，并拒绝跨边界访问。 */
-  async function resolveSessionFile(sessionId: string, requested: string): Promise<{ root: string; file: string; relative: string }> {
-    if (requested.startsWith('upload://')) {
-      try {
-        const resolved = await resolveUploadReference(sessionId, requested)
-        if (resolved) return resolved
-      } catch (cause) {
-        const error = new Error(cause instanceof Error ? cause.message : String(cause))
-        error.name = /超出|非法/u.test(error.message) ? 'FilePreviewForbiddenError' : 'FilePreviewNotFoundError'
-        throw error
-      }
-      const error = new Error('上传文件引用非法')
-      error.name = 'FilePreviewForbiddenError'
-      throw error
-    }
-    const cwd = await sessionCwd(sessionId)
-    const root = await realpath(cwd)
-
-    async function resolveRelative(requestedPath: string): Promise<{ root: string; file: string; relative: string }> {
-      const candidate = path.resolve(root, requestedPath)
-      let file: string
-      try {
-        file = await realpath(candidate)
-      } catch {
-        const error = new Error(`文件不存在：${requestedPath}`)
-        error.name = 'FilePreviewNotFoundError'
-        throw error
-      }
-      const relative = path.relative(root, file)
-      if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
-        const error = new Error('文件路径超出会话工作区')
-        error.name = 'FilePreviewForbiddenError'
-        throw error
-      }
-      if (hasSensitiveSegment(relative)) {
-        const error = new Error('该路径包含敏感配置或内部数据，不能在界面中预览')
-        error.name = 'FilePreviewForbiddenError'
-        throw error
-      }
-      const info = await stat(file)
-      if (!info.isFile()) {
-        const error = new Error('目标不是文件')
-        error.name = 'FilePreviewInvalidError'
-        throw error
-      }
-      return { root, file, relative }
-    }
-
-    return resolveRelative(requested)
-  }
-
-  async function describePreview(sessionId: string, requested: string): Promise<FilePreview> {
-    const resolved = await resolveSessionFile(sessionId, requested)
-    const info = await stat(resolved.file)
-    const mediaType = mediaTypeOf(resolved.file)
-    const kind = previewKind(mediaType)
-    if (kind !== 'text') {
-      return {
-        path: resolved.relative,
-        name: path.basename(resolved.file),
-        size: info.size,
-        mediaType,
-        kind,
-      }
-    }
-    const bytes = await readFile(resolved.file)
-    const truncated = bytes.length > MAX_TEXT_PREVIEW_BYTES
-    return {
-      path: resolved.relative,
-      name: path.basename(resolved.file),
-      size: info.size,
-      mediaType,
-      kind,
-      text: bytes.subarray(0, MAX_TEXT_PREVIEW_BYTES).toString('utf8'),
-      ...truncated ? { truncated: true } : {},
-    }
-  }
-
   async function gitStatus(sessionId: string): Promise<GitWorkspaceStatus> {
     const cwd = await sessionCwd(sessionId)
     try {
@@ -1165,45 +1072,6 @@ export function apply(ctx: HostContext) {
           files: availableUploads(batch).filter((file) => file.source === 'upload'),
         })),
       })
-      return
-    }
-
-    if (method === 'GET' && action === 'file') {
-      const requested = url.searchParams.get('path')?.trim()
-      if (!requested) {
-        sendError(res, 400, '需要 path')
-        return
-      }
-      try {
-        if (url.searchParams.get('raw') === '1') {
-          const resolved = await resolveSessionFile(sessionId, requested)
-          const info = await stat(resolved.file)
-          if (info.size > MAX_RAW_PREVIEW_BYTES) {
-            sendError(res, 413, '文件过大，不能在浏览器中直接预览')
-            return
-          }
-          const mediaType = mediaTypeOf(resolved.file)
-          const bytes = await readFile(resolved.file)
-          res.writeHead(200, {
-            'Content-Type': mediaType,
-            'Content-Length': String(bytes.length),
-            'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.file))}`,
-            'Cache-Control': 'no-store',
-            'X-Content-Type-Options': 'nosniff',
-            'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
-          })
-          res.end(bytes)
-          return
-        }
-        sendJson(res, 200, await describePreview(sessionId, requested))
-      } catch (err) {
-        const name = err instanceof Error ? err.name : ''
-        const status = name === 'FilePreviewNotFoundError' ? 404
-          : name === 'FilePreviewForbiddenError' ? 403
-            : name === 'FilePreviewInvalidError' ? 400
-              : 500
-        sendError(res, status, err instanceof Error ? err.message : String(err))
-      }
       return
     }
 

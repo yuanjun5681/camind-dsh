@@ -3,6 +3,7 @@
  * priority 由注册方设为负值，存在产出时接管官方 chain，避免同一轮重复画两行。
  */
 import { useEffect } from 'react'
+import { previewFile } from './previewClient'
 import { workbenchActions } from './workbenchStore'
 
 export type DeliverablesData = {
@@ -42,7 +43,7 @@ export function DeliverableFiles({ matched, sessionId }: { matched: readonly str
             className="custom-file-chip"
             title={`预览 ${path}`}
             key={path}
-            onClick={() => workbenchActions.preview(sessionId, path)}
+            onClick={() => previewFile(sessionId, path)}
           >
             {path.split(/[\\/]/u).at(-1) || path}
           </button>

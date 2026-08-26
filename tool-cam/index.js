@@ -11,9 +11,13 @@
 // delivery/<file> 交付下载与 NC 条目抽取委托 lib/delivery-route.js，严格防越界）
 // ——webServer 仅 web profile 提供，故路由是带自己 inject 的子插件，headless 下
 // 自然不激活。
-// 浏览器半是 lib/client.js（官方 Settings 的 keyed 设置卡片 + cam/stage、
-// cam/check-report、cam/delivered 三个会话事件的卡片渲染器与交付卡的
-// keyed slot cam.nc.preview 刀路查看器挂点）。
+// 浏览器半是 lib/client.js（官方 Settings 的 keyed 设置卡片）。
+// 会话事件与聊天卡片已退役（2026-08-26）：cam/stage、cam/check-report、
+// cam/delivered 三个会话事件不在上游 KNOWN_SESSION_EVENT_TYPES 且 append()
+// 无 ignorable 形参，含它们的会话重启后整体拒绝重载（实证事故）——已全面
+// 停发；加工过程视图由 ui-shell 工作台「加工」页签承担（数据源 run 目录
+// runstate.history），cam.nc.preview 刀路挂点席位改由 ui-shell 声明；历史
+// 会话日志用 scripts/repair-cam-session-events.mjs 标 ignorable 修复。
 // cam_plan v1 不调 proxy（纯本地校验 + 冻结落盘），机床参数经 inject
 // machineRegistry 直读、不经模型转手（设计稿 §3 关键决策 3）。
 // 闸门（lib/gate.js）拦 cam_run 与 cam_deliver：只认 run 目录落盘文件。

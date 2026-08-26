@@ -1,0 +1,5 @@
+# 内容预览 bundle：Host 会话文件预览路由（/camind/api/preview/sessions/<id>/file）
+# + 客户端「预览」标签页（conversation.view id=preview）与 filePreview 服务。
+- insert:
+    - id: ui-preview
+      name: camind-ui-preview
