@@ -600,11 +600,17 @@ function clamp(value, lo, hi) {
 // CAD-style canvas so path colors keep their meaning in either theme.
 
 const VIEWER_CSS = `
+/* height: 100% + flex column：确定高度宿主（ui-preview「预览」标签页面板）里
+   卡片整体撑满、视区 flex:1 吃掉 head/foot 以外的高度；自动高度宿主（历史
+   内嵌卡片）下 100% 退化为 auto，保持原内容高（视区 min-height 380）。 */
 .tpv-card {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   overflow: hidden;
   background: var(--dsw-alias-bg-layer-1, transparent);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .tpv-head {
   display: flex; align-items: center; gap: 8px;
@@ -626,7 +632,9 @@ const VIEWER_CSS = `
   font-size: 12px; cursor: pointer; transition: background 120ms ease;
 }
 .tpv-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.tpv-view { position: relative; height: 380px; background: #14181f; }
+/* height: 100% fills definite-height hosts (ui-preview「预览」标签页的面板)；
+   min-height 保住自动高度宿主（历史内嵌卡片形态）下 380px 的既有形态。 */
+.tpv-view { position: relative; flex: 1; min-height: 380px; background: #14181f; }
 .tpv-view canvas {
   position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; touch-action: none; cursor: grab;
