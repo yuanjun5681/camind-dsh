@@ -30,7 +30,10 @@
 //   rapid; the final leg to the machine reference point has no program-space
 //   coordinates and is skipped (documented, not simulated);
 // - tool length/cutter comp (G40..G49), work offsets (G53..G59), spindle and
-//   misc M codes: parsed and ignored (viewer shows programmed coordinates).
+//   misc M codes: parsed and ignored (viewer shows programmed coordinates);
+// - every segment records the modal feed (F word, units/min) active at emit
+//   time (`feed`, null on rapids / before the first F) so the viewer can time
+//   playback without re-walking modal state.
 //
 // Fault tolerance: a line that cannot be tokenized cleanly (unterminated
 // comment, stray characters) is skipped whole and counted in meta.skipped —
@@ -131,7 +134,9 @@ function parseNc(text, options = {}) {
       warn(`segment cap ${segmentCap} reached — output truncated`)
       return
     }
-    segments.push({ from: [...from], to: [...to], kind, line })
+    // `feed` snapshots the modal F word (units/min) for playback timing;
+    // null on rapids and before the first F.
+    segments.push({ from: [...from], to: [...to], kind, line, feed: kind === 'rapid' ? null : feed })
     stats[kind] += 1
     growBounds(from)
     growBounds(to)

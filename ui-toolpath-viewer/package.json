@@ -1,7 +1,7 @@
 {
   "name": "camind-ui-toolpath-viewer",
   "version": "0.1.0",
-  "description": "NC toolpath preview renderer for the keyed cam.nc.preview seat (self-written parser + minimal WebGL lines renderer, no vendor assets).",
+  "description": "NC toolpath viewer for the keyed cam.nc.preview seat (self-written parser + minimal WebGL lines renderer with feed-timed playback animation, no vendor assets).",
   "type": "module",
   "main": "index.js",
   "exports": {

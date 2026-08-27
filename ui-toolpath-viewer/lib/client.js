@@ -19,6 +19,15 @@
 // dolly / pan, Z-up world. Rendering is presentation-only — no material
 // removal, no simulation (docs/cam-machining-design.md §7 P3).
 //
+// Playback (referenced from the old Camind viewer's time-axis animation,
+// reimplemented): each segment is timed as distance / modal feed (units/min →
+// seconds; rapids at a fixed assumed rate), giving a cumulative end-times
+// array. A play/pause button + scrub slider + speed select drive a time
+// cursor; drawing renders whole segments up to the cursor plus the partial
+// current segment and a tool-tip cross marker, with a T / XYZ / NC-line HUD
+// (CAM-Agent's setStopAtTime semantics on our own parser/renderer — no GPL
+// code involved).
+//
 // The NC parser (parseNc) is a verbatim inline of lib/nc-parser.js between
 // the PARSER CORE markers: hand-written bundles are single-file (the dsh
 // module loader's require resolves only seed words and bare package ids,
@@ -122,7 +131,9 @@ function parseNc(text, options = {}) {
       warn(`segment cap ${segmentCap} reached — output truncated`)
       return
     }
-    segments.push({ from: [...from], to: [...to], kind, line })
+    // `feed` snapshots the modal F word (units/min) for playback timing;
+    // null on rapids and before the first F.
+    segments.push({ from: [...from], to: [...to], kind, line, feed: kind === 'rapid' ? null : feed })
     stats[kind] += 1
     growBounds(from)
     growBounds(to)
@@ -452,6 +463,7 @@ const KIND_COLORS = {
   cycle: [0.898, 0.639, 0.294], // #e5a34b amber — canned cycle R->Z line
 }
 const BOX_COLOR = [0.24, 0.27, 0.32]
+const MARKER_COLOR = [1, 1, 1] // tool-tip cross
 const AXIS_COLORS = [
   [0.788, 0.365, 0.345], // X
   [0.365, 0.659, 0.396], // Y
@@ -573,7 +585,30 @@ function buildScene(parsed) {
     push([0, 0, 0], AXIS_COLORS[axis])
     push(tip, AXIS_COLORS[axis])
   }
-  return { data: new Float32Array(verts), count: verts.length / 6 }
+  return { data: new Float32Array(verts), count: verts.length / 6, pathCount: segments.length * 2 }
+}
+
+// Playback timing (viewer-level approximation): feed/arc/cycle moves run at
+// the segment's modal F word (units/min → seconds); rapids run at a fixed
+// assumed rate — real rapid speed is machine data the viewer does not have.
+const RAPID_RATE = 8000 // units/min
+const DEFAULT_FEED = 500 // units/min when the program never sets F
+function computeTiming(parsed) {
+  const endTimes = new Float64Array(parsed.segments.length)
+  let acc = 0
+  for (let i = 0; i < parsed.segments.length; i++) {
+    const s = parsed.segments[i]
+    const dist = Math.hypot(s.to[0] - s.from[0], s.to[1] - s.from[1], s.to[2] - s.from[2])
+    const rate = s.kind === 'rapid' ? RAPID_RATE : (s.feed ?? DEFAULT_FEED)
+    acc += (dist / Math.max(rate, 1e-6)) * 60
+    endTimes[i] = acc
+  }
+  return { endTimes, totalTime: acc }
+}
+
+function fmtTime(t) {
+  const s = Math.round(t)
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`
 }
 
 // Spherical orbit state fitted to the parsed bounds (Z-up world).
@@ -640,6 +675,21 @@ const VIEWER_CSS = `
   display: block; touch-action: none; cursor: grab;
 }
 .tpv-view canvas:active { cursor: grabbing; }
+.tpv-anim {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px; color: var(--dsw-alias-label-secondary);
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+.tpv-slider { flex: 1; min-width: 60px; accent-color: #4d9fff; }
+.tpv-ro {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+.tpv-speed {
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px;
+  background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px;
+}
 .tpv-fallback {
   padding: 16px 12px; font-size: 12px; line-height: 1.7;
   color: var(--dsw-alias-label-secondary); background: #14181f;
@@ -671,22 +721,29 @@ function cssColor(kind) {
 function ToolpathViewer({ content, fileName }) {
   const hostRef = useRef(null)
   const controlsRef = useRef(null)
+  const sliderRef = useRef(null)
+  const timeRef = useRef(null)
+  const coordsRef = useRef(null)
+  const lineRef = useRef(null)
   const [glError, setGlError] = useState(null)
+  const [playing, setPlaying] = useState(false)
 
   const parsed = useMemo(() => {
     if (typeof content !== 'string' || content.trim() === '') return null
     try {
-      return parseNc(content)
+      const result = parseNc(content)
+      if (result.bounds) result.anim = computeTiming(result)
+      return result
     } catch (error) {
       // parseNc is fail-safe by design; this only guards bundle-level faults.
       return { error: error instanceof Error ? error.message : String(error) }
     }
   }, [content])
 
-  // Clear a stale GL failure when new content arrives, so the effect below
-  // gets a fresh canvas host to retry on. Declared first: effects run in
-  // declaration order.
-  useEffect(() => { setGlError(null) }, [content])
+  // Clear a stale GL failure / playback state when new content arrives, so
+  // the effect below gets a fresh canvas host to retry on. Declared first:
+  // effects run in declaration order.
+  useEffect(() => { setGlError(null); setPlaying(false) }, [content])
 
   useEffect(() => {
     if (!parsed || parsed.error || !parsed.bounds) return undefined
@@ -714,6 +771,7 @@ function ToolpathViewer({ content, fileName }) {
     gl.useProgram(program)
 
     const scene = buildScene(parsed)
+    const anim = parsed.anim
     const vbo = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo)
     gl.bufferData(gl.ARRAY_BUFFER, scene.data, gl.STATIC_DRAW)
@@ -721,19 +779,71 @@ function ToolpathViewer({ content, fileName }) {
     const aPos = gl.getAttribLocation(program, 'aPos')
     const aColor = gl.getAttribLocation(program, 'aColor')
     gl.enableVertexAttribArray(aPos)
-    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, stride, 0)
     gl.enableVertexAttribArray(aColor)
-    gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, stride, 12)
+    const bindAttribs = () => {
+      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, stride, 0)
+      gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, stride, 12)
+    }
+    bindAttribs()
+    // Dynamic buffer: current partial segment (2 verts) + tool-tip marker
+    // cross (6 verts), rewritten every animation frame.
+    const dynVbo = gl.createBuffer()
+    const dynData = new Float32Array(8 * 6)
+    gl.bindBuffer(gl.ARRAY_BUFFER, dynVbo)
+    gl.bufferData(gl.ARRAY_BUFFER, dynData.byteLength, gl.DYNAMIC_DRAW)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo)
     const uMVP = gl.getUniformLocation(program, 'uMVP')
     gl.clearColor(...VIEW_BG)
     gl.enable(gl.DEPTH_TEST)
 
     const view = fitView(parsed.bounds)
+
+    // Playback state: progress in seconds along the cumulative time axis.
+    let progress = 0
+    let speed = 10
+    let isPlaying = false
+    let rafId = 0
+    let lastTs = 0
+
+    function tick(ts) {
+      if (!isPlaying) return
+      const dt = lastTs === 0 ? 0 : (ts - lastTs) / 1000
+      lastTs = ts
+      progress += dt * speed
+      if (progress >= anim.totalTime) {
+        progress = anim.totalTime
+        isPlaying = false
+        setPlaying(false)
+      }
+      draw()
+      if (isPlaying) rafId = requestAnimationFrame(tick)
+    }
+    function play() {
+      if (isPlaying) return
+      if (progress >= anim.totalTime) progress = 0 // replay from the start
+      isPlaying = true
+      lastTs = 0
+      rafId = requestAnimationFrame(tick)
+    }
+    function pause() {
+      isPlaying = false
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = 0
+    }
+    function scrubRatio(ratio) {
+      progress = clamp(ratio, 0, 1) * anim.totalTime
+      if (!isPlaying) draw()
+    }
+
     controlsRef.current = {
       reset: () => {
         Object.assign(view, fitView(parsed.bounds))
         draw()
       },
+      play,
+      pause,
+      scrubRatio,
+      setSpeed: (value) => { speed = value },
     }
 
     function eyePosition() {
@@ -743,6 +853,13 @@ function ToolpathViewer({ content, fileName }) {
         view.target[1] + view.dist * sp * Math.sin(view.theta),
         view.target[2] + view.dist * Math.cos(view.phi),
       ]
+    }
+
+    function updateHud(t, tip, seg) {
+      if (sliderRef.current) sliderRef.current.value = String(Math.round((t / anim.totalTime) * 1000))
+      if (timeRef.current) timeRef.current.textContent = `${fmtTime(t)} / ${fmtTime(anim.totalTime)}`
+      if (coordsRef.current) coordsRef.current.textContent = `X ${tip[0].toFixed(2)}  Y ${tip[1].toFixed(2)}  Z ${tip[2].toFixed(2)}`
+      if (lineRef.current) lineRef.current.textContent = `行 ${seg.line}`
     }
 
     function draw() {
@@ -756,7 +873,62 @@ function ToolpathViewer({ content, fileName }) {
       const proj = mat4Perspective(FOV, w / hgt, near, far)
       const mvp = mat4Multiply(proj, mat4LookAt(eyePosition(), view.target, [0, 0, 1]))
       gl.uniformMatrix4fv(uMVP, false, mvp)
-      gl.drawArrays(gl.LINES, 0, scene.count)
+
+      const segments = parsed.segments
+      const t = clamp(progress, 0, anim.totalTime)
+      // Binary search: first segment whose end time covers t; everything
+      // before it is drawn whole from the static buffer.
+      let lo = 0
+      let hi = segments.length
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (anim.endTimes[mid] < t) lo = mid + 1
+        else hi = mid
+      }
+      const index = lo
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo)
+      bindAttribs()
+      gl.drawArrays(gl.LINES, 0, index * 2)
+      gl.drawArrays(gl.LINES, scene.pathCount, scene.count - scene.pathCount)
+
+      const seg = segments[Math.min(index, segments.length - 1)]
+      let tip
+      if (index >= segments.length) {
+        tip = seg.to
+      } else {
+        const start = index === 0 ? 0 : anim.endTimes[index - 1]
+        const dur = anim.endTimes[index] - start
+        const frac = dur > 0 ? clamp((t - start) / dur, 0, 1) : 1
+        tip = [
+          seg.from[0] + (seg.to[0] - seg.from[0]) * frac,
+          seg.from[1] + (seg.to[1] - seg.from[1]) * frac,
+          seg.from[2] + (seg.to[2] - seg.from[2]) * frac,
+        ]
+      }
+      const segColor = KIND_COLORS[seg.kind] ?? KIND_COLORS.feed
+      const markerLen = view.radius * 0.03
+      let o = 0
+      const put = (p, c) => {
+        dynData[o++] = p[0]; dynData[o++] = p[1]; dynData[o++] = p[2]
+        dynData[o++] = c[0]; dynData[o++] = c[1]; dynData[o++] = c[2]
+      }
+      // Zero-length (invisible) when the current segment has not started yet.
+      const started = index < segments.length && t > (index === 0 ? 0 : anim.endTimes[index - 1])
+      put(started ? seg.from : tip, segColor)
+      put(tip, segColor)
+      for (let axis = 0; axis < 3; axis++) {
+        const a = [...tip]
+        const b = [...tip]
+        a[axis] -= markerLen
+        b[axis] += markerLen
+        put(a, MARKER_COLOR)
+        put(b, MARKER_COLOR)
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, dynVbo)
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, dynData)
+      bindAttribs()
+      gl.drawArrays(gl.LINES, 0, 8)
+      updateHud(t, tip, seg)
     }
 
     function resize() {
@@ -824,7 +996,9 @@ function ToolpathViewer({ content, fileName }) {
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('contextmenu', onContextMenu)
       controlsRef.current = null
+      pause()
       gl.deleteBuffer(vbo)
+      gl.deleteBuffer(dynVbo)
       gl.getExtension('WEBGL_lose_context')?.loseContext()
       canvas.remove()
     }
@@ -834,9 +1008,21 @@ function ToolpathViewer({ content, fileName }) {
   const stats = parsed && !failed ? parsed.stats : null
   const hasPath = Boolean(parsed && !failed && parsed.bounds)
 
+  const togglePlay = () => {
+    const controls = controlsRef.current
+    if (!controls) return
+    if (playing) {
+      controls.pause?.()
+      setPlaying(false)
+    } else {
+      controls.play?.()
+      setPlaying(true)
+    }
+  }
+
   return h('div', { className: 'tpv-card', 'data-camind-toolpath-viewer': '' },
     h('div', { className: 'tpv-head' },
-      h('span', { className: 'tpv-title' }, '刀路预览'),
+      h('span', { className: 'tpv-title' }, '刀路查看器'),
       fileName ? h('span', { className: 'tpv-file' }, fileName) : null,
       h('span', { className: 'tpv-spacer' }),
       stats && stats.skipped > 0
@@ -859,6 +1045,24 @@ function ToolpathViewer({ content, fileName }) {
           : !hasPath
             ? h('div', { className: 'tpv-fallback' }, '未解析到刀路运动（该程序不含可渲染的移动）。')
             : h('div', { className: 'tpv-view', ref: hostRef }),
+    hasPath && !glError && parsed.anim.totalTime > 0
+      ? h('div', { className: 'tpv-anim' },
+          h('button', { type: 'button', className: 'tpv-btn', onClick: togglePlay }, playing ? '暂停' : '播放'),
+          h('input', {
+            type: 'range', className: 'tpv-slider', min: 0, max: 1000, defaultValue: 0, ref: sliderRef,
+            onInput: (e) => controlsRef.current?.scrubRatio?.(Number(e.target.value) / 1000),
+          }),
+          h('span', { className: 'tpv-ro', ref: timeRef }),
+          h('span', { className: 'tpv-ro', ref: coordsRef }),
+          h('span', { className: 'tpv-ro', ref: lineRef }),
+          h('select', {
+            className: 'tpv-speed', defaultValue: '10', title: '播放速度',
+            onChange: (e) => controlsRef.current?.setSpeed?.(Number(e.target.value)),
+          },
+            h('option', { value: '1' }, '×1'),
+            h('option', { value: '10' }, '×10'),
+            h('option', { value: '60' }, '×60')))
+      : null,
     stats
       ? h('div', { className: 'tpv-foot' },
           LEGEND.map(([kind, label]) =>
