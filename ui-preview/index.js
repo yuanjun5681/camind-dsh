@@ -14,6 +14,7 @@
 // - upload://<batch>/<path> 引用本会话上传批次（$DSH_HOME/uploads/<session>/），
 //   归一化后不得越出批次目录；
 // - 拒绝 .git/.dsh/.env* 段；raw 限 20 MiB、文本预览截断 1 MiB；
+// - .nc（Fanuc G-code）算文本：交付物页签走路径预览，kind=text 才进刀路查看器；
 // - 错误名映射状态码：NotFound→404 / Forbidden→403 / Invalid→400。
 // webServer 仅 web profile 提供，headless 不加载本插件（profile 未挂载）。
 
@@ -29,8 +30,8 @@ const UPLOAD_REF_RE = /^upload:\/\/(upload-[A-Za-z0-9_-]+)\/(.+)$/
 
 const TEXT_EXTENSIONS = new Set([
   '.c', '.cc', '.cfg', '.cir', '.ckt', '.conf', '.cpp', '.css', '.csv', '.go', '.h', '.hpp', '.html', '.ini',
-  '.java', '.js', '.json', '.jsx', '.log', '.markdown', '.md', '.mjs', '.py', '.rs', '.sh', '.sql',
-  '.net', '.ptnset', '.sp', '.spi', '.spice', '.svg', '.toml', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml',
+  '.java', '.js', '.json', '.jsx', '.log', '.markdown', '.md', '.mjs', '.nc', '.net', '.py', '.rs', '.sh', '.sql',
+  '.ptnset', '.sp', '.spi', '.spice', '.svg', '.toml', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml',
 ])
 
 const MEDIA_TYPES = {

@@ -236,10 +236,34 @@ function useFilePreview(sessionId, path) {
   return { preview, error }
 }
 
+// Path-mode .nc that an older Host still reports as binary: fetch raw bytes
+// and hand them to the toolpath viewer (current Host maps .nc as text).
+function NcRawBody({ sessionId, preview }) {
+  const [text, setText] = useState(undefined)
+  const [fetchError, setFetchError] = useState(undefined)
+  useEffect(() => {
+    let cancelled = false
+    setText(undefined)
+    setFetchError(undefined)
+    fetch(rawFileUrl(sessionId, preview.path)).then(async (response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const body = await response.text()
+      if (!cancelled) setText(body)
+    }).catch((err) => {
+      if (!cancelled) setFetchError(err instanceof Error ? err.message : String(err))
+    })
+    return () => { cancelled = true }
+  }, [preview.path, sessionId])
+  if (fetchError) return h('div', { className: 'campv-error' }, fetchError)
+  if (text === undefined) return h('div', { className: 'campv-empty' }, '正在读取文件…')
+  return h(NcOrText, { name: preview.name, text })
+}
+
 function FilePreviewBody({ sessionId, preview, error }) {
   if (error) return h('div', { className: 'campv-error' }, error)
   if (!preview) return h('div', { className: 'campv-empty' }, '正在读取文件…')
   const raw = rawFileUrl(sessionId, preview.path)
+  const ncName = isNcName(preview.name)
   return h('div', { className: 'campv-pane' },
     preview.kind === 'text' && isMarkdownPreview(preview)
       ? h('div', { className: 'campv-markdown' }, h(MarkdownText, { text: preview.text ?? '' }))
@@ -253,7 +277,10 @@ function FilePreviewBody({ sessionId, preview, error }) {
     preview.kind === 'pdf'
       ? h('iframe', { className: 'campv-pdf', src: raw, title: preview.name })
       : null,
-    preview.kind === 'binary'
+    preview.kind === 'binary' && ncName
+      ? h(NcRawBody, { sessionId, preview })
+      : null,
+    preview.kind === 'binary' && !ncName
       ? h('div', { className: 'campv-binary' },
         h('p', null, '该文件不能以内联文本方式预览。'),
         h('a', { href: raw, target: '_blank', rel: 'noreferrer' }, '在新窗口打开'))

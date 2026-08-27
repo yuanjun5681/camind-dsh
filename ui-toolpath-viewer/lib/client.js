@@ -607,8 +607,8 @@ function computeTiming(parsed) {
 }
 
 function fmtTime(t) {
-  const s = Math.round(t)
-  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`
+  const s = Math.max(0, Math.round(t))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
 // Spherical orbit state fitted to the parsed bounds (Z-up world).
@@ -681,12 +681,16 @@ const VIEWER_CSS = `
   font-size: 11px; color: var(--dsw-alias-label-secondary);
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
-.tpv-slider { flex: 1; min-width: 60px; accent-color: #4d9fff; }
+.tpv-anim > .tpv-btn { flex: none; min-width: 3.2em; }
+.tpv-slider { flex: 1 1 auto; min-width: 60px; accent-color: #4d9fff; }
 .tpv-ro {
+  flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
 }
 .tpv-speed {
+  flex: none;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px;
   background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px;
 }
@@ -772,6 +776,18 @@ function ToolpathViewer({ content, fileName }) {
 
     const scene = buildScene(parsed)
     const anim = parsed.anim
+    // HUD strings keep a constant character width so the flex slider does
+    // not grow/shrink as seconds, axis digits, or NC line numbers change.
+    const timeWidth = fmtTime(anim.totalTime).length
+    let axisWidth = 6
+    for (const p of [parsed.bounds.min, parsed.bounds.max]) {
+      for (const n of p) axisWidth = Math.max(axisWidth, n.toFixed(2).length)
+    }
+    let lineWidth = 1
+    for (const s of parsed.segments) {
+      lineWidth = Math.max(lineWidth, String(s.line).length)
+    }
+    const padAxis = (n) => n.toFixed(2).padStart(axisWidth, ' ')
     const vbo = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo)
     gl.bufferData(gl.ARRAY_BUFFER, scene.data, gl.STATIC_DRAW)
@@ -857,9 +873,9 @@ function ToolpathViewer({ content, fileName }) {
 
     function updateHud(t, tip, seg) {
       if (sliderRef.current) sliderRef.current.value = String(Math.round((t / anim.totalTime) * 1000))
-      if (timeRef.current) timeRef.current.textContent = `${fmtTime(t)} / ${fmtTime(anim.totalTime)}`
-      if (coordsRef.current) coordsRef.current.textContent = `X ${tip[0].toFixed(2)}  Y ${tip[1].toFixed(2)}  Z ${tip[2].toFixed(2)}`
-      if (lineRef.current) lineRef.current.textContent = `行 ${seg.line}`
+      if (timeRef.current) timeRef.current.textContent = `${fmtTime(t).padStart(timeWidth, ' ')} / ${fmtTime(anim.totalTime)}`
+      if (coordsRef.current) coordsRef.current.textContent = `X ${padAxis(tip[0])}  Y ${padAxis(tip[1])}  Z ${padAxis(tip[2])}`
+      if (lineRef.current) lineRef.current.textContent = `行 ${String(seg.line).padStart(lineWidth, ' ')}`
     }
 
     function draw() {
