@@ -22,7 +22,7 @@ page-memory/      记忆库管理页：底部菜单 + 两级页面（知识/经�
 ui-shell/         混合 Web UI：官方会话/侧栏 + 文件上传、预览与交付物 Workbench，入口 /camind/
 ui-foundation/    Web UI 基础层：Camind 语义 token + 跨页面公共组件；仅 /camind 激活
 ui-sidebar/       /camind 专用的官方 Sidebar 兼容实现，增加品牌与一级菜单 slot
-ui-brand/         品牌插件：always-on 动态 blobatar mascot + 字标，注册到 sidebar.brand.mark/name 席位
+ui-brand/         品牌插件：CAM 虎钳工匠 mascot + 字标，注册到 sidebar.brand.mark/name 席位
 ui-home/          新会话首页定制（/）：Camind 品牌区 + 紧随其下的示例卡片，与官方输入卡合成一个整体居中组；示例经不可见的 inputActions 桥（conversation.input.dock）写官方草稿
 desktop/          Electron 桌面壳：spawn `dsh web` 并加载自定义 UI（/camind/）；`npm start` 开发运行，`npm run dist` 打包 .app/.dmg
 docs/             项目专题文档（UI 架构、记忆库设计、dsh 升级）+ 指向上游官方文档的 README
@@ -74,7 +74,7 @@ profile 即 `.dsh/profiles/<name>/` 目录，其 `package.json` 里的 `dsh.prof
 - **ui-shell** — 基于官方 UI 插件组合出的混合界面（TypeScript）。全局 Shell 只负责 Sidebar、页面出口和 Overlay；`/s/:id` 会话详情子布局组合官方 Conversation/Details 与可折叠 Workbench，`/` 新会话和 `/pages/*` 插件页使用不挂载 Workbench 的普通页面布局。`shell.content` 提供插件页面扩展位，官方 Composer slot 挂文件上传：所有模式统一保存到 `$DSH_HOME/uploads/<session>/<batch>/`，ZIP 自动安全解压，不向 session cwd 写入上传文件；`conversation.input.dock` 作为插件生命周期锚点，待发送文件通过 portal 显示在 Composer 卡片内、textarea 上方，并统一分流拖拽（官方支持的图片进入图片 rail，其他文件进入通用文件 rail），用户 draft 只保留实际输入。Host 在下一条用户消息的 `agent/pre-step` 将不透明批次 ID 和文件摘要作为独立插件上下文注入，成功进入请求后消费 pending 标记。Workbench 提供输入上下文与交付物列表，原始与解压文件均可在 `shell.overlay` 预览。Host 桥只为这些业务能力补充 `/camind/api`。定制界面是默认入口（`/` 302 到 `/camind/`）；官方原始界面由 `/web`（302 到 `/index.html`）访问。
 - **ui-foundation** — `/camind` 的统一视觉与组件基础层。官方 `ui-theme` 继续负责 light/dark/system，foundation 将 `--dsw-*` 映射为稳定的 `--camind-*` 产品语义，并提供 Page、Tabs、Card、Badge、Field、State、Dialog 等无业务组件；Button、Input、Modal、Pill、Tooltip 直接复用官方 primitives。动态页面通过 `dsh.client.external` 消费，不复制主题色板与通用控件。
 - **ui-sidebar** — `/camind` 专用、基于官方 `@deepseek-ai/dsh-client-ui-sidebar` 0.1.1-rc.2 源码的兼容客户端插件。保留官方 Workspace、Settings、折叠行为与 0.1.1 起上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`；通过官方模块 ID 静态替换，只影响 `/camind`。
-- **ui-brand** — 品牌插件。手写 client bundle 注册到上游原生 `sidebar.brand.mark` / `sidebar.brand.name` single 席位（priority -10 压过图内官方注册；仅 `/camind` 路径注册）：always-on 动态 blobatar mascot + “Camind” 字标与主题反白 “Harness” 徽章；折叠 rail 只剩 mascot。
+- **ui-brand** — 品牌插件。Host 提供选定的 CAM 虎钳工匠 PNG，手写 client bundle 将它与字标注册到上游原生 `sidebar.brand.mark` / `sidebar.brand.name` single 席位（priority -10 压过图内官方注册；仅 `/camind` 路径注册）；展开态显示 mascot + “Camind” 字标与主题反白 “Harness” 徽章，折叠 rail 只显示 mascot。
 - **ui-home** — 新会话首页（`/`）定制。`shell.home` 链把 Camind 品牌区（与 ui-brand 一致的 mascot + 字标徽章）和紧随其下的示例卡片叠在官方 conversation 上方，官方工作区行/preset chip/输入卡（含上传）原样保留；插件 CSS 中和官方 hero 的自居中，由外层容器把「品牌 + 示例 + 工作区行 + 输入卡」收成一个整体居中组（`safe center`，矮视口可滚动）。示例点击经 `inputActions.setDraft` 写官方草稿——root 级组件拿不到输入机，故在 `conversation.input.dock` 挂一个不可见桥条目暴露 blank 会话的 inputActions；无会话态点示例自动接最近工作区的 blank 会话并预填。官方 HeroShell（鱼标 + 「探索未至之境」+ 预览徽章）无 slot 可换，由结构选择器 CSS 隐藏（dsh 升级需复核，见 docs/dsh-upgrade.md）。设计约束的完整推导见 docs/custom-ui.md。
 
 自定义前端（`npm run init` 已完成构建与装载；手动重做时）：

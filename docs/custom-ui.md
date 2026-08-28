@@ -5,7 +5,7 @@
 - `camind-ui-shell`（ui-shell/）— Host 协议桥 + 自托管 React SPA：半注册 `/camind` 与 `/camind/api`，浏览器侧加载官方插件图并复用官方 slot runtime。
 - `camind-ui-foundation`（ui-foundation/）— client-only 基础层：官方主题之上的 `--camind-*` 产品语义和 Page/Tabs/Card/Dialog 等公共组件，只在 `/camind` 激活。
 - `camind-ui-sidebar`（ui-sidebar/）— 以官方模块 ID 静态替换的 Sidebar，沿用 0.1.1 起上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`。
-- `camind-ui-brand`（ui-brand/）— 品牌插件：动态 blobatar mascot + “Camind” 字标徽章，注册到 `sidebar.brand.mark` / `sidebar.brand.name` 席位（priority -10 压过图内 ui-brand-official；仅 `/camind` 路径注册）。
+- `camind-ui-brand`（ui-brand/）— 品牌插件：Host 提供 CAM 虎钳工匠 PNG，客户端将 mascot + “Camind” 字标徽章注册到 `sidebar.brand.mark` / `sidebar.brand.name` 席位（priority -10 压过图内 ui-brand-official；仅 `/camind` 路径注册）。
 - `camind-ui-home`（ui-home/）— 新会话首页（`/`）品牌区与紧随其下的示例卡片：`shell.home` 链叠加在官方 conversation 上方，并中和官方 hero 的自居中、由外层把「品牌 + 示例 + 工作区行 + 输入卡」收成一个整体居中组；`conversation.input.dock` 上挂一个不可见的 inputActions 桥供示例写草稿；官方 HeroShell 用结构选择器 CSS 隐藏。
 - `camind-page-memory`（page-memory/）— 记忆库管理页（两级）：底部菜单 + `/pages/memory` 知识/经验双 tab 列表 + `/pages/memory/<type>/<name>` 详情，Host 半自带 `/camind/api/memory`。
 

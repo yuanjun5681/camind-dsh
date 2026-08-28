@@ -1,7 +1,7 @@
 {
   "name": "camind-ui-brand",
   "version": "0.1.0",
-  "description": "Camind brand for /camind: blobatar mascot + wordmark registered into the sidebar.brand.mark / sidebar.brand.name seats.",
+  "description": "Camind brand for /camind: CAM vise mascot + wordmark registered into the sidebar.brand.mark / sidebar.brand.name seats.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -12,7 +12,8 @@
   "files": [
     "index.js",
     "cordis.patch.yml",
-    "lib/client.js"
+    "lib/client.js",
+    "assets/camind-mascot.png"
   ],
   "dsh": {
     "bundle": {

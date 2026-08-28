@@ -18,7 +18,7 @@ Camind 的 Web UI 同时包含 Vite + React 的 `ui-shell` 和由 dsh client mod
 | 官方原子组件 | 官方 `ui-primitives` | Button、Input、Modal、Pill、Tooltip、图标 |
 | 产品基础层 | `camind-ui-foundation` | `--camind-*`、Page、Tabs、Card、Badge、Field、State、Dialog |
 | Shell | `ui-shell` | AppFrame、会话布局、Workbench、Overlay、Host 桥 |
-| 品牌 | `ui-brand` | Mascot、BrandLockup、品牌动效 |
+| 品牌 | `ui-brand` | Mascot、BrandLockup、品牌图片路由 |
 | 领域插件 | `page-*`、`ui-preview`、`ui-toolpath-viewer`、`tool-cam` | 路由、数据、领域布局与可视化 |
 
 实现位置按以下顺序选择：
@@ -76,7 +76,7 @@ Foundation 组件必须受控、无业务 store、无 Host 调用，并透传适
 
 ## 6. 品牌共享
 
-`ui-brand` 是独立品牌 provider，导出 `Mascot`、`BrandLockup` 和品牌 slot occupant。`ui-home` 通过 client external 消费这些导出，不再复制 mascot SVG 或 motion CSS。品牌固定色属于批准的视觉资产，不进入产品主题 token。
+`ui-brand` 是独立品牌 provider，导出 `Mascot`、`BrandLockup` 和品牌 slot occupant，并由 Host 提供选定的 mascot PNG。`ui-home` 通过 client external 消费这些导出，不再复制品牌图片或样式。品牌固定色属于批准的视觉资产，不进入产品主题 token；展示容器仍复用 foundation 的圆角 token（紧凑标记 6px、首页品牌图 12px）。
 
 ## 7. 升级策略
 
