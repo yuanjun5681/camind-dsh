@@ -19,7 +19,7 @@
 // run 目录 runstate.history，重启免疫）；`cam.nc.preview` 刀路挂点席位改由
 // ui-shell 在 root entry 声明。
 //
-// Styling: scoped <style> blocks (classes prefixed camnx-) driven by
+// Styling: one effect-owned stylesheet (classes prefixed camnx-) driven by
 // the official --dsw-alias-* design tokens, so the card follows the shell's
 // light/dark theme.
 window.__ModuleLoader__.load({ id: "camind-tool-cam", factory: (require) => {
@@ -27,7 +27,7 @@ var module = { exports: {} }; var exports = module.exports;
 
 const React = require('react')
 const { createElement: h } = React
-const { IconChevronDownOutline14 } = require('@deepseek-ai/dsh-client-ui-primitives')
+const { Button, IconChevronDownOutline14, Input } = require('@deepseek-ai/dsh-client-ui-primitives')
 const { createSnapshotStore } = require('@deepseek-ai/dsh-client-runtime/client')
 
 const NS = 'cam-nx'
@@ -82,33 +82,12 @@ const cardCss = `
   background: none; border: none; padding: 0; font-size: 12px; line-height: 1.5;
 }
 .camnx-reset:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
-.camnx-input {
-  border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3);
-  height: 34px; font: inherit; color: var(--dsw-alias-label-primary);
-  border-radius: 8px; padding: 0 12px; font-size: 13px; line-height: 1.5;
-}
-.camnx-input:focus-visible { border-color: var(--dsw-alias-brand-primary); outline: none; }
-.camnx-input:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
+.camnx-input { width: 100%; }
 .camnx-hint { color: var(--dsw-alias-label-tertiary); margin: 0; font-size: 12px; line-height: 1.5; }
 .camnx-test { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
 .camnx-test-result { min-width: 0; margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
 .camnx-test-result.ok { color: var(--dsw-alias-state-success-primary, var(--dsw-alias-state-business-primary)); }
 .camnx-test-result.fail { color: var(--dsw-alias-label-error); }
-.camnx-btn {
-  appearance: none; font: inherit; cursor: pointer; border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px; padding: 5px 14px; font-size: 13px; line-height: 1.5;
-  color: var(--dsw-alias-label-secondary); background: none;
-}
-.camnx-btn:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
-.camnx-btn:disabled { opacity: 0.5; cursor: default; }
-.camnx-btn-save {
-  appearance: none; font: inherit; cursor: pointer; border: 1px solid transparent;
-  border-radius: 8px; padding: 5px 14px; font-size: 13px; line-height: 1.5;
-  color: var(--dsw-alias-label-primary-inverted, #fff);
-  background: var(--dsw-alias-button-contrast-fill, var(--dsw-alias-label-primary));
-}
-.camnx-btn-save:hover:not(:disabled) { opacity: 0.88; }
-.camnx-btn-save:disabled { opacity: 0.5; cursor: default; }
 .camnx-footer {
   border-top: 1px solid var(--dsw-alias-border-l2);
   display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 0 4px;
@@ -315,7 +294,6 @@ function CamNxCard(props) {
   }
 
   return h('li', { className: open ? 'camnx-card camnx-card-open' : 'camnx-card' },
-    h('style', null, cardCss),
     h('button', {
       type: 'button',
       className: 'camnx-header',
@@ -339,7 +317,7 @@ function CamNxCard(props) {
             h('button', { type: 'button', className: 'camnx-reset', disabled, onClick: () => props.resetField(BASE_URL_FIELD) }, '恢复默认'))
           : null,
       },
-        h('input', {
+        h(Input, {
           className: 'camnx-input',
           type: 'text',
           value: state.baseURL.text,
@@ -353,7 +331,7 @@ function CamNxCard(props) {
         badge: h('span', { className: state.tokenConfigured ? 'camnx-badge' : 'camnx-badge-muted' },
           state.tokenConfigured ? '已配置' : '未配置'),
       },
-        h('input', {
+        h(Input, {
           className: 'camnx-input',
           type: 'password',
           autoComplete: 'off',
@@ -362,21 +340,29 @@ function CamNxCard(props) {
           onChange: (event) => props.edit(TOKEN_FIELD, event.target.value),
         })),
       h('div', { className: 'camnx-test' },
-        h('button', { type: 'button', className: 'camnx-btn', disabled: test.phase === 'running', onClick: runTest },
+        h(Button, { variant: 'outline', size: 'sm', disabled: test.phase === 'running', onClick: runTest },
           test.phase === 'running' ? '测试中…' : '测试连接'),
         test.message !== ''
           ? h('p', { className: `camnx-test-result ${test.phase === 'ok' ? 'ok' : 'fail'}`, role: 'status' }, test.message)
           : null),
       h('div', { className: 'camnx-footer' },
         state.failed ? h('p', { className: 'camnx-failed', role: 'status' }, '保存失败：本部署没有接受这些值，已保留供你修改。') : null,
-        h('button', { type: 'button', className: 'camnx-btn', disabled: !state.dirty || state.saving, onClick: props.discard }, '放弃修改'),
-        h('button', { type: 'button', className: 'camnx-btn-save', disabled: !state.dirty || state.saving, onClick: props.save },
+        h(Button, { variant: 'ghost', size: 'sm', disabled: !state.dirty || state.saving, onClick: props.discard }, '放弃修改'),
+        h(Button, { variant: 'primary', size: 'sm', disabled: !state.dirty || state.saving, onClick: props.save },
           state.saving ? '保存中…' : '保存'))) : null)
 }
 
 // --- registration ----------------------------------------------------------------------
 
 function apply(ctx) {
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-camind-tool-cam-settings', '')
+    style.textContent = cardCss
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'tool-cam: settings stylesheet')
+
   const { api } = ctx.get('connection')
   const controller = new CamNxCardController(ctx.settingsScope.bind({ namespace: NS }), api)
   ctx.effect(

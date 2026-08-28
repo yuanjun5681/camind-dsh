@@ -39,6 +39,7 @@ var module = { exports: {} }; var exports = module.exports;
 
 const React = require('react')
 const { createElement: h, useEffect, useMemo, useRef, useState } = React
+const { Button } = require('camind-ui-foundation')
 
 // ==== PARSER CORE BEGIN =====================================================
 // This region is inlined verbatim into lib/client.js (hand-written client
@@ -639,10 +640,10 @@ const VIEWER_CSS = `
    卡片整体撑满、视区 flex:1 吃掉 head/foot 以外的高度；自动高度宿主（历史
    内嵌卡片）下 100% 退化为 auto，保持原内容高（视区 min-height 380）。 */
 .tpv-card {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  border: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
+  border-radius: var(--camind-radius-card, 12px);
   overflow: hidden;
-  background: var(--dsw-alias-bg-layer-1, transparent);
+  background: var(--camind-surface-layer, var(--dsw-alias-bg-layer-1, transparent));
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -650,23 +651,17 @@ const VIEWER_CSS = `
 .tpv-head {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px;
-  font-size: 12px; color: var(--dsw-alias-label-secondary);
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  font-size: 12px; color: var(--camind-color-text-secondary, var(--dsw-alias-label-secondary));
+  border-bottom: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
 }
-.tpv-title { font-weight: 600; color: var(--dsw-alias-label-primary); }
+.tpv-title { font-weight: 600; color: var(--camind-color-text, var(--dsw-alias-label-primary)); }
 .tpv-file {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  font-family: var(--camind-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  color: var(--camind-color-text-tertiary, var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tpv-spacer { flex: 1; }
-.tpv-warn { color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary, #b58830)); }
-.tpv-btn {
-  padding: 3px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px;
-  background: transparent; color: var(--dsw-alias-label-secondary);
-  font-size: 12px; cursor: pointer; transition: background 120ms ease;
-}
-.tpv-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.tpv-warn { color: var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary, #b58830))); }
 /* height: 100% fills definite-height hosts (ui-preview「预览」标签页的面板)；
    min-height 保住自动高度宿主（历史内嵌卡片形态）下 380px 的既有形态。 */
 .tpv-view { position: relative; flex: 1; min-height: 380px; background: #14181f; }
@@ -678,31 +673,31 @@ const VIEWER_CSS = `
 .tpv-anim {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px;
-  font-size: 11px; color: var(--dsw-alias-label-secondary);
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  font-size: 11px; color: var(--camind-color-text-secondary, var(--dsw-alias-label-secondary));
+  border-bottom: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
 }
-.tpv-anim > .tpv-btn { flex: none; min-width: 3.2em; }
+.tpv-play-button { flex: none; min-width: 3.2em; }
 .tpv-slider { flex: 1 1 auto; min-width: 60px; accent-color: #4d9fff; }
 .tpv-ro {
   flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--camind-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-variant-numeric: tabular-nums;
   white-space: pre;
 }
 .tpv-speed {
   flex: none;
-  border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px;
-  background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px;
+  border: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2)); border-radius: 7px;
+  background: transparent; color: var(--camind-color-text-secondary, var(--dsw-alias-label-secondary)); font-size: 12px;
 }
 .tpv-fallback {
   padding: 16px 12px; font-size: 12px; line-height: 1.7;
-  color: var(--dsw-alias-label-secondary); background: #14181f;
+  color: var(--camind-color-text-secondary, var(--dsw-alias-label-secondary)); background: #14181f;
 }
 .tpv-foot {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 6px 10px;
-  font-size: 11px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  font-size: 11px; color: var(--camind-color-text-tertiary, var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)));
+  border-top: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
 }
 .tpv-legend { display: inline-flex; align-items: center; gap: 4px; }
 .tpv-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
@@ -1045,9 +1040,9 @@ function ToolpathViewer({ content, fileName }) {
         ? h('span', { className: 'tpv-warn' }, `跳过 ${stats.skipped} 行`)
         : null,
       hasPath && !glError
-        ? h('button', {
-            type: 'button',
-            className: 'tpv-btn',
+        ? h(Button, {
+            variant: 'outline',
+            size: 'sm',
             onClick: () => controlsRef.current?.reset?.(),
           }, '复位视角')
         : null),
@@ -1063,7 +1058,7 @@ function ToolpathViewer({ content, fileName }) {
             : h('div', { className: 'tpv-view', ref: hostRef }),
     hasPath && !glError && parsed.anim.totalTime > 0
       ? h('div', { className: 'tpv-anim' },
-          h('button', { type: 'button', className: 'tpv-btn', onClick: togglePlay }, playing ? '暂停' : '播放'),
+          h(Button, { variant: 'outline', size: 'sm', className: 'tpv-play-button', onClick: togglePlay }, playing ? '暂停' : '播放'),
           h('input', {
             type: 'range', className: 'tpv-slider', min: 0, max: 1000, defaultValue: 0, ref: sliderRef,
             onInput: (e) => controlsRef.current?.scrubRatio?.(Number(e.target.value) / 1000),

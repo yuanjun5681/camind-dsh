@@ -3,12 +3,13 @@
 本文介绍 Camind 的定制前端如何工作。定制 UI 挂在 `/camind` 并是默认入口（`/` 302 跳转到 `/camind/`）；官方 UI 仍在 fallback 席位，由任意未占用路径（如 `/web`）访问，两者互不干扰。涉及这些插件：
 
 - `camind-ui-shell`（ui-shell/）— Host 协议桥 + 自托管 React SPA：半注册 `/camind` 与 `/camind/api`，浏览器侧加载官方插件图并复用官方 slot runtime。
+- `camind-ui-foundation`（ui-foundation/）— client-only 基础层：官方主题之上的 `--camind-*` 产品语义和 Page/Tabs/Card/Dialog 等公共组件，只在 `/camind` 激活。
 - `camind-ui-sidebar`（ui-sidebar/）— 以官方模块 ID 静态替换的 Sidebar，沿用 0.1.1 起上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`。
 - `camind-ui-brand`（ui-brand/）— 品牌插件：动态 blobatar mascot + “Camind” 字标徽章，注册到 `sidebar.brand.mark` / `sidebar.brand.name` 席位（priority -10 压过图内 ui-brand-official；仅 `/camind` 路径注册）。
 - `camind-ui-home`（ui-home/）— 新会话首页（`/`）品牌区与紧随其下的示例卡片：`shell.home` 链叠加在官方 conversation 上方，并中和官方 hero 的自居中、由外层把「品牌 + 示例 + 工作区行 + 输入卡」收成一个整体居中组；`conversation.input.dock` 上挂一个不可见的 inputActions 桥供示例写草稿；官方 HeroShell 用结构选择器 CSS 隐藏。
 - `camind-page-memory`（page-memory/）— 记忆库管理页（两级）：底部菜单 + `/pages/memory` 知识/经验双 tab 列表 + `/pages/memory/<type>/<name>` 详情，Host 半自带 `/camind/api/memory`。
 
-仅 web profile 组合这些插件。改 ui-shell 任何代码都要 `npm run build`：dist 不会随 link 依赖自动更新，未构建时 `/camind` 直接返回 503 提示（`ui-shell/src/host/http.ts:52`）。
+仅 web profile 组合这些插件，且 foundation 必须排在消费它的动态插件之前。改 ui-shell 任何代码都要 `npm run build`：dist 不会随 link 依赖自动更新，未构建时 `/camind` 直接返回 503 提示（`ui-shell/src/host/http.ts:52`）。
 
 ## Host 侧：/camind 与 /camind/api
 
@@ -70,19 +71,25 @@ Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物�
 - sidebar 子 slot（ui-sidebar 声明）：`sidebar.brand.mark` / `sidebar.brand.name` 是 0.1.1 起的上游原生席位；`sidebar.workspaces`、`sidebar.settings` 沿用官方契约，owner props 刻意保持不变；`sidebar.footer.action` 是官方 list 席位，owner props 本地扩展为 `{ wide, pathname, navigate }`（官方契约的超集，存量插件忽略多余字段），类型靠 `declare module` 增广，见 `ui-sidebar/src/client/contract/slots.ts`。
 - 侧栏最底部是账号行（ui-sidebar 本地改动）：flex between 布局，左侧用户块（本地无账号体系，固定显示名 `user`，首字母圆形头像 + 名字），右侧 `sidebar.settings`——固定以 `wide: false` 传给官方 occupant，使其渲染 36px 圆形纯图标 trigger 而非整行带标签按钮；折叠 rail 下只保留该图标，与官方行为一致。
 
+## 统一样式与组件基础层
+
+官方 `ui-theme` 仍是唯一主题引擎。`camind-ui-foundation` 将官方语义 token 映射为稳定的 `--camind-*` 产品语义，公共样式统一限定在 `body[data-camind-ui] .cui-*`；Shell 通过 token 契约消费，动态页面则在 `package.json` 的 `dsh.client.external` 声明 foundation 后 `require('camind-ui-foundation')`。Button、Input、Modal、Pill、Tooltip 不再自绘，直接复用官方 primitives；页面框架、Tabs、Card、Badge、Field、State 与 Dialog 使用 foundation 组合组件。
+
+基础层不持有业务 store、路由、Host 调用或 slot。品牌由 `camind-ui-brand` 独立拥有，`camind-ui-home` 通过 external 复用 `BrandLockup`，不再复制 SVG 和动效 CSS。完整边界见 [ui-foundation-design.md](ui-foundation-design.md)，新增页面必须遵循 [ui-design-standards.md](ui-design-standards.md)。
+
 ## 插件如何扩展页面（page-memory）
 
 client bundle 是手写的 `window.__ModuleLoader__.load()` 格式（`page-memory/lib/client.js`）：
 
 - 模块 `id` 必须等于包名 `camind-page-memory`（加载器会校验「bundle loaded without registering `<id>`」，`<id>/client` 后缀会被规范化）；
-- `require` 只能请求平台种子词（react、`dsh-client-ui-primitives` 等），其余依赖必须内联；
+- `require` 可以请求平台种子词（react、`dsh-client-ui-primitives` 等）和 `dsh.client.external` 显式声明的 Camind provider；其余依赖必须内联；
 - `exports.inject = ['slots']`，`apply` 里两处 `ctx.slots.inject`：
   - `sidebar.footer.action`：底部菜单「记忆库」（id `page-memory`、`order: 20`、label + 组件，active 按 `pathname` 判定，点击 `navigate('/pages/memory')`，样式对齐官方设置触发行）；
   - `shell.content`：`{ priority, select }`，`select({ pathname, navigate })` 匹配 `/pages/memory`（含 `/experience` tab 与 `/<type>/<name>` 详情子路径）时接管页面，页面组件按 `pathname` 分段自行渲染两级视图。
 
 `package.json` 同时声明 `dsh.bundle.patch` 和 `dsh.client.platform: 'web'` 并导出 `./client`；dsh 按 `./client` 出口把 bundle 编入 boot 图。Host 侧 `index.js` 注册 `prefix /camind/api/memory`（webServer 最长前缀优先，与 ui-shell 的 `/camind/api` 互不干扰），`lib/server.js` 提供知识/经验条目的列表、详情、上传、编辑与审核流转端点；领域逻辑不复制——Host 半 `inject: ['webServer', 'memoryBank']`，直接复用 `camind-tool-memory` 的 `memoryBank` Cordis 服务，另加 LLM 元数据后台补全调度。
 
-ui-sidebar 与 page-memory 代表了两种 client 代码形态：**TS 源码静态替换**（编译进 ui-shell bundle，用于替换官方模块）和**手写 bundle 动态加载**（独立文件，用于新增页面/内容；page-memory、ui-brand、ui-home 都是这个形态）。新页面插件用后者，照抄 page-memory 结构即可。
+ui-sidebar 与 page-memory 代表了两种 client 代码形态：**TS 源码静态替换**（编译进 ui-shell bundle，用于替换官方模块）和**手写 bundle 动态加载**（独立文件，用于新增页面/内容；foundation、page-memory、ui-brand、ui-home 都是这个形态）。新页面插件用后者，照抄 page-memory 结构，并复用 foundation，禁止复制公共控件样式。
 
 ## 新会话首页（hero）定制的三条硬约束
 

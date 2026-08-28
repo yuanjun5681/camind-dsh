@@ -1,0 +1,5 @@
+# Camind UI foundation: a client-only provider for semantic tokens and
+# common stateless components. It owns no route, slot, Host API, or domain UI.
+- insert:
+    - id: ui-foundation
+      name: camind-ui-foundation

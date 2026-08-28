@@ -19,7 +19,10 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "platform": "web"
+      "platform": "web",
+      "external": [
+        "camind-ui-foundation"
+      ]
     }
   }
 }

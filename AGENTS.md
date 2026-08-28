@@ -42,6 +42,9 @@ agent-presets/      版本化 AgentPreset（参考 AnaSageHarness 同款机制�
                     定义「CAM 加工」模式 Agent（preset.yml 展示元数据 + agent.cordis.yml
                     会话级组合：persona + agent 级固定配置；cam_* 等工具由 profile 全局挂载）
 ui-shell/           独立定制前端（TypeScript）：Host 协议桥 + React SPA；官方 UI slot + Workbench，入口 /camind（/ 302 至此）
+ui-foundation/      Web UI 基础层（`camind-ui-foundation`）：官方主题之上的
+                    `--camind-*` 语义 token + Page/Tabs/Card/Dialog 等公共组件；
+                    client-only，仅 `/camind` 激活，必须排在消费它的动态插件之前
 ui-preview/         内容预览插件（`camind-ui-preview`）：Host 会话文件预览路由
                     /camind/api/preview/sessions/<id>/file + 主对话区「预览」标签页
                     （conversation.view id=preview）+ filePreview 客户端服务
@@ -92,8 +95,9 @@ desktop/            Electron 壳：spawn `dsh web` 并加载自定义 UI（/cami
   scripts/prepare-vendor.mjs  打包前准备 vendor/（安装 dsh 本体 + 实体化种子 DSH_HOME）
   vendor/           打包材料（gitignore，由 prepare-vendor 生成）
   dist/             electron-builder 产物（gitignore）
-docs/               项目专题文档（custom-ui / slots / memory-design / uploads / dsh-upgrade /
-                    cam-machining-design[设计稿]）+ 每次 dsh 升级的过程记录 upgrades/
+docs/               项目专题文档（custom-ui / ui-foundation-design / ui-design-standards /
+                    slots / memory-design / uploads / dsh-upgrade / cam-machining-design[设计稿]）
+                    + 每次 dsh 升级的过程记录 upgrades/
                     + 指向官方文档的 README；上游文档见 README 的「文档」一节
 docs/dsh-topology.svg  dsh 架构拓扑图
 README.md           主要文档（运行、插件开发教程、桌面打包细节），改动前先读
@@ -102,6 +106,7 @@ README.md           主要文档（运行、插件开发教程、桌面打包细
 插件的分工：
 
 - **ui-shell**（`camind-ui-shell`）— 独立定制前端（TypeScript）。Host 半注册 `/camind`（SPA）与 `/camind/api`，并注册 exact `/` 302 到 `/camind/` 作为默认入口（0.1.1 起官方前端只在 dist 根与 `/index.html` 提供入口，另注册 exact `/web` 302 到 `/index.html` 访问官方 UI）；浏览器侧加载官方插件图。全局 Shell 只渲染 Sidebar、页面出口和 Overlay；`/s/:id` 会话详情子布局才组合官方 Conversation/Details 与自定义 Workbench（「输入」「交付物」「加工」三个页签——「加工」按 session 列 CAM run 的无折叠加工过程时间线：数据源是 run 目录落盘（runstate.history 阶段事件流 + op 起止时间 + check 自检结论，旧格式 runstate 回退工序终态列表），经 tool-cam 只读路由 `GET /camind/api/cam/runs` 5s 轮询 + 执行中 1s 走表刷新「已运行 X / 限时约 Y」，下载走既有 delivery 路由，「查看刀路」经 previewClient 预览进「预览」标签页（刀路席位与渲染均归 camind-ui-preview））；各「预览」按钮经 previewClient 桥调 camind-ui-preview 的 filePreview 服务（预览本体不在本插件），`/` 新会话和 `/pages/*` 插件页不挂载 Workbench。插件页面通过 `shell.content` route chain 扩展。仅 web profile。需 `cd ui-shell && npm install && npm run build`。
+- **ui-foundation**（`camind-ui-foundation`）— `/camind` 的 client-only UI 基础层：把官方 `--dsw-*` 主题 token 映射为稳定的 `--camind-*` 产品语义，复用官方 Button/Input/Modal/Pill/Tooltip，并提供 Page/Tabs/Card/Badge/Field/State/Dialog 等无业务组合组件。自身不注册页面、slot、HTTP 或 store；动态 UI 插件用 `dsh.client.external` 声明依赖。仅 `/camind` 激活并以 `ctx.effect` 管理 stylesheet，官方 `/web` 不受影响。设计与规范见 `docs/ui-foundation-design.md`、`docs/ui-design-standards.md`。
 - **ui-preview**（`camind-ui-preview`）— 内容预览插件（2026-08-26 自 ui-shell 拆出减重）。Host 半注册只读路由 `GET /camind/api/preview/sessions/<id>/file`（预览描述 JSON / `raw=1` 原始字节流；path 相对会话工作区 realpath 防越界 + 拒绝 .git/.dsh/.env* 段，`upload://<batch>/<path>` 引用本会话上传批次；文本截断 1 MiB、raw 限 20 MiB；webServer 最长 prefix 优先匹配，与 ui-shell 的 `/camind/api` 共存）。浏览器半（`lib/client.js`）：注册「预览」标签页进官方 `conversation.view`（id=preview，order 20，跟在「对话」「轨迹」之后；text/markdown/image/pdf/binary 五态渲染，样式走 `--dsw-alias-*` 令牌不依赖 ui-shell）+ `ctx.provide('filePreview')` 服务（`preview(sessionId, path)` 路径模式经 Host 路由取数 / `previewContent(sessionId, name, content)` 内容模式直接渲染调用方持有的文本，均写预览态并切页——切页经 slots 内部 `hostFace().storeOf`，0.1.1-rc.2 未公开 API，防御式降级，升级需复核）；声明 keyed slot `cam.nc.preview` 并直读注册表渲染刀路（工作台「加工」页签「查看刀路」经 delivery 路由取 NC 文本后走 previewContent 进本标签页，viewer 本体仍是 camind-ui-toolpath-viewer）；预览态是浏览器全局单条（带 sessionId，别的会话标签页显示空态引导）。仅 web profile。
 - **ui-sidebar**（`camind-ui-sidebar`）— 基于官方 `@deepseek-ai/dsh-client-ui-sidebar@0.1.1-rc.2` 源码的 `/camind` 专用 Cordis 客户端插件；以官方模块 ID 静态替换（0.1.1 起官方模块系统删除 registerStatic，改为建系统前压入 `__ModuleLoader__` 待处理队列），继续声明 `sidebar.workspaces` / `sidebar.settings` / `sidebar.footer.action` 与上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`（官方契约的超集）；另修复官方沿用的 `.footerActions` 横向 flex 布局（官方只有单个底部菜单项从未暴露，多菜单项时横向挤压裁剪）为纵向排列，官方 `/` 不受影响。最底部是账号行：左侧用户块（本地无账号体系，固定显示名 `user`，首字母圆形头像 + 名字），右侧 `sidebar.settings` 固定以 `wide: false` 渲染官方 36px 圆形纯图标 trigger；折叠 rail 只剩图标，与官方一致。
 - **ui-brand**（`camind-ui-brand`）— Camind 品牌插件：手写 client bundle 注册到上游原生 `sidebar.brand.mark` / `sidebar.brand.name` single 席位（priority -10 压过图内 ui-brand-official 的 priority 0 注册；仅 `/camind` 路径注册，官方壳保持原生品牌）。品牌标记是一个 always-on 动态 blobatar mascot（round 剪影；blobatar@2.1.0 SSR 冻结为静态 SVG 内联进 bundle，动画由随包的 motion.css 驱动、激活时注入 `<head>`，遵循 prefers-reduced-motion）；展开态渲染 mascot + “Camind” 字标与主题反白 “Harness” 徽章（deepseek-HARNESS 风格），折叠 rail 只渲染 mascot。仅 web profile。
@@ -158,11 +163,11 @@ npm run dist     # 打包：先 prepare-vendor 再 electron-builder，产物在 
 
 一个 bundle = 带 `dsh.bundle` 声明的 npm 包，三个文件：`package.json`、`cordis.patch.yml`、`index.js`。照抄现有示例的结构即可，要点：
 
-- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有十二个：`camind-ui-shell`（ui-shell/）、`camind-ui-preview`（ui-preview/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-ui-toolpath-viewer`（ui-toolpath-viewer/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）、`camind-service-machine`（service-machine/）。
+- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有十三个：`camind-ui-shell`（ui-shell/）、`camind-ui-foundation`（ui-foundation/）、`camind-ui-preview`（ui-preview/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-ui-toolpath-viewer`（ui-toolpath-viewer/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）、`camind-service-machine`（service-machine/）。
 - 插件是导出 `apply(ctx)` 的 ESM 模块；`export const inject = ['tools', 'commands', ...]` 声明消费的服务，Cordis 等其就绪后才运行 `apply`。通过 `ctx` 注册的一切都是可逆 effect，卸载自动回收；手动资源用 `ctx.effect(() => disposer)`。
 - `package.json` 声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`；有浏览器代码时再加 `"dsh": { "client": { "platform": "web" } }` 并导出 `./client`。
 - `cordis.patch.yml` 的插件行按**包名**引用（`- insert: [{ id: ..., name: <包名> }]`），Node 解析到安装后的代码。
-- client bundle 手写格式：`window.__ModuleLoader__.load({ id: <包名>, factory: (require) => {...} })`，`id` 必须等于包名；除 shell 提供的共享包外一切依赖必须内联。参考 `page-memory/lib/client.js`。
+- client bundle 手写格式：`window.__ModuleLoader__.load({ id: <包名>, factory: (require) => {...} })`，`id` 必须等于包名；平台种子词可直接 `require`，Camind 公共模块必须在 `dsh.client.external` 显式声明（如 `camind-ui-foundation`、`camind-ui-brand`），其余依赖内联。参考 `page-memory/lib/client.js`。
 - UI 扩展用 slot 机制（`ctx.slots.inject(name, () => ctx.slots.register(...))`），不要改 shell 自有组件。
 - 配置按层叠加，后面的层覆盖前面同 `id` 的行：profile 的 bundles 列表（`@deepseek-ai/dsh-base` 最前）→ profile 自己的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → 命令行 `--patch`（可多次）。
 

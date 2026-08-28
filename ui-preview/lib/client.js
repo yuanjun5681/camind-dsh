@@ -33,32 +33,32 @@ const { MarkdownText } = require('@deepseek-ai/dsh-client-ui-primitives')
 // --- stylesheet (dsw-alias tokens; no ui-shell vars) ----------------------------
 
 const previewCss = `
-.campv-view { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+.campv-view { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--camind-surface-page, var(--dsw-alias-bg-base)); color: var(--camind-color-text, var(--dsw-alias-label-primary)); }
 .campv-view *, .campv-view *::before, .campv-view *::after { box-sizing: border-box; }
 .campv-chrome { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
 .campv-head {
   flex: none; min-height: 44px; display: flex; align-items: center; gap: 12px;
-  padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
 }
 .campv-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .campv-head-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
-.campv-head-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.campv-head-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--camind-color-text-tertiary, var(--dsw-alias-label-tertiary)); font-size: 11px; }
 .campv-head-actions { flex: none; display: flex; align-items: center; gap: 4px; }
 .campv-head-actions a {
   flex: none; display: inline-flex; align-items: center; justify-content: center; height: 28px;
-  padding: 0 8px; border-radius: 8px; color: var(--dsw-alias-state-business-primary);
+  padding: 0 8px; border-radius: 8px; color: var(--camind-color-accent, var(--dsw-alias-state-business-primary));
   font-size: 12px; text-decoration: none;
 }
-.campv-head-actions a:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.campv-head-actions a:hover { background: var(--camind-surface-hover, var(--dsw-alias-interactive-bg-hover)); }
 .campv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .campv-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .campv-empty, .campv-error { padding: 28px 16px; font-size: 13px; line-height: 1.6; text-align: center; }
-.campv-empty { color: var(--dsw-alias-label-tertiary); }
-.campv-error { color: var(--dsw-alias-state-error-primary); }
+.campv-empty { color: var(--camind-color-text-tertiary, var(--dsw-alias-label-tertiary)); }
+.campv-error { color: var(--camind-color-danger, var(--dsw-alias-state-error-primary)); }
 .campv-text {
   flex: 1; min-height: 0; margin: 0; padding: 16px 20px; overflow: auto;
-  background: var(--dsw-alias-markdown-code-block); color: var(--dsw-alias-label-primary);
-  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: var(--camind-surface-code, var(--dsw-alias-markdown-code-block)); color: var(--camind-color-text, var(--dsw-alias-label-primary));
+  font: 13px/1.55 var(--camind-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   white-space: pre;
 }
 .campv-markdown { flex: 1; min-height: 0; overflow: auto; padding: 28px clamp(24px, 4vw, 56px) 64px; }
@@ -66,9 +66,9 @@ const previewCss = `
 .campv-media { flex: 1; min-height: 0; display: grid; place-items: center; padding: 12px; overflow: auto; }
 .campv-media img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .campv-pdf { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
-.campv-binary { padding: 48px 24px; color: var(--dsw-alias-label-secondary); font-size: 13px; text-align: center; }
-.campv-binary a { color: var(--dsw-alias-state-business-primary); }
-.campv-truncated { flex: none; padding: 8px 16px; border-top: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-state-warn-label); font-size: 12px; }
+.campv-binary { padding: 48px 24px; color: var(--camind-color-text-secondary, var(--dsw-alias-label-secondary)); font-size: 13px; text-align: center; }
+.campv-binary a { color: var(--camind-color-accent, var(--dsw-alias-state-business-primary)); }
+.campv-truncated { flex: none; padding: 8px 16px; border-top: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2)); color: var(--camind-color-warning, var(--dsw-alias-state-warn-label)); font-size: 12px; }
 /* Hide the composer while the preview tab is the active view: the official
    conversation root carries [data-phase] and the composer seat
    [data-composer-seat] (hash-free anchors, same trick as ui-home's HeroShell
@@ -90,13 +90,6 @@ const previewCss = `
   padding-bottom: 0;
 }
 `
-
-if (typeof document !== 'undefined' && document.querySelector('style[data-campv]') === null) {
-  const tag = document.createElement('style')
-  tag.dataset.campv = ''
-  tag.textContent = previewCss
-  document.head.appendChild(tag)
-}
 
 // --- preview target store ---------------------------------------------------------
 // target: { kind: 'path', sessionId, path } | { kind: 'content', sessionId, name, content }
@@ -332,6 +325,14 @@ function FilePreviewView({ sessionId }) {
 // --- registration ------------------------------------------------------------------------
 
 function apply(ctx) {
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-camind-ui-preview', '')
+    style.textContent = previewCss
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-preview: stylesheet')
+
   // The activation helper reaches the slots service instance (which carries the
   // internal hostFace); stashed module-locally for the filePreview service.
   slotsRef = ctx.slots

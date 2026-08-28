@@ -37,34 +37,17 @@ const MOTION_CSS = `@property --mo-amp{syntax:"<number>";inherits:true;initial-v
 const BRAND_CSS = `
 .camind-brand-mascot{display:inline-flex;flex:none;line-height:0}
 .camind-brand-mascot>svg{width:100%;height:100%}
+.camind-brand-lockup{display:inline-flex;align-items:center;color:var(--camind-color-text,var(--dsw-alias-label-primary))}
+.camind-brand-copy{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left}
+.camind-brand-wordmark{font-weight:600;letter-spacing:.01em;line-height:1.3}
+.camind-brand-badge{display:inline-block;margin-left:2px;padding:1px 5px;border-radius:4px;background:var(--camind-color-text,var(--dsw-alias-label-primary));color:var(--camind-surface-page,var(--dsw-alias-bg-base));font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;line-height:1.5;vertical-align:1px}
+.camind-brand-tagline{color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary));font-size:14px;line-height:22px}
+.camind-brand-lockup[data-variant="sidebar"]{gap:0}.camind-brand-lockup[data-variant="sidebar"] .camind-brand-wordmark{font-size:15px}
+.camind-brand-lockup[data-variant="hero"]{gap:16px}.camind-brand-lockup[data-variant="hero"] .camind-brand-wordmark{font-size:26px}.camind-brand-lockup[data-variant="hero"] .camind-brand-badge{margin-left:4px;padding:2px 6px;border-radius:5px;font-size:12px;vertical-align:2px}
 `
 
-const styles = {
-  wordmark: {
-    fontSize: 15,
-    fontWeight: 600,
-    letterSpacing: '0.01em',
-    color: 'var(--dsw-alias-label-primary)',
-  },
-  // deepseek-HARNESS 风格的反白徽章：底色/字色随主题反转
-  badge: {
-    display: 'inline-block',
-    marginLeft: 2,
-    padding: '1px 5px',
-    borderRadius: 4,
-    background: 'var(--dsw-alias-label-primary)',
-    color: 'var(--dsw-alias-bg-base, var(--bg))',
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
-    lineHeight: 1.5,
-    verticalAlign: '1px',
-  },
-}
-
-function Mascot({ size }) {
-  const edge = Math.round((size ?? 24) * 1.25)
+function Mascot({ size = 24, opticalScale = 1 }) {
+  const edge = Math.round(size * opticalScale)
   return h('span', {
     className: 'camind-brand-mascot',
     style: { width: edge, height: edge },
@@ -73,13 +56,20 @@ function Mascot({ size }) {
 }
 
 function CamindBrandMark({ size }) {
-  return h(Mascot, { size })
+  return h(Mascot, { size, opticalScale: 1.25 })
+}
+
+function BrandLockup({ variant = 'sidebar', tagline }) {
+  return h('span', { className: 'camind-brand-lockup', 'data-variant': variant },
+    variant === 'hero' ? h(Mascot, { size: 84 }) : null,
+    h('span', { className: 'camind-brand-copy' },
+      h('span', { className: 'camind-brand-wordmark' },
+        'Camind', h('span', { className: 'camind-brand-badge' }, 'Harness')),
+      tagline ? h('span', { className: 'camind-brand-tagline' }, tagline) : null))
 }
 
 function CamindBrandName() {
-  return h('span', { style: styles.wordmark },
-    'Camind',
-    h('span', { style: styles.badge }, 'Harness'))
+  return h(BrandLockup, { variant: 'sidebar' })
 }
 
 function apply(ctx) {
@@ -111,5 +101,7 @@ function apply(ctx) {
 exports.name = 'ui-brand-client'
 exports.inject = ['slots']
 exports.apply = apply
+exports.Mascot = Mascot
+exports.BrandLockup = BrandLockup
 
 return module.exports; } });

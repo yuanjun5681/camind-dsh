@@ -1,7 +1,7 @@
 {
-  "name": "camind-ui-home",
+  "name": "camind-ui-foundation",
   "version": "0.1.0",
-  "description": "New-session home for /camind: Camind brand block and example prompts layered over the official conversation (shell.home chain), plus example chips on the blank hero (conversation.input.dock).",
+  "description": "Shared semantic design tokens and common React UI patterns for the /camind Web UI.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -19,11 +19,7 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "platform": "web",
-      "external": [
-        "camind-ui-foundation",
-        "camind-ui-brand"
-      ]
+      "platform": "web"
     }
   }
 }
