@@ -22,10 +22,12 @@
 //   per Fanuc; G90.1 absolute-center mode is only warned about);
 // - units G20/G21 recorded in meta.units, coordinates passed through unscaled
 //   (mixing unit systems in one file is not a viewer concern);
-// - canned cycles G73/G74/G76/G81..G89: recorded in `cycles[]` and rendered as
-//   ONE feed line from R plane to Z depth per call — peck/dwell substeps are
-//   deliberately NOT expanded (drill geometry stays honest: position + depth);
-//   modal re-execution on bare X/Y lines until G80 or a motion G code;
+// - canned cycles G73/G74/G76/G81..G89: recorded in `cycles[]` and expanded
+//   into approach / feed / retract segments (G81/G82 rapid-to-R then feed;
+//   G83 peck with Q, rapid back to R between pecks; G73 high-speed peck with
+//   a 1 mm pullback; G74/G84 tapping and G85/G89 feed retract; G86 rapid
+//   retract). G76/G87/G88 stay a single R→Z feed plus a one-shot warning.
+//   Modal re-execution on bare X/Y lines until G80 or a motion G code;
 // - G28/G30 reference return: the intermediate point move is rendered as a
 //   rapid; the final leg to the machine reference point has no program-space
 //   coordinates and is skipped (documented, not simulated);
@@ -109,6 +111,9 @@ function parseNc(text, options = {}) {
   let feed = null
   let spindle = null
   let pendingTool = null
+  let warnedS0 = false
+  let warnedCyclePlane = false
+  let warnedSimpleCycle = false
 
   function warn(message) {
     if (warnings.length < 200) warnings.push(message)
@@ -131,7 +136,7 @@ function parseNc(text, options = {}) {
     if (from[0] === to[0] && from[1] === to[1] && from[2] === to[2]) return
     if (segments.length >= segmentCap) {
       truncated = true
-      warn(`segment cap ${segmentCap} reached — output truncated`)
+      warn(`轨迹段数达到上限 ${segmentCap}，显示已截断`)
       return
     }
     // `feed` snapshots the modal F word (units/min) for playback timing;
@@ -175,11 +180,11 @@ function parseNc(text, options = {}) {
       const dy = ev - sv
       const chord = Math.hypot(dx, dy)
       if (chord === 0) {
-        warn(`line ${line}: R-form arc with zero chord (full circle needs IJK)`)
+        warn(`第 ${line} 行：R 圆弧弦长为 0，整圆请用 IJK`)
         return false
       }
       if (r < chord / 2 - 1e-9) {
-        warn(`line ${line}: arc radius ${r} smaller than half chord ${chord / 2} — clamped`)
+        warn(`第 ${line} 行：圆弧半径 ${r} 小于半弦 ${chord / 2}，已钳制`)
       }
       const h = Math.sqrt(Math.max(0, r * r - (chord / 2) ** 2))
       const mx = (su + eu) / 2
@@ -195,7 +200,7 @@ function parseNc(text, options = {}) {
       const ou = params[frame.ou] ?? 0
       const ov = params[frame.ov] ?? 0
       if (ou === 0 && ov === 0) {
-        warn(`line ${line}: arc without IJK center or R — skipped`)
+        warn(`第 ${line} 行：圆弧缺少 IJK 圆心或 R，已跳过`)
         return false
       }
       cu = su + ou // Fanuc: center offsets stay incremental under G90 too
@@ -203,7 +208,7 @@ function parseNc(text, options = {}) {
     }
     const radius = Math.hypot(su - cu, sv - cv)
     if (radius < 1e-9) {
-      warn(`line ${line}: zero-radius arc — skipped`)
+      warn(`第 ${line} 行：零半径圆弧，已跳过`)
       return false
     }
     const a0 = Math.atan2(sv - cv, su - cu)
@@ -238,8 +243,12 @@ function parseNc(text, options = {}) {
     return true
   }
 
-  // One canned-cycle call at (tx, ty): positioning rapid + recorded cycle +
-  // a single R→Z feed line (peck/dwell substeps are NOT simulated).
+  // Fanuc group-9 cycle at (tx, ty). Cutting legs use kind `cycle` (amber);
+  // positioning and chip-clear retracts are rapids. G76/G87/G88 stay a single
+  // R→Z feed — their boring sub-moves are not a viewer concern.
+  const TAP_OR_BORE_FEED_OUT = new Set([74, 84, 85, 89])
+  const SIMPLE_BORE = new Set([76, 87, 88])
+
   function emitCanned(params, line) {
     const next = targetPoint(params)
     const tx = next[0]
@@ -253,19 +262,81 @@ function parseNc(text, options = {}) {
       rPlane = cannedInitialZ + (canned.r ?? 0)
       zDepth = rPlane + (canned.z ?? 0)
     }
-    if (tx !== pos[0] || ty !== pos[1]) {
-      pushSegment(pos, [tx, ty, pos[2]], 'rapid', line)
-    }
+    const code = canned.code
     cycles.push({
-      code: canned.code,
-      label: CANNED_CYCLES[canned.code] ?? `G${canned.code}`,
+      code,
+      label: CANNED_CYCLES[code] ?? `G${code}`,
       at: [tx, ty],
       r: rPlane,
       z: zDepth,
       line,
     })
-    pushSegment([tx, ty, rPlane], [tx, ty, zDepth], 'cycle', line)
-    pos = [tx, ty, returnInitial ? cannedInitialZ : rPlane]
+
+    if (plane !== 17 && !warnedCyclePlane) {
+      warnedCyclePlane = true
+      warn(`第 ${line} 行：固定循环在 G${plane} 平面按 XY 孔位展开，请复核`)
+    }
+
+    if (tx !== pos[0] || ty !== pos[1]) {
+      pushSegment(pos, [tx, ty, pos[2]], 'rapid', line)
+      pos = [tx, ty, pos[2]]
+    }
+
+    const retractZ = returnInitial ? cannedInitialZ : rPlane
+
+    if (SIMPLE_BORE.has(code)) {
+      if (!warnedSimpleCycle) {
+        warnedSimpleCycle = true
+        warn(`G${code} ${CANNED_CYCLES[code]}按 R→Z 简化显示，镗孔子步未展开`)
+      }
+      if (pos[2] !== rPlane) {
+        pushSegment(pos, [tx, ty, rPlane], 'rapid', line)
+        pos = [tx, ty, rPlane]
+      }
+      pushSegment([tx, ty, rPlane], [tx, ty, zDepth], 'cycle', line)
+      if (zDepth !== retractZ) pushSegment([tx, ty, zDepth], [tx, ty, retractZ], 'rapid', line)
+      pos = [tx, ty, retractZ]
+      return
+    }
+
+    if (pos[2] !== rPlane) {
+      pushSegment(pos, [tx, ty, rPlane], 'rapid', line)
+      pos = [tx, ty, rPlane]
+    }
+
+    const q = Math.abs(canned.q ?? 0)
+    const pecking = (code === 83 || code === 73) && q > 0 && rPlane !== zDepth
+    if (pecking) {
+      const down = rPlane > zDepth
+      let zc = rPlane
+      let peckAt = rPlane
+      let guard = 0
+      while (guard < 10000) {
+        guard += 1
+        const zn = down ? Math.max(peckAt - q, zDepth) : Math.min(peckAt + q, zDepth)
+        pushSegment([tx, ty, zc], [tx, ty, zn], 'cycle', line)
+        pos = [tx, ty, zn]
+        peckAt = zn
+        if (Math.abs(zn - zDepth) < 1e-9) break
+        if (code === 83) {
+          pushSegment([tx, ty, zn], [tx, ty, rPlane], 'rapid', line)
+          zc = rPlane
+        } else {
+          const up = down ? Math.min(zn + 1, rPlane) : Math.max(zn - 1, rPlane)
+          pushSegment([tx, ty, zn], [tx, ty, up], 'rapid', line)
+          zc = up
+        }
+      }
+    } else {
+      pushSegment([tx, ty, rPlane], [tx, ty, zDepth], 'cycle', line)
+      pos = [tx, ty, zDepth]
+    }
+
+    if (pos[2] !== retractZ) {
+      const kind = TAP_OR_BORE_FEED_OUT.has(code) ? 'cycle' : 'rapid'
+      pushSegment(pos, [tx, ty, retractZ], kind, line)
+    }
+    pos = [tx, ty, retractZ]
   }
 
   function handleLine(rawText, lineNo) {
@@ -332,11 +403,14 @@ function parseNc(text, options = {}) {
       if (isG(g, 17)) plane = 17
       else if (isG(g, 18)) plane = 18
       else if (isG(g, 19)) plane = 19
-      else if (isG(g, 20)) units = 'inch'
+      else if (isG(g, 20)) {
+        if (units !== 'inch') warn(`第 ${lineNo} 行：G20 英制按文件数值绘制，未换算毫米`)
+        units = 'inch'
+      }
       else if (isG(g, 21)) units = 'mm'
       else if (isG(g, 90)) absolute = true
       else if (isG(g, 91)) absolute = false
-      else if (isG(g, 90.1)) warn(`line ${lineNo}: G90.1 absolute arc centers unsupported (IJK stay incremental)`)
+      else if (isG(g, 90.1)) warn(`第 ${lineNo} 行：G90.1 绝对圆心不支持，IJK 仍按增量处理`)
       else if (isG(g, 98)) returnInitial = true
       else if (isG(g, 99)) returnInitial = false
       else if (isG(g, 80)) canned = null
@@ -348,7 +422,13 @@ function parseNc(text, options = {}) {
     }
 
     if (params.F !== undefined) feed = params.F
-    if (params.S !== undefined) spindle = params.S
+    if (params.S !== undefined) {
+      spindle = params.S
+      if (params.S === 0 && !warnedS0) {
+        warnedS0 = true
+        warn(`第 ${lineNo} 行：S0 主轴转速为 0，必须回到 NC 复核`)
+      }
+    }
     if (params.T !== undefined) pendingTool = params.T
     if (mCodes.some((m) => Math.trunc(m) === 6) && pendingTool !== null) {
       tools.push(pendingTool)
@@ -381,13 +461,16 @@ function parseNc(text, options = {}) {
         f: params.F ?? feed,
       }
       cannedInitialZ = pos[2]
-      if (params.X !== undefined || params.Y !== undefined) emitCanned(params, lineNo)
+      // Fanuc executes the defining block at the current/modal XY.
+      emitCanned(params, lineNo)
       return
     }
 
-    // Inside canned mode, position-less Z/R edits apply to subsequent calls
+    // Inside canned mode, position-less Z/R/Q edits apply to subsequent calls
     // (Fanuc semantics) — no motion, no re-execution.
     if (canned !== null && motionHere === null) {
+      if (params.Q !== undefined) canned.q = params.Q
+      if (params.P !== undefined) canned.p = params.P
       if (params.X !== undefined || params.Y !== undefined) {
         emitCanned(params, lineNo)
         return

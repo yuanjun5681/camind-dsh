@@ -52,6 +52,7 @@ const previewCss = `
 .campv-head-actions a:hover { background: var(--camind-surface-hover, var(--dsw-alias-interactive-bg-hover)); }
 .campv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .campv-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.campv-pane .tpv-card { border: 0; border-radius: 0; }
 .campv-empty, .campv-error { padding: 28px 16px; font-size: 13px; line-height: 1.6; text-align: center; }
 .campv-empty { color: var(--camind-color-text-tertiary, var(--dsw-alias-label-tertiary)); }
 .campv-error { color: var(--camind-color-danger, var(--dsw-alias-state-error-primary)); }
