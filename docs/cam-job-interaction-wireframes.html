@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CAM 动态场景作业面线框 · 一会话一单活</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --line: #222;
+      --muted: #666;
+      --fill: #f4f4f4;
+      --sel: #d6e4f0;
+      --warn: #f3e0c8;
+      --danger: #f0d4d4;
+      --ok: #d7e8d7;
+      --paper: #fff;
+      --rail: 88px;
+      --nav: 112px;
+      --dock: 340px;
+      --head: 48px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #cfcfcf; color: var(--ink); font: 13px/1.45 "IBM Plex Sans", "Source Han Sans SC", "PingFang SC", sans-serif; }
+    body { padding: 16px 16px 32px; }
+    .doc { max-width: 1280px; margin: 0 auto; }
+    .doc-head { margin: 0 0 10px; font-size: 12px; color: #555; }
+    .doc-head a { color: inherit; }
+    .frame {
+      display: grid;
+      grid-template-columns: var(--rail) 1fr;
+      background: var(--paper);
+      border: 1.5px solid var(--line);
+      min-height: 640px;
+      box-shadow: 0 1px 0 #999;
+    }
+    .rail {
+      border-right: 1.5px solid var(--line);
+      background: var(--fill);
+      padding: 10px 6px;
+      display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+    }
+    .mark { width: 36px; height: 36px; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 10px; margin: 0 auto; background: #fff; }
+    .sess {
+      border: 1px solid var(--line); background: #fff; padding: 6px 6px 7px;
+      font-size: 11px; text-align: left; cursor: pointer; width: 100%; font: inherit; font-size: 11px;
+    }
+    .sess.on { background: var(--sel); font-weight: 650; box-shadow: inset 3px 0 0 var(--line); }
+    .sess b { display: block; font-size: 10px; font-weight: 550; color: var(--muted); }
+    .job { display: grid; grid-template-rows: var(--head) 1fr; min-width: 0; position: relative; }
+    .hdr {
+      border-bottom: 1.5px solid var(--line);
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 12px; background: #fafafa;
+    }
+    .hdr .id { font-weight: 650; }
+    .chip { border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; background: #fff; }
+    .chip.warn { background: var(--warn); }
+    .chip.danger { background: var(--danger); }
+    .hdr .grow { flex: 1; }
+    .dock-toggle { display: none; }
+    .btn {
+      border: 1.5px solid var(--line); background: #fff; padding: 5px 10px; font: inherit; font-weight: 650; cursor: pointer;
+    }
+    .btn.primary { background: var(--ink); color: #fff; }
+    .btn.danger { background: #4a1f1f; color: #fff; }
+    .btn[disabled] { opacity: .4; cursor: default; }
+    .body { display: grid; grid-template-columns: var(--nav) 1fr var(--dock); min-height: 0; }
+    .nav { border-right: 1.5px solid var(--line); padding: 8px 0; }
+    .nav button {
+      display: block; width: 100%; text-align: left; border: 0; background: none;
+      padding: 10px 12px; font: inherit; color: var(--ink); cursor: pointer;
+    }
+    .nav button.on { background: var(--sel); font-weight: 650; box-shadow: inset 3px 0 0 var(--line); }
+    .nav button[disabled] { opacity: .42; cursor: not-allowed; }
+    .nav button .dot { display: inline-block; width: 7px; height: 7px; border: 1px solid var(--line); border-radius: 50%; margin-left: 6px; vertical-align: middle; }
+    .nav button .dot.lit { background: #c45; border-color: #c45; }
+    .phase-state { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 400; }
+    .stage { padding: 12px; min-width: 0; overflow: auto; background: #fff; }
+    .dock { border-left: 1.5px solid var(--line); background: #f7f7f7; display: flex; flex-direction: column; min-width: 0; }
+    .dock h3, .stage h3 { margin: 0 0 8px; font-size: 12px; font-weight: 650; }
+    .dock-head { padding: 10px 10px 0; }
+    .dock-body { padding: 8px 10px 10px; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+    .dock-input { border-top: 1.5px solid var(--line); padding: 8px; background: #f7f7f7; }
+    .composer { border: 1.5px solid var(--line); background: #fff; padding: 8px; min-height: 52px; font-size: 12px; color: var(--muted); }
+    .pin { border: 1px dashed var(--line); padding: 4px 6px; font-size: 11px; margin-bottom: 0; background: #fff; }
+    .msg { border: 1px solid var(--line); padding: 7px 8px; font-size: 12px; background: #fff; }
+    .msg.agent { border-left: 3px solid var(--line); }
+    .msg.user { background: var(--sel); margin-left: 16px; }
+    .msg .who { font-size: 10px; font-weight: 650; color: var(--muted); margin-bottom: 2px; }
+    .box { border: 1px solid var(--line); background: #fff; padding: 8px; }
+    .cols { display: grid; gap: 10px; }
+    .cols-2 { grid-template-columns: 1fr 1fr; }
+    .cols-peek { grid-template-columns: 1.3fr .7fr; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid var(--line); padding: 5px 6px; text-align: left; }
+    th { background: var(--fill); font-weight: 650; }
+    tr.sel td { background: var(--sel); }
+    tr.warn td { background: var(--warn); }
+    tr.sel.warn td { background: #d9e0ea; box-shadow: inset 0 0 0 1.5px var(--line); }
+    .muted { color: var(--muted); }
+    .path:after { content: attr(data-label); position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+    .card-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .card { border: 1px solid var(--line); padding: 8px 10px; min-width: 140px; background: #fff; }
+    .card b { display: block; font-size: 11px; color: var(--muted); font-weight: 550; }
+    .ask label { display: block; border: 1px solid var(--line); padding: 5px 8px; margin: 4px 0; background: #fff; }
+    .ask label.rec { background: var(--sel); }
+    .path { width: 100%; height: 180px; padding: 0; border: 1px solid var(--line); position: relative; font: inherit; color: inherit; background:
+      linear-gradient(#eee, #eee) 12px 12px / calc(100% - 24px) 1px no-repeat,
+      linear-gradient(#eee, #eee) 12px 50% / calc(100% - 24px) 1px no-repeat,
+      linear-gradient(#eee, #eee) 12px calc(100% - 12px) / calc(100% - 24px) 1px no-repeat,
+      repeating-linear-gradient(90deg, transparent, transparent 18px, #ddd 18px, #ddd 19px);
+    }
+    .path { cursor: pointer; }
+    .path[disabled] { cursor: not-allowed; opacity: .72; }
+    .viewer { display: grid; grid-template-rows: auto 1fr auto; min-height: 420px; border: 1px solid var(--line); }
+    .viewer-top, .viewer-bot { border: 0; padding: 8px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--fill); }
+    .viewer-top { border-bottom: 1px solid var(--line); }
+    .viewer-bot { border-top: 1px solid var(--line); }
+    .viewer-canvas { position: relative; min-height: 280px; background:
+      linear-gradient(#eee, #eee) 16px 16px / calc(100% - 32px) 1px no-repeat,
+      linear-gradient(#eee, #eee) 16px 50% / calc(100% - 32px) 1px no-repeat,
+      linear-gradient(#eee, #eee) 16px calc(100% - 16px) / calc(100% - 32px) 1px no-repeat,
+      repeating-linear-gradient(90deg, transparent, transparent 22px, #ddd 22px, #ddd 23px);
+    }
+    .hud { position: absolute; top: 10px; left: 10px; border: 1px solid var(--line); background: #fff; padding: 6px 8px; font-size: 11px; }
+    .scrub { flex: 1; height: 8px; border: 1px solid var(--line); background: #fff; position: relative; }
+    .scrub i { position: absolute; left: 0; top: 0; bottom: 0; width: 38%; background: #bbb; }
+    .tl { display: flex; flex-direction: column; gap: 6px; }
+    .tl-item { border: 1px solid var(--line); padding: 8px; background: #fff; }
+    .tl-item.fail { background: var(--danger); }
+    .tl-item.ok { background: var(--ok); }
+    .actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .job.is-home { grid-template-rows: 1fr; }
+    .job.is-home .hdr { display: none; }
+    .job.is-home .body { display: block; }
+    .job.is-home .nav,
+    .job.is-home .dock { display: none; }
+    .job.is-home .stage { max-width: 760px; margin: 0 auto; padding: 28px 20px 36px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .brand .logo { width: 48px; height: 48px; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 11px; }
+    .brand h2 { margin: 0; font-size: 22px; }
+    .brand .badge { border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; margin-left: 6px; }
+    .home-drop {
+      border: 1.5px dashed var(--line); min-height: 140px; display: grid; place-items: center;
+      width: 100%; text-align: center; color: var(--muted); background: var(--fill); cursor: pointer; margin: 16px 0; font: inherit;
+    }
+    .ex { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+    .ex button { border: 1px solid var(--line); background: #fff; padding: 8px 10px; font: inherit; cursor: pointer; text-align: left; }
+    .home-thread { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+    .route { border: 1.5px solid var(--line); background: #fff; padding: 10px; }
+    .route h3 { margin: 0 0 8px; }
+    .route label { display: block; border: 1px solid var(--line); padding: 8px 10px; margin: 6px 0; cursor: pointer; }
+    .route label.rec { background: var(--sel); }
+    .drop {
+      border: 1.5px dashed var(--line); min-height: 320px; display: grid; place-items: center;
+      width: 100%; text-align: center; color: var(--muted); background: var(--fill); cursor: pointer; font: inherit;
+    }
+    .sheet p { margin: 0 0 6px; }
+    .nc { display: flex; flex-direction: column; gap: 4px; }
+    .nc-item { border: 1px solid var(--line); padding: 5px 8px; color: inherit; background: #fff; display: block; width: 100%; text-align: left; font: inherit; cursor: pointer; }
+    .nc-item.muted { cursor: not-allowed; }
+    .nc-item.warn { background: var(--warn); }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #195b9b; outline-offset: 2px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 980px) {
+      .body { grid-template-columns: var(--nav) 1fr; }
+      .dock { display: none; }
+      .dock-toggle { display: inline-block; }
+      .job.dock-open .dock {
+        display: flex; position: absolute; z-index: 4; top: var(--head); right: 0; bottom: 0;
+        width: min(380px, calc(100% - var(--nav))); box-shadow: -4px 0 0 rgba(0,0,0,.12);
+      }
+      .cols-2, .cols-peek { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc">
+    <div class="doc-head"><a href="./cam-job-interaction-design.md">设计稿</a> · 动态壳验证：场景 A 铣削新件 + 场景 B 返修</div>
+
+    <section class="frame" id="app">
+      <aside class="rail">
+        <div class="mark">C</div>
+        <button type="button" class="sess on" data-job="home" id="sess-home">
+          <b>会话</b>新会话
+        </button>
+        <button type="button" class="sess" data-job="new" id="sess-new">
+          <b>会话</b>zm26030-704
+        </button>
+        <button type="button" class="sess" data-job="rework" id="sess-rework">
+          <b>会话</b>改孔 · 父单 8/12
+        </button>
+      </aside>
+      <div class="job is-home" id="job-root">
+        <header class="hdr" id="hdr"></header>
+        <div class="body">
+          <nav class="nav" id="nav" aria-label="当前场景阶段"></nav>
+          <main class="stage" id="stage"></main>
+          <aside class="dock">
+            <div class="dock-head" id="dock-head"></div>
+            <div class="dock-body" id="dock"></div>
+            <div class="dock-input" id="dock-input"></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <template id="tpl-home-stage">
+    <div class="brand">
+      <div class="logo">虎钳</div>
+      <div>
+        <h2>Camind <span class="badge">Harness</span></h2>
+        <div class="muted">Agent 助你驾驭 CAM 加工的复杂</div>
+      </div>
+    </div>
+    <button type="button" class="home-drop js-start-job">
+      <span>
+        <strong>拖入 .prt 与图纸</strong>
+        <span class="muted" style="display:block">或点此选择</span>
+      </span>
+    </button>
+    <div class="ex">
+      <button type="button" class="js-start-job">为铝壳体出程序并交付 NC</button>
+      <button type="button" class="js-start-rework">打开上月那单，孔改成 M8</button>
+      <button type="button" class="js-ask">这活 CV-850 能干吗？</button>
+      <button type="button" class="js-vague">这个也做一下</button>
+    </div>
+    <div class="home-thread" id="home-thread" hidden></div>
+    <button type="button" class="composer js-vague" style="width:100%;text-align:left;font:inherit">这个也做一下</button>
+  </template>
+  <template id="tpl-incoming-empty-stage">
+    <button type="button" class="drop" id="drop">
+      <span>
+        <strong>拖入 .prt 与图纸</strong>
+        <span class="muted" style="display:block">或点此选择</span>
+      </span>
+    </button>
+  </template>
+  <template id="tpl-incoming-stage">
+    <div class="cols cols-2">
+      <div class="box">
+        <h3>读件简报</h3>
+        <p>120 × 80 × 35 · 12 孔 · 4 个 φ5.0 像 M6 底孔 · 2 处锥面候选</p>
+        <p class="muted">图纸：6061-T6 · 阳极 · M6×1.0 通 · 基准 A 0.8</p>
+        <p><span class="chip">跟上月壳体-A 很像</span></p>
+      </div>
+      <div class="box ask">
+        <h3>请确认</h3>
+        <div class="muted">来料</div>
+        <label><input type="radio" name="stock" /> 锯切毛坯</label>
+        <label><input type="radio" name="stock" /> 已铣六面</label>
+        <label><input type="radio" name="stock" checked /> 半成品（哪几面已加工）</label>
+        <div class="muted" style="margin-top:8px">φ5.0 孔 ×4</div>
+        <label class="rec"><input type="radio" name="h" checked /> 攻 M6</label>
+        <label><input type="radio" name="h" /> 铰孔</label>
+        <label><input type="radio" name="h" /> 只钻孔</label>
+        <div class="muted" style="margin-top:8px">锥面</div>
+        <label class="rec"><input type="checkbox" checked /> 锪 90°</label>
+      </div>
+    </div>
+    <div class="card-row">
+      <div class="card"><b>来料</b>半成品 · 顶面已铣</div>
+      <div class="card"><b>装夹</b>虎钳 · 可开跑</div>
+      <div class="card"><b>坐标系</b>跟档案 · G54</div>
+    </div>
+  </template>
+  <template id="tpl-process-stage">
+    <div class="cols cols-peek">
+      <div>
+        <h3>工序单</h3>
+        <table>
+          <thead><tr><th>#</th><th>内容</th><th>刀</th><th>转 / 进</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>粗铣顶</td><td>T03 φ10</td><td>8000 / 2400</td><td>草稿</td></tr>
+            <tr><td>2</td><td>精铣顶</td><td>T09 φ10</td><td>6000 / 1800</td><td>草稿</td></tr>
+            <tr><td>3</td><td>钻 4×φ5.0</td><td>T15 φ5</td><td>4300 / 770</td><td>草稿</td></tr>
+            <tr class="sel warn"><td>4</td><td>攻 M6</td><td id="op4-tool">待装 M6 丝锥</td><td>刚性攻丝</td><td id="op4-status">草稿 · 缺刀 · 须声明</td></tr>
+            <tr><td>5</td><td>锪 90°</td><td>T10 φ6</td><td>8000 / 1200</td><td>草稿</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <button type="button" class="path" data-label="第 4 序 · 尚未生成刀路" aria-label="第 4 序尚未生成刀路" disabled></button>
+        <div class="box" style="margin-top:8px">
+          <h3>第 4 序</h3>
+          <p id="op4-detail">M6 丝锥 · <strong>不在冻结刀库</strong><br />刚性攻丝 · 已确认攻 M6 · 装刀后才能开跑</p>
+          <p><button type="button" class="btn" disabled>尚未生成刀路</button></p>
+        </div>
+      </div>
+    </div>
+  </template>
+  <template id="tpl-run-stage">
+    <div class="tl">
+      <div class="tl-item ok">1 粗铣顶 · ok · 1′12″　<button type="button" class="btn js-open-tp" data-subject-type="operation" data-subject-id="op-01" data-subject-label="第 1 序 · 粗铣顶" data-nc="O0001 粗铣顶.nc">看刀路</button></div>
+      <div class="tl-item ok">2 精铣顶 · ok · 0′48″　<button type="button" class="btn js-open-tp" data-subject-type="operation" data-subject-id="op-02" data-subject-label="第 2 序 · 精铣顶" data-nc="O0002 精铣顶.nc">看刀路</button></div>
+      <div class="tl-item fail">
+        <strong>3 钻 4×φ5.0 · 空刀路</strong>
+        <div class="muted">毛坯未包住台阶</div>
+        <div class="actions">
+          <button type="button" class="btn" data-action="revise-stock">改毛坯</button>
+          <button type="button" class="btn" data-action="revise-geometry">改这一序几何</button>
+          <button type="button" class="btn" data-action="resolve-run-skip">跳过本序并继续后续生成（交付标未决）</button>
+        </div>
+      </div>
+      <div class="tl-item muted" id="run-op4">4 攻 M6 · 未跑</div>
+      <div class="tl-item muted" id="run-op5">5 锪 90° · 未跑</div>
+    </div>
+  </template>
+  <template id="tpl-deliver-stage">
+    <div class="cols cols-peek">
+      <div class="box sheet">
+        <h3>加工设定单</h3>
+        <p>机床 VMC-HJ-01 · 虎钳 · G54</p>
+        <p>刀表 T03 / T09 / T15 / 待装 M6 丝锥 / T10</p>
+        <p>后处理 三菱M80_华集CV850 · <strong>资格状态 DRAFT</strong></p>
+        <p>未决：第 3 序跳过，无钻孔 NC；第 4 序依赖合格 φ5 底孔</p>
+        <p><button type="button" class="btn">打印</button> <button type="button" class="btn">导出</button></p>
+      </div>
+      <div>
+        <h3>NC</h3>
+        <div class="nc">
+          <button type="button" class="nc-item js-open-tp" data-subject-type="nc" data-subject-id="nc-01" data-subject-label="O0001 粗铣顶.nc" data-nc="O0001 粗铣顶.nc">O0001 粗铣顶.nc</button>
+          <button type="button" class="nc-item js-open-tp" data-subject-type="nc" data-subject-id="nc-02" data-subject-label="O0002 精铣顶.nc" data-nc="O0002 精铣顶.nc">O0002 精铣顶.nc</button>
+          <button type="button" class="nc-item muted" disabled>O0003 （缺）</button>
+          <button type="button" class="nc-item warn js-open-tp" data-subject-type="nc" data-subject-id="nc-04" data-subject-label="O0004 攻M6.nc" data-nc="O0004 攻M6.nc">O0004 攻M6.nc · 上机条件未满足</button>
+          <button type="button" class="nc-item js-open-tp" data-subject-type="nc" data-subject-id="nc-05" data-subject-label="O0005 锪90度.nc" data-nc="O0005 锪90度.nc">O0005 锪90度.nc</button>
+        </div>
+        <button type="button" class="path js-open-tp" data-subject-type="nc" data-subject-id="nc-04" data-subject-label="O0004 攻M6.nc" data-nc="O0004 攻M6.nc" data-label="O0004 · 依赖底孔" aria-label="查看 O0004 攻 M6 刀路" style="margin-top:8px;height:120px"></button>
+        <p><button type="button" class="btn js-open-tp" data-subject-type="nc" data-subject-id="nc-04" data-subject-label="O0004 攻M6.nc" data-nc="O0004 攻M6.nc">查看刀路</button></p>
+      </div>
+    </div>
+  </template>
+  <template id="tpl-viewer">
+    <div class="viewer">
+      <div class="viewer-top">
+        <button type="button" class="btn js-close-tp" id="tp-back">返回</button>
+        <span class="id" id="tp-title">当前对象</span>
+      </div>
+      <div class="viewer-canvas">
+        <div class="hud">X 12.4　Y −3.1　Z −8.0<br />N128　F120　快移关 / 切削开</div>
+      </div>
+      <div class="viewer-bot">
+        <button type="button" class="btn primary">播放</button>
+        <button type="button" class="btn">暂停</button>
+        <div class="scrub" title="进度"><i></i></div>
+        <button type="button" class="btn">俯视</button>
+        <button type="button" class="btn">等轴</button>
+      </div>
+    </div>
+  </template>
+  <template id="tpl-rework-stage">
+    <h3>影响表</h3>
+    <table>
+      <thead><tr><th>#</th><th>内容</th><th>旧</th><th>新</th><th>处置</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>粗铣顶</td><td>—</td><td>未变</td><td>引用</td></tr>
+        <tr><td>2</td><td>精铣顶</td><td>—</td><td>未变</td><td>引用</td></tr>
+        <tr><td>3</td><td>钻底孔</td><td>φ5.0</td><td>φ6.8</td><td>重算</td></tr>
+        <tr class="sel warn"><td>4</td><td>攻丝</td><td>M6</td><td>M8</td><td>重算</td></tr>
+        <tr><td>5</td><td>锪 90°</td><td>—</td><td>未变</td><td>引用</td></tr>
+      </tbody>
+    </table>
+  </template>
+  <template id="tpl-rework-parent-stage">
+    <div class="box">
+      <h3>找到父单</h3>
+      <p><strong>zm26030-704 · 发布版 8/12</strong></p>
+      <p>机床 VMC-HJ-01 · 5 道工序 · 4 个 NC · 上次结论：首件通过</p>
+      <p class="muted">本返修单引用父单快照，不会修改父单。</p>
+    </div>
+  </template>
+  <template id="tpl-rework-change-stage">
+    <div class="box ask">
+      <h3>确认变更</h3>
+      <p>孔系 H-02：M6×1.0 → M8×1.25，共 4 处</p>
+      <label class="rec"><input type="radio" checked /> 旧底孔仍在，先扩至 φ6.8 再攻 M8</label>
+      <label><input type="radio" /> 已换新毛坯，从底孔开始重做</label>
+      <label><input type="radio" /> 情况不确定，先停在本阶段</label>
+    </div>
+  </template>
+  <template id="tpl-rework-generate-stage">
+    <div class="tl">
+      <div class="tl-item ok">父单工序 1、2、5 · 保持引用</div>
+      <div class="tl-item ok">新工序 3 · 扩孔至 φ6.8 · NC 已生成</div>
+      <div class="tl-item ok">新工序 4 · 攻 M8×1.25 · NC 已生成</div>
+    </div>
+  </template>
+  <template id="tpl-rework-deliver-stage">
+    <div class="cols cols-2">
+      <div class="box">
+        <h3>变更单</h3>
+        <p>M6 → M8 · 影响工序 3、4</p>
+        <p>父单工序 1、2、5 保持引用。</p>
+      </div>
+      <div class="box">
+        <h3>增量 NC</h3>
+        <p>O0003 扩孔φ6.8_R2.nc</p>
+        <p>O0004 攻M8_R2.nc</p>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    const hdr = document.getElementById('hdr')
+    const stage = document.getElementById('stage')
+    const dockHead = document.getElementById('dock-head')
+    const dock = document.getElementById('dock')
+    const dockInput = document.getElementById('dock-input')
+    const nav = document.getElementById('nav')
+    const jobRoot = document.getElementById('job-root')
+
+    const scenarios = {
+      'milling-new': {
+        label: '铣削新件',
+        stages: [
+          { id: 'incoming', title: '来件' },
+          { id: 'process', title: '工艺' },
+          { id: 'run', title: '执行' },
+          { id: 'deliver', title: '交付' },
+        ],
+      },
+      rework: {
+        label: '返修变更',
+        stages: [
+          { id: 'parent', title: '找父单' },
+          { id: 'change', title: '确认变更' },
+          { id: 'impact', title: '影响分析' },
+          { id: 'generate', title: '增量生成' },
+          { id: 'deliver', title: '变更交付' },
+        ],
+      },
+    }
+    const statusCn = {
+      locked: '未到达', ready: '可进入', active: '当前', waiting: '等待中',
+      blocked: '有阻断', complete: '已完成', stale: '已失效', skipped: '已跳过',
+    }
+    const state = {
+      job: 'home', scenario: null, hasPart: false, phase: null, toolpath: false,
+      homeAsk: false, dockOpen: false, currentSubject: null,
+      incomingComplete: false, toolInstalled: false, processSigned: false, processStale: false,
+      runResolved: false, released: false, reworkImpactSigned: false,
+      reworkGenerated: false, reworkReleased: false,
+      lastPhase: { new: 'incoming', rework: 'impact' },
+      lastSubject: { new: null, rework: { type: 'change', id: 'change-03', label: '变更项 C-03 · M6→M8' } },
+    }
+
+    function fill(el, html) { el.innerHTML = html }
+    function fromTpl(id) {
+      const t = document.getElementById(id)
+      return t.content.cloneNode(true)
+    }
+    function chat(title, pin, turns, placeholder) {
+      fill(dockHead, (title ? `<h3>${title}</h3>` : '') + (pin ? `<div class="pin">${pin}</div>` : ''))
+      fill(dock, turns.map(([role, text]) =>
+        `<div class="msg ${role}"><div class="who">${role === 'agent' ? 'Agent' : '你'}</div>${text}</div>`
+      ).join(''))
+      fill(dockInput, `<div class="composer">${placeholder}</div>`)
+    }
+    function header(content, noticeCount = 0) {
+      fill(hdr, `${content}<button type="button" class="btn dock-toggle" data-action="toggle-dock" aria-expanded="${state.dockOpen}">判断${noticeCount ? ` · ${noticeCount}` : ''}</button>`)
+    }
+    function saveCurrentView() {
+      if (state.job !== 'new' && state.job !== 'rework') return
+      state.lastPhase[state.job] = state.phase
+      state.lastSubject[state.job] = state.currentSubject
+    }
+    function openJob(kind) {
+      saveCurrentView()
+      state.homeAsk = false
+      state.toolpath = false
+      state.dockOpen = false
+      if (kind === 'new') {
+        Object.assign(state, {
+          job: 'new', scenario: 'milling-new', hasPart: true, phase: 'incoming',
+          currentSubject: null, incomingComplete: false, toolInstalled: false, processStale: false,
+          processSigned: false, runResolved: false, released: false,
+        })
+      } else {
+        Object.assign(state, {
+          job: 'rework', scenario: 'rework', hasPart: true, phase: 'impact',
+          currentSubject: { type: 'change', id: 'change-03', label: '变更项 C-03 · M6→M8' },
+          reworkImpactSigned: false, reworkGenerated: false, reworkReleased: false,
+        })
+      }
+      render()
+    }
+    function resumeJob(kind) {
+      saveCurrentView()
+      state.job = kind
+      state.scenario = kind === 'new' ? 'milling-new' : 'rework'
+      state.phase = state.lastPhase[kind]
+      state.currentSubject = state.lastSubject[kind]
+      state.toolpath = false
+      state.dockOpen = false
+      render()
+    }
+    function stageStatus(id) {
+      if (state.scenario === 'milling-new') {
+        if (id === 'incoming') return state.incomingComplete ? 'complete' : 'active'
+        if (id === 'process') {
+          if (state.processStale) return 'stale'
+          if (!state.incomingComplete) return 'locked'
+          if (state.processSigned) return 'complete'
+          return state.phase === id ? 'active' : 'ready'
+        }
+        if (id === 'run') {
+          if (state.processStale) return 'stale'
+          if (!state.processSigned) return 'locked'
+          if (state.runResolved) return 'complete'
+          return state.phase === id ? 'blocked' : 'ready'
+        }
+        if (!state.runResolved) return 'locked'
+        if (state.released) return 'complete'
+        return state.phase === id ? 'active' : 'ready'
+      }
+      if (id === 'parent' || id === 'change') return 'complete'
+      if (id === 'impact') {
+        if (state.reworkImpactSigned) return 'complete'
+        return state.phase === id ? 'active' : 'ready'
+      }
+      if (id === 'generate') {
+        if (!state.reworkImpactSigned) return 'locked'
+        if (state.reworkGenerated) return 'complete'
+        return state.phase === id ? 'active' : 'ready'
+      }
+      if (!state.reworkGenerated) return 'locked'
+      if (state.reworkReleased) return 'complete'
+      return state.phase === id ? 'active' : 'ready'
+    }
+    function renderNav() {
+      if (!state.scenario) {
+        nav.replaceChildren()
+        return
+      }
+      const descriptor = scenarios[state.scenario]
+      fill(nav, descriptor.stages.map((item) => {
+        const status = stageStatus(item.id)
+        const blocked = status === 'blocked'
+        return `<button type="button" data-phase="${item.id}" class="${state.phase === item.id ? 'on' : ''}" ${status === 'locked' ? 'disabled' : ''} ${state.phase === item.id ? 'aria-current="step"' : ''}>`
+          + `${item.title}${blocked ? ' <span class="dot lit" aria-hidden="true"></span>' : ''}`
+          + `<span class="phase-state">${statusCn[status]}</span></button>`
+      }).join(''))
+    }
+    function defaultSubject() {
+      if (state.scenario === 'rework' && state.phase === 'impact') return { type: 'change', id: 'change-03', label: '变更项 C-03 · M6→M8' }
+      if (state.scenario === 'milling-new' && state.phase === 'process') return { type: 'operation', id: 'op-04', label: '第 4 序 · 攻 M6' }
+      if (state.scenario === 'milling-new' && state.phase === 'run') return { type: 'issue', id: 'issue-op-03', label: '第 3 序 · 空刀路' }
+      if (state.scenario === 'milling-new' && state.phase === 'deliver') return { type: 'nc', id: 'nc-04', label: 'O0004 攻M6.nc', nc: 'O0004 攻M6.nc' }
+      return null
+    }
+    function bindTp() {
+      stage.querySelectorAll('.js-open-tp').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.preventDefault()
+          state.currentSubject = {
+            type: el.dataset.subjectType || 'operation', id: el.dataset.subjectId || 'unknown',
+            label: el.dataset.subjectLabel || '当前对象', nc: el.dataset.nc || '',
+          }
+          state.toolpath = true
+          render()
+        })
+      })
+      stage.querySelector('.js-close-tp')?.addEventListener('click', () => {
+        state.toolpath = false
+        render()
+      })
+    }
+    function maybeViewer() {
+      if (!state.toolpath) {
+        bindTp()
+        return
+      }
+      const back = { process: '回工序单', run: '回时间线', deliver: '回交付包' }[state.phase] || '返回'
+      stage.replaceChildren(fromTpl('tpl-viewer'))
+      stage.querySelector('#tp-back').textContent = back
+      const subject = state.currentSubject || defaultSubject() || { label: '当前对象', nc: '' }
+      stage.querySelector('#tp-title').textContent = subject.type === 'nc'
+        ? subject.label
+        : subject.nc ? `${subject.label} · ${subject.nc}` : subject.label
+      bindTp()
+    }
+
+    function renderHome() {
+      fill(hdr, '')
+      nav.replaceChildren()
+      stage.replaceChildren(fromTpl('tpl-home-stage'))
+      const thread = stage.querySelector('#home-thread')
+      if (thread && state.homeAsk === 'qa') {
+        thread.hidden = false
+        thread.innerHTML = `
+          <div class="msg user"><div class="who">你</div>这活 CV-850 能干吗？外形 120×80×35，铝。</div>
+          <div class="msg agent"><div class="who">Agent</div>按档案行程 X750 / Y450 / Z500，尺寸上放得下；但后处理仍是 DRAFT、刀具实测为空，只能判断“可继续读件评估”，不能据此直接发布程序。要出程序请把模型拖上来。</div>`
+      }
+      if (thread && state.homeAsk === 'clarify') {
+        thread.hidden = false
+        thread.innerHTML = `
+          <div class="msg user"><div class="who">你</div>这个也做一下</div>
+          <div class="route">
+            <h3>这一单要做什么？</h3>
+            <label class="rec js-start-job"><input type="radio" name="what" /> 新零件，出程序交付</label>
+            <label class="js-start-rework"><input type="radio" name="what" /> 改已有的程序</label>
+            <label class="js-ask"><input type="radio" name="what" /> 先问一下，先不出程序</label>
+          </div>`
+      }
+      stage.querySelectorAll('.js-start-job').forEach((el) => el.addEventListener('click', () => openJob('new')))
+      stage.querySelectorAll('.js-start-rework').forEach((el) => el.addEventListener('click', () => openJob('rework')))
+      stage.querySelectorAll('.js-ask').forEach((el) => el.addEventListener('click', () => { state.homeAsk = 'qa'; render() }))
+      stage.querySelectorAll('.js-vague').forEach((el) => el.addEventListener('click', () => { state.homeAsk = 'clarify'; render() }))
+    }
+
+    function renderMilling() {
+      const phase = state.phase
+      if (phase === 'incoming' && !state.hasPart) {
+        header(`<span class="id muted">zm26030-704 · 铣削新件 · 未收到文件</span><span class="grow"></span><button type="button" class="btn" disabled>确认来件</button>`)
+        stage.replaceChildren(fromTpl('tpl-incoming-empty-stage'))
+        chat('', '', [['agent', '把零件拖到左边，或直接问机床、刀具。']], '输入消息…')
+        stage.querySelector('#drop')?.addEventListener('click', () => { state.hasPart = true; render() })
+        return
+      }
+      if (phase === 'incoming') {
+        const incomingDone = state.incomingComplete && !state.processStale
+        header(`
+          <span class="id">zm26030-704</span><span class="chip">铣削新件</span>
+          <span class="chip">VMC-HJ-01</span><span class="chip">AL6061</span>
+          <span class="chip ${incomingDone ? '' : 'warn'}">来件 · ${incomingDone ? '已确认' : '待确认'}</span><span class="grow"></span>
+          ${incomingDone ? '<span class="chip">已锁定输入</span>' : '<button type="button" class="btn primary" data-action="confirm-incoming">确认来件，生成工艺草案</button>'}
+        `, incomingDone ? 0 : 1)
+        stage.replaceChildren(fromTpl('tpl-incoming-stage'))
+        chat('', '', incomingDone ? [
+          ['agent', '本阶段已经确认；如需换件或改毛坯，必须让后续工艺失效后重新确认。'],
+        ] : [
+          ['agent', '读完了。4 个 φ5.0 图纸标了 M6，先按攻丝预填。来料、装夹和坐标系请在左边确认。'],
+          ['user', '半成品，顶面已经铣过。'],
+          ['agent', '记下了。确认本阶段后才会开放工艺。'],
+        ], '输入消息…')
+        return
+      }
+      if (phase === 'process') {
+        const processBlocked = state.processStale || !state.incomingComplete
+        const processReadOnly = state.processSigned && !processBlocked
+        const toolChip = state.toolInstalled
+          ? '<span class="chip">T02 M6 丝锥 · 已刷新</span>'
+          : '<span class="chip danger">缺 M6 丝锥</span>'
+        const action = processBlocked
+          ? '<button type="button" class="btn" disabled>先重新确认来件</button>'
+          : processReadOnly
+          ? '<span class="chip">方案已签字 · 只读</span>'
+          : state.toolInstalled
+          ? '<button type="button" class="btn primary" data-action="start-run">按此方案开跑</button>'
+          : '<button type="button" class="btn" data-action="confirm-tool-installed">刷新刀库：登记 T02 M6 丝锥</button>'
+        header(`
+          <span class="id">zm26030-704</span><span class="chip">铣削新件</span>
+          <span class="chip">VMC-HJ-01</span><span class="chip ${processBlocked ? 'warn' : ''}">工艺 · ${processBlocked ? '已失效' : processReadOnly ? '已冻结' : '草稿'}</span>${toolChip}<span class="chip warn">刀具实测待复核</span>
+          <span class="grow"></span>${action}
+        `, processBlocked || !state.toolInstalled ? 1 : 0)
+        stage.replaceChildren(fromTpl('tpl-process-stage'))
+        if (state.toolInstalled) {
+          stage.querySelector('#op4-tool').textContent = 'T02 M6 丝锥'
+          stage.querySelector('#op4-status').textContent = '草稿 · 须声明'
+          stage.querySelector('#op4-detail').innerHTML = 'T02 M6 丝锥 · <strong>已在刷新后的刀库</strong><br />刚性攻丝 · 已确认攻 M6'
+        }
+        chat('', state.currentSubject?.label || '第 4 序 · 攻 M6', processBlocked ? [
+          ['agent', '毛坯事实发生了变化，这份工艺草案已失效。可以过目，但必须先回到来件重新确认，不能从这里开跑。'],
+        ] : processReadOnly ? [
+          ['agent', '这份工艺已经签字冻结；当前只能回看。要修改需走解冻或新方案。'],
+        ] : state.toolInstalled ? [
+          ['agent', '刀库已刷新：T02 为 M6 丝锥。第 4 序的缺刀阻断已解除，过目后可以开跑。'],
+          ['user', '精铣再留 0.1，这批公差紧。'],
+          ['agent', '第 2 序精铣顶余量改成 0.1。'],
+        ] : [
+          ['agent', '工序草案好了，但冻结刀库里没有 M6 丝锥，当前不能开跑。'],
+          ['user', '现场装到空的 T02。'],
+          ['agent', '装刀后刷新刀库；档案确认到 T02 才解除阻断。'],
+        ], '输入消息…')
+        maybeViewer()
+        return
+      }
+      if (phase === 'run') {
+        const runClosed = state.runResolved
+        const runReadOnly = state.processStale || !state.processSigned || runClosed
+        const runLabel = state.processStale || !state.processSigned
+          ? '旧结果已失效'
+          : runClosed ? '已按偏差关闭' : '第 3 序空刀路'
+        header(`
+          <span class="id">zm26030-704</span><span class="chip">铣削新件</span>
+          <span class="chip">VMC-HJ-01</span><span class="chip ${runReadOnly ? 'warn' : 'danger'}">执行 · ${runLabel}</span>
+          <span class="grow"></span>${runReadOnly ? '<span class="chip">只读</span>' : '<button type="button" class="btn">停</button><button type="button" class="btn" disabled>续跑</button>'}
+        `, 1)
+        stage.replaceChildren(fromTpl('tpl-run-stage'))
+        if (runClosed) {
+          const op4 = stage.querySelector('#run-op4')
+          const op5 = stage.querySelector('#run-op5')
+          op4.className = 'tl-item ok'
+          op4.textContent = '4 攻 M6 · NC 已生成 · 上机前确认合格 φ5 底孔'
+          op5.className = 'tl-item ok'
+          op5.textContent = '5 锪 90° · ok'
+        }
+        if (runReadOnly) stage.querySelectorAll('[data-action]').forEach((button) => { button.disabled = true })
+        chat('', state.currentSubject?.label || '第 3 序 · 空刀路', runClosed ? [
+          ['agent', '第 3 序已经由人确认跳过；第 4 序依赖合格 φ5 底孔，相关未决项已带到交付阶段。'],
+        ] : runReadOnly ? [
+          ['agent', '上游来件或工艺已经变化，这次执行结果只供追溯；必须重新确认并生成，不能从旧结果继续或交付。'],
+        ] : [
+          ['agent', '第 3 序空刀路。第 4 序依赖合格 φ5 底孔，也被一起阻断。'],
+          ['agent', '可改毛坯、改这一序几何，或由人确认跳过并把依赖写进交付未决项。'],
+        ], '输入消息…')
+        maybeViewer()
+        return
+      }
+      header(`
+        <span class="id">zm26030-704</span><span class="chip">铣削新件</span>
+        <span class="chip">VMC-HJ-01</span><span class="chip danger">交付含未决项 · 后处理 DRAFT</span>
+        <span class="grow"></span>${state.released ? '<span class="chip">已签字 · 只读</span>' : '<button type="button" class="btn danger" data-action="release-milling">签字交付</button>'}
+      `, state.released ? 0 : 2)
+      stage.replaceChildren(fromTpl('tpl-deliver-stage'))
+      chat('', state.currentSubject?.label || '', [
+        ['agent', '第 3 序无钻孔 NC；攻丝程序依赖现场先补出合格 φ5 底孔。后处理资格状态为 DRAFT。'],
+        ['user', '按未决项交班，钻孔现场补，攻丝前复核底孔。'],
+        ['agent', '已把依赖和人工复核要求写进交付包。'],
+      ], '输入消息…')
+      maybeViewer()
+    }
+
+    function renderRework() {
+      const meta = `<span class="id">zm26030-704 <span class="muted">· 父单 8/12</span></span><span class="chip">返修变更</span><span class="chip">VMC-HJ-01</span>`
+      if (state.phase === 'parent') {
+        header(`${meta}<span class="chip">找父单 · 已完成</span><span class="grow"></span>`)
+        stage.replaceChildren(fromTpl('tpl-rework-parent-stage'))
+        chat('', '父单 · 发布版 8/12', [['agent', '已按件号族和发布时间找到父单，当前返修单只引用它，不会改写父单。']], '输入消息…')
+        return
+      }
+      if (state.phase === 'change') {
+        header(`${meta}<span class="chip">确认变更 · 已完成</span><span class="grow"></span>`)
+        stage.replaceChildren(fromTpl('tpl-rework-change-stage'))
+        chat('', '变更项 C-03 · M6→M8', [
+          ['agent', '旧底孔仍在，已确认先扩至 φ6.8 再攻 M8。'],
+          ['user', '对，其他地方不改。'],
+        ], '输入消息…')
+        return
+      }
+      if (state.phase === 'impact') {
+        header(`${meta}<span class="chip ${state.reworkImpactSigned ? '' : 'warn'}">影响分析 · 2 序重算</span><span class="grow"></span>${state.reworkImpactSigned ? '<span class="chip">范围已签字 · 只读</span>' : '<button type="button" class="btn primary" data-action="confirm-impact">确认影响范围</button>'}`, state.reworkImpactSigned ? 0 : 1)
+        stage.replaceChildren(fromTpl('tpl-rework-stage'))
+        chat('', '变更项 C-03 · M6→M8', state.reworkImpactSigned ? [
+          ['agent', '影响范围已经签字：第 3、4 序重算，第 1、2、5 序引用父单。当前只读。'],
+        ] : [
+          ['agent', '变更只影响底孔和攻丝：第 3、4 序重算，第 1、2、5 序引用父单。'],
+          ['user', '范围对。'],
+          ['agent', '确认影响范围后才开放增量生成。'],
+        ], '输入消息…')
+        return
+      }
+      if (state.phase === 'generate') {
+        header(`${meta}<span class="chip">增量生成 · ${state.reworkGenerated ? '已完成' : '待开始'}</span><span class="grow"></span>${state.reworkGenerated ? '<span class="chip">已生成 · 只读</span>' : '<button type="button" class="btn primary" data-action="generate-rework">开始增量生成</button>'}`)
+        stage.replaceChildren(fromTpl('tpl-rework-generate-stage'))
+        chat('', '变更项 C-03 · 受影响序 3、4', [[
+          'agent', state.reworkGenerated
+            ? '增量生成已经完成；第 3、4 序有新 NC，其余继续引用父单。'
+            : '只生成受影响的第 3、4 序，其余继续引用父单。',
+        ]], '输入消息…')
+        return
+      }
+      header(`${meta}<span class="chip">变更交付 · 增量包</span><span class="grow"></span>${state.reworkReleased ? '<span class="chip">已签字 · 只读</span>' : '<button type="button" class="btn primary" data-action="release-rework">签字交付变更包</button>'}`)
+      stage.replaceChildren(fromTpl('tpl-rework-deliver-stage'))
+      chat('', '变更项 C-03 · M6→M8', [
+        ['agent', '增量包只含变更单和第 3、4 序新 NC；第 1、2、5 序明确引用父单 8/12。'],
+      ], '输入消息…')
+    }
+
+    function render() {
+      document.getElementById('sess-home').classList.toggle('on', state.job === 'home')
+      document.getElementById('sess-new').classList.toggle('on', state.job === 'new')
+      document.getElementById('sess-rework').classList.toggle('on', state.job === 'rework')
+      jobRoot.classList.toggle('is-home', state.job === 'home')
+      jobRoot.classList.toggle('dock-open', state.dockOpen)
+      if (state.job === 'home') {
+        renderHome()
+        return
+      }
+      renderNav()
+      if (!state.currentSubject) state.currentSubject = defaultSubject()
+      if (state.scenario === 'rework') renderRework()
+      else renderMilling()
+    }
+
+    nav.addEventListener('click', (e) => {
+      const button = e.target.closest('button[data-phase]')
+      if (!button || button.disabled) return
+      state.phase = button.dataset.phase
+      state.toolpath = false
+      state.currentSubject = defaultSubject()
+      render()
+    })
+    jobRoot.addEventListener('click', (e) => {
+      const action = e.target.closest('[data-action]')?.dataset.action
+      if (!action) return
+      if (action === 'toggle-dock') state.dockOpen = !state.dockOpen
+      if (action === 'confirm-incoming') { state.incomingComplete = true; state.processStale = false; state.phase = 'process'; state.currentSubject = null }
+      if (action === 'confirm-tool-installed') state.toolInstalled = true
+      if (action === 'start-run' && state.toolInstalled) { state.processSigned = true; state.phase = 'run'; state.currentSubject = null }
+      if (action === 'revise-stock') { state.incomingComplete = false; state.processSigned = false; state.processStale = true; state.runResolved = false; state.phase = 'incoming'; state.currentSubject = null }
+      if (action === 'revise-geometry') { state.processSigned = false; state.processStale = false; state.runResolved = false; state.phase = 'process'; state.currentSubject = null }
+      if (action === 'resolve-run-skip') { state.runResolved = true; state.phase = 'deliver'; state.currentSubject = null }
+      if (action === 'release-milling') state.released = true
+      if (action === 'confirm-impact') { state.reworkImpactSigned = true; state.phase = 'generate' }
+      if (action === 'generate-rework') { state.reworkGenerated = true; state.phase = 'deliver' }
+      if (action === 'release-rework') state.reworkReleased = true
+      render()
+    })
+    document.getElementById('sess-home').addEventListener('click', () => {
+      saveCurrentView()
+      Object.assign(state, { job: 'home', scenario: null, phase: null, toolpath: false, dockOpen: false, currentSubject: null })
+      render()
+    })
+    document.getElementById('sess-new').addEventListener('click', () => resumeJob('new'))
+    document.getElementById('sess-rework').addEventListener('click', () => resumeJob('rework'))
+
+    render()
+  </script>
+</body>
+</html>
