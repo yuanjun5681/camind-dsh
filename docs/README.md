@@ -11,6 +11,18 @@
 - [CAM 能力市场与产品顾问设计](cam-capability-market-design.md)：企业客户桌面端、Camind 服务端、产品顾问模式、创造模式与能力交付流程
 - [dsh 版本升级流程](dsh-upgrade.md)：`dsh-version.json` 唯一版本源 + 同步/校验 SOP；每次升级的过程记录存 [upgrades/](upgrades/)（按目标版本命名）
 
+## NX Windows 工作台接口
+
+接口文档直接引用相邻 `CAM-Agent` 仓库，不在本项目复制维护：
+
+- [HTTP API 完整参考](../../CAM-Agent/nx_windows_agent/docs/API.md)：认证、请求格式、队列、文件传输、管理与 worker 接口。
+- [客户端调用指南](../../CAM-Agent/nx_windows_agent/docs/CLIENT_GUIDE.md)：上传、任务编排、轮询、产物回收与错误处理。
+- [当前 worker 端点注册表](../../CAM-Agent/nx_windows_agent/nx_worker/endpoint_registry.py)：文档未覆盖的新端点以注册表和对应 handler 为准。
+- [几何包格式规范](../../CAM-Agent/Doc/几何包格式规范_v1.md)：网格、法线、边线、FID 与文件校验。
+- [热重载边界](../../CAM-Agent/nx_windows_agent/docs/HOT_RELOAD_BOUNDARY.md)：维护与升级时参考。
+
+本项目相关讨论与实测保留在 [西门子 NX 概览](siemens-nx-overview.md) 和 [PRT 3D 渲染](prt-3d-rendering.md)。以上相对链接要求 `CAM-Agent` 与本仓位于同一父目录。
+
 ## 上游官方文档
 
 本目录原先存放的上游文档快照已移除。Camind 基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh），官方文档请直接查阅上游仓库：
