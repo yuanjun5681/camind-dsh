@@ -17,12 +17,9 @@ const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const MAX_UPLOAD_BATCH_BYTES = 64 * 1024 * 1024
 const OFFICIAL_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
-type InputState = { draft: string; imageIds?: readonly string[]; phase: string }
-type InputActions = {
-  setDraft(text: string): void
-  addImages(ids: readonly string[]): boolean
-  submit(): void
-}
+// 0.2.0 官方 InputState：附件统一为 attachmentIds（imageIds 时代结束）；
+// input.left 席位无 owner props，phase 由注册 inject 的 hooks 源供出。
+type InputState = { draft: string; attachmentIds?: readonly string[]; phase: string }
 type ImageLimits = {
   maxImageBytes: number
   maxImagesPerMessage: number
@@ -30,17 +27,16 @@ type ImageLimits = {
   mediaTypes: readonly string[]
 }
 
+/** 0.2.0 版拖图入口：校验 + createDrafts + 输入机 addAttachments 一体完成。 */
 export type DroppedImageIntake = (
   files: readonly File[],
-  currentImageIds: readonly string[],
+  currentAttachmentIds: readonly string[],
   limits: ImageLimits | undefined,
-  addImageIds: (ids: readonly string[]) => boolean,
 ) => string | null
 
 export type InputZoneProps = {
   sessionId: string
   input: InputState
-  inputActions: InputActions
   useProjection(key: string): unknown
   addDroppedImages?: DroppedImageIntake
 }
@@ -83,48 +79,6 @@ async function uploadWorkspaceFiles(sessionId: string, files: readonly File[]) {
       files: result.files.filter((file) => file.source === 'upload'),
     })
   }
-}
-
-export function WorkspaceFileUploadButton({ sessionId, input }: InputZoneProps) {
-  const picker = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-
-  async function upload(files: FileList | null) {
-    if (!files?.length) return
-    setBusy(true)
-    setError(undefined)
-    try {
-      await uploadWorkspaceFiles(sessionId, [...files])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-      if (picker.current) picker.current.value = ''
-    }
-  }
-
-  return (
-    <span className="workspace-upload-control">
-      <input
-        ref={picker}
-        className="workspace-upload-input"
-        type="file"
-        multiple
-        onChange={(event) => void upload(event.currentTarget.files)}
-      />
-      <button
-        type="button"
-        className="workspace-upload-button"
-        disabled={busy || input.phase !== 'plain'}
-        title={error ?? '上传文件到当前会话'}
-        onClick={() => picker.current?.click()}
-      >
-        <span aria-hidden="true">＋</span>
-        {busy ? '上传中' : '文件'}
-      </button>
-    </span>
-  )
 }
 
 function useComposerAttachmentHost(active: boolean, sessionId: string) {
@@ -187,7 +141,6 @@ function containsDirectory(dataTransfer: DataTransfer): boolean {
 export function WorkspaceUploadDock({
   sessionId,
   input,
-  inputActions,
   useProjection,
   addDroppedImages,
 }: InputZoneProps) {
@@ -198,7 +151,7 @@ export function WorkspaceUploadDock({
   const [dragCount, setDragCount] = useState(0)
   const [dropBusy, setDropBusy] = useState(false)
   const [dropError, setDropError] = useState<string>()
-  const previousInput = useRef({ draft: input.draft, imageCount: input.imageIds?.length ?? 0, phase: input.phase })
+  const previousInput = useRef({ draft: input.draft, attachmentCount: input.attachmentIds?.length ?? 0, phase: input.phase })
   const refreshSeq = useRef(0)
   const dragDepth = useRef(0)
   const dragTakeover = useRef(false)
@@ -225,11 +178,11 @@ export function WorkspaceUploadDock({
   }, [refresh])
 
   useEffect(() => {
-    const current = { draft: input.draft, imageCount: input.imageIds?.length ?? 0, phase: input.phase }
+    const current = { draft: input.draft, attachmentCount: input.attachmentIds?.length ?? 0, phase: input.phase }
     const previous = previousInput.current
-    const contentCleared = (previous.draft.trim() !== '' || previous.imageCount > 0)
+    const contentCleared = (previous.draft.trim() !== '' || previous.attachmentCount > 0)
       && current.draft.trim() === ''
-      && current.imageCount === 0
+      && current.attachmentCount === 0
     const submitSettled = previous.phase === 'submitting' && current.phase !== 'submitting'
     const submitted = contentCleared || submitSettled
     previousInput.current = current
@@ -240,7 +193,7 @@ export function WorkspaceUploadDock({
       window.clearTimeout(early)
       window.clearTimeout(settled)
     }
-  }, [input.draft, input.imageIds, input.phase, refresh])
+  }, [input.draft, input.attachmentIds, input.phase, refresh])
 
   const handleDroppedFiles = useCallback(async (dropped: readonly File[]) => {
     if (input.phase !== 'plain' || dropBusy) return
@@ -256,9 +209,8 @@ export function WorkspaceUploadDock({
     if (images.length > 0) {
       const imageError = addDroppedImages?.(
         images,
-        input.imageIds ?? [],
+        input.attachmentIds ?? [],
         imageLimits,
-        (ids) => inputActions.addImages(ids),
       ) ?? '当前 Composer 无法接收拖入的图片'
       if (imageError) {
         setDropError(imageError)
@@ -275,7 +227,7 @@ export function WorkspaceUploadDock({
     } finally {
       setDropBusy(false)
     }
-  }, [addDroppedImages, dropBusy, imageLimits, input.imageIds, input.phase, inputActions, sessionId])
+  }, [addDroppedImages, dropBusy, imageLimits, input.attachmentIds, input.phase, sessionId])
 
   useEffect(() => {
     const reset = () => {

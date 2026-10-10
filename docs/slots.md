@@ -1,5 +1,8 @@
 # Slot 插槽清单（/camind）
 
+> [!WARNING]
+> 本文快照写于 dsh 0.1.x。**0.2.0 起上游大改**：中央区从 `conversation` 单坑迁到 keyed `main`（会话占 key `conversation`，插件管理/自动化任务各占一个 key），新增 `rightbar`（右侧栏）/`shell.leading`（窗口镀铬）/`sidebar.panellist`（全局面板行）/`sidebar.toggle.badge`；`details` 与设置页 `settings.plugin.item` 等席位退役（插件配置迁到「插件」页的 `plugins.item` / `plugins.bundle.config` / `plugins.row.config`），`conversation.chat.turnTail` 从 chain 变 list（select 不再生效）。升级适配细节见 `docs/upgrades/0.2.0-rc.2.md`。下表其余内容仍按 0.1.x 描述，核对时以上游源码为准。
+
 本文盘点 `/camind` 定制前端组合下所有可由插件注入的 UI slot：本工作区自定义的（ui-shell / ui-sidebar fork）与官方 rc.7 插件图提供的。插件注册方式统一为 `ctx.slots.inject(name, () => ctx.slots.register(...))`——`inject` 等待 slot 声明就绪后再注册，未声明的 slot 直接 register 会 throw。
 
 ## 通用规则
@@ -11,7 +14,7 @@
   - `chain`：选举型。按 priority 升序跑各 entry 的 `select(owner)`，第一个返回非 null 的 entry 中标（其返回值成为组件的 `matched` prop），全 null 走 owner 的 fallback。
 - **scope**：`root` 全局；`session` 严格会话内（组件可拿到 `sessionId` 与会话快照 hooks）；`session-maybe` 允许无会话（hooks 在无会话时返回 `undefined`）。
 - 注册即 effect：通过 `ctx` 注册的一切随插件卸载自动回收，fallback 自动回退。
-- 官方 SlotMap 类型声明在 `desktop/vendor/dsh/node_modules/@deepseek-ai/dsh-client-ui-*/lib/types/**`；本工作区自定义的在 `ui-sidebar/src/client/contract/slots.ts` 与 `ui-shell/src/web/officialClient.ts`。
+- 官方 SlotMap 类型声明在 `ui-shell/node_modules/@deepseek-ai/dsh-client-ui-*/lib/types/**`；本工作区自定义的在 `ui-sidebar/src/client/contract/slots.ts` 与 `ui-shell/src/web/officialClient.ts`。
 
 ## 侧栏（ui-sidebar fork 声明；★ 为本工作区新增）
 

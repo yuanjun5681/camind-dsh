@@ -66,6 +66,18 @@ export default defineConfig({
         find: /^@deepseek-ai\/dsh-client-ui-primitives$/,
         replacement: path.join(root, 'vendor/dsh-client-ui-primitives/src/index.ts'),
       },
+      // ui-sidebar 位于 ui-shell 根外，裸导入经 alias 落回 ui-shell 的
+      // node_modules（纯逻辑包，多例无共享状态；ui-primitives 不在此列——
+      // 上面已钉到 vendor 源码保证 CSS Module 类名完整）。
+      {
+        find: /^@deepseek-ai\/dsh-client-store$/,
+        replacement: path.join(root, 'node_modules/@deepseek-ai/dsh-client-store/lib/index.js'),
+      },
+      {
+        find: /^@deepseek-ai\/dsh-client-ui-slots$/,
+        replacement: path.join(root, 'node_modules/@deepseek-ai/dsh-client-ui-slots/lib/index.js'),
+      },
+      { find: /^clsx$/, replacement: path.join(root, 'node_modules/clsx/dist/clsx.mjs') },
       { find: 'node:module', replacement: path.join(root, 'src/web/shims/node-module.ts') },
     ],
     dedupe: ['react', 'react-dom'],

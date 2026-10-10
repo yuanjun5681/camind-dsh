@@ -80,7 +80,7 @@
 2. **模型可见的只有 4 个粗粒度工具**，闭集决策选错率低；proxy 的 105 个 worker 端点永远不平铺给模型。
 3. **机床参数不绕模型**：`cam_plan` 经 Cordis `inject: ['machineRegistry']` 直读精确数值；模型工具只服务于"问答"（"这活 CV-850 能不能干"）。
 4. **数据落 DSH_HOME 级**：机床档案 `$DSH_HOME/machines/`、范本原件 `$DSH_HOME/memory/reference/`，均 git 版本化；会话工作区只放当次交付物。
-5. **preset 基线版本化进仓库**：`agent-presets/cam-machining/`（preset.yml + agent.cordis.yml），init 同步到 `$DSH_HOME/.agent-presets/`（受管文件以仓库为准；用户自建 preset 不动）。
+5. **preset 基线版本化进仓库**：`agent-presets/cam-machining/`（0.2.0 起为 patch-only bundle：`cordis.patch.yml` 一条 `dsh-agent-preset` 声明，展示元数据与 plugins 组合同文件）；仅 web profile 挂载（preset registry 属 web-app）。注：0.1.x 的目录发现（init 同步 `.agent-presets/`）已随上游移除。
 
 ## 4. camind-tool-cam 详细设计
 
@@ -144,7 +144,7 @@
 > **已实现**（2026-08-23）：`machineRegistry` 服务（list/get/snapshot，只读）+ `list_machines`/`read_machine` 工具；v1 无写方法、不挂 gitRepository（无写操作则无需自动 commit，挂接留待写接口迭代）。
 
 - 存储：`$DSH_HOME/machines/<machine-id>.yaml`（一台一个文件；frontmatter 式字段：行程/主轴/工作台/控制器/刀库 T 位/刀具名义+实测/夹具/材料切削参数 + `version`/`approval` 状态），写操作经 `gitRepository` best-effort 自动 commit（独立 git 仓库，同 memory 约定）；
-- **种子基线在仓库** `machines/<machine-id>.yaml`（版本化、走评审；现有 `machines/VMC-HJ-01.yaml` 即旧 Camind `seed_cv850.py` 的 YAML 转换，「未就绪」标记——刀具 measured 空、post DRAFT——原样保留）：`npm run init` 与 desktop `prepare-vendor` 以「目标不存在才拷」同步进 `$DSH_HOME/machines/`，**绝不覆盖运行时改动**；不用 skills 式 symlink，因为机床档案是可写数据，运行时写必须落在 DSH_HOME 级而非源码仓库当前分支。现场改动要升级为出厂基线时，人工把 YAML 拷回仓库提 PR（单向同步 + 人工回流）；
+- **种子基线在仓库** `machines/<machine-id>.yaml`（版本化、走评审；现有 `machines/VMC-HJ-01.yaml` 即旧 Camind `seed_cv850.py` 的 YAML 转换，「未就绪」标记——刀具 measured 空、post DRAFT——原样保留）：`npm run init` 以「目标不存在才拷」同步进 `$DSH_HOME/machines/`，**绝不覆盖运行时改动**；不用 skills 式 symlink，因为机床档案是可写数据，运行时写必须落在 DSH_HOME 级而非源码仓库当前分支。现场改动要升级为出厂基线时，人工把 YAML 拷回仓库提 PR（单向同步 + 人工回流）；
 - 服务 `machineRegistry`：`list()` / `get(id)` / `snapshot(id)`——**任务开跑时冻结快照存进 run 目录**，之后改机床参数不影响在跑任务（原项目 JobConstraintSnapshot 语义）；
 - 工具 `list_machines` / `read_machine` 只读；写操作（录入/改版）v1 靠直接编辑 YAML 文件，管理页面缓建（第二台机床进场、非开发人员要改参数时再做，照 page-memory 抄结构）。
 
@@ -185,7 +185,7 @@
 
 ### 6.2 preset「CAM 加工」（仓库 `agent-presets/cam-machining/`，已实现 2026-08-23）
 
-版本化进仓库（机制参考 AnaSageHarness 的 agent-presets）：`preset.yml`（展示元数据）+ `agent.cordis.yml`（会话级组合：persona + agent 级固定配置）。`npm run init` 把受管文件同步到 `$DSH_HOME/.agent-presets/`（**以仓库为准覆盖**——与 machines 的「不存在才拷」相反，因为 preset 是纯配置、无运行时改写；用户自建的其他 preset 不删除、不覆盖），desktop 打包经 prepare-vendor 实体化。
+版本化进仓库：0.2.0 起 `agent-presets/cam-machining/cordis.patch.yml` 单文件即完整 preset 声明（id/name/description/order + plugins 会话级组合：persona + agent 级固定配置），作为 `camind-preset-cam-machining` bundle（patch-only）挂进 web profile。
 
 组合：`cam_*` 4 工具 + `list_machines`/`read_machine` + 上传 + 记忆 4 工具 + skill `cam-machining`。新建会话选此模式 = 进场领这套装备。报价等将来场景另建 preset，互不污染。
 

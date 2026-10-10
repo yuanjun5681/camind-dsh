@@ -24,8 +24,10 @@ export interface SessionHeader {
 export interface Session {
   readonly id: string
   readonly header: SessionHeader
-  readonly events: readonly SessionEvent[]
-  append(type: string, data: unknown): void
+  /** 0.2.0：同步 `events` 属性删除，快照读走 snapshotEvents()（上游标记
+   *  deprecated 但可用；新代码不应新增调用——本桥沿用 0.1.1 的读面）。 */
+  snapshotEvents(): readonly SessionEvent[]
+  append(type: string, data: unknown, opts?: unknown): void
 }
 
 export interface Agent {
@@ -40,6 +42,14 @@ export interface Agent {
 export interface AgentHandle {
   agent: Agent
   dispose(): Promise<void>
+}
+
+/** 0.2.0 持久化读句柄（open(id,'read') 返回；用完必须 close）。 */
+export interface SessionReadHandle {
+  readonly id: string
+  readonly header: SessionHeader
+  read(offset?: number, length?: number): Promise<{ events: readonly SessionEvent[] }>
+  close(): Promise<void>
 }
 
 export interface ModelSelection {
@@ -194,8 +204,9 @@ export interface HostContext {
     archiveSession(sessionId: string): Promise<void>
   }
   sessionPersistence?: {
-    list(): Promise<SessionHeader[]>
-    inspect(id: string): Promise<{ meta: SessionHeader; events: readonly SessionEvent[] }>
+    /** 0.2.0：list 返回轻量快照（header + revision），完整事件经 open 句柄读。 */
+    list(): Promise<readonly { header: SessionHeader }[]>
+    open(id: string, access: 'read'): Promise<SessionReadHandle>
   }
   sessionTitle?: {
     get(session: Session): { title: string } | undefined
@@ -234,7 +245,23 @@ export interface HostContext {
         external?: readonly string[]
         immediately?: boolean
       }[]
+      /** 0.2.0 起引导清单强制携带；旧版没有时路由侧省略。 */
+      batches?: readonly {
+        phase: 'bootstrap' | 'application'
+        url: string
+        rev: string
+        entries: readonly string[]
+      }[]
     }
+  }
+  /** 0.1.7 起官方浏览器门禁：token 换 cookie（authorizeIndex）与任意路由的
+   *  Host/Origin+认证检查（requestRejection，401|403|undefined）。 */
+  connection: {
+    authorizeIndex(
+      req: { method?: string; url?: string; headers: IncomingMessage['headers'] },
+      res: { writeHead(status: number, headers?: Record<string, string>): unknown; end(body?: string): unknown },
+    ): boolean
+    requestRejection(req: { headers: IncomingMessage['headers'] }): 401 | 403 | undefined
   }
   on(event: string, handler: (...args: unknown[]) => unknown): () => void
   effect(factory: () => (() => void) | void): void

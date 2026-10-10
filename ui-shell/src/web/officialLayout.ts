@@ -1,24 +1,40 @@
 /**
- * 替代官方 ui-layout 的 apply：提供 ctx.layout 与 theme 投影。
+ * 替代官方 ui-layout 的 apply：提供 0.2.0 契约的 ctx.layout 与 theme 投影。
  * 不 import 官方 ./client（Vite 解开 factory 后 require("react/jsx-runtime") 会炸）。
+ *
+ * 0.2.0 的 ILayout：panelInfo / selectPanel / beginNavigation / toggleSidebar /
+ * openRightbar / closeRightbar（details 时代已结束，右栏归 ui-sidebar-right，
+ * 经 openRightbar 上报开合）。usePanelInfo 全局标准 prop 由这里
+ * slots.provideRoot 供出（官方由 ui-layout 提供；我们顶替了它）。
+ * selectPanel 的合法性校验照上游：必须是已注册的 main key。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 const SIDEBAR_DEFAULT = 280
 const DARK_ATTRIBUTE = 'data-ds-dark-theme'
+const THEME_SOURCE_ATTRIBUTE = 'data-ds-theme-source'
+const CONTENT_FONT_SIZE_VARIABLE = '--dsh-content-font-size'
+
+export type RightbarState = {
+  open: boolean
+  track: boolean
+  fullscreen: boolean
+}
 
 export type LayoutState = {
   sidebar: number
-  details: number
   narrow: boolean
   narrowExpanded: boolean
+  activePanel: string | null
+  rightbar: RightbarState
 }
 
 let layoutState: LayoutState = {
   sidebar: SIDEBAR_DEFAULT,
-  details: 0,
   narrow: false,
   narrowExpanded: false,
+  activePanel: null,
+  rightbar: { open: false, track: false, fullscreen: false },
 }
 
 const layoutListeners = new Set<() => void>()
@@ -45,9 +61,6 @@ export const layoutActions = {
   setSidebar(px: number) {
     writeLayout({ sidebar: Math.min(420, Math.max(264, Math.round(px))) })
   },
-  setDetails(px: number) {
-    writeLayout({ details: Math.min(520, Math.max(300, Math.round(px))) })
-  },
   toggleSidebar() {
     if (layoutState.narrow) writeLayout({ narrowExpanded: !layoutState.narrowExpanded })
     else writeLayout({ sidebar: layoutState.sidebar === 0 ? SIDEBAR_DEFAULT : 0 })
@@ -56,46 +69,72 @@ export const layoutActions = {
     if (layoutState.narrow === narrow) return
     writeLayout({ narrow, narrowExpanded: false })
   },
-  openDetails() {
-    if (layoutState.details === 0) writeLayout({ details: 360 })
-  },
-  closeDetails() {
-    writeLayout({ details: 0 })
-  },
+}
+
+type MainPanelId = string
+
+type SlotsLike = {
+  entries(name: string): readonly { options: { key?: string } }[]
+  provideRoot(contribution: { hooks?: Record<string, unknown> }): () => void
 }
 
 class LayoutController {
-  #panels: typeof layoutActions | undefined
+  /** Root-scoped navigation state exposed to panel-aware components. */
+  readonly panelInfo = {
+    getSnapshot: () => ({ activePanelId: layoutState.activePanel as MainPanelId | null }),
+    subscribe: (listener: () => void) => subscribeLayout(listener),
+  }
 
-  attachPanels(actions: typeof layoutActions) {
-    this.#panels = actions
+  #slots: SlotsLike | undefined
+  #navigation = new AbortController()
+
+  attachSlots(slots: SlotsLike) {
+    this.#slots = slots
+  }
+
+  selectPanel(panelId: MainPanelId | null) {
+    if (panelId !== null && !this.#slots?.entries('main').some((entry) => entry.options.key === panelId)) {
+      throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
+    }
+    this.#navigation.abort()
+    this.#navigation = new AbortController()
+    writeLayout({ activePanel: panelId })
+  }
+
+  beginNavigation(): AbortSignal {
+    this.#navigation.abort()
+    this.#navigation = new AbortController()
+    return this.#navigation.signal
+  }
+
+  dispose() {
+    this.#navigation.abort()
   }
 
   toggleSidebar() {
-    this.#require().toggleSidebar()
+    layoutActions.toggleSidebar()
   }
 
-  openDetails() {
-    this.#require().openDetails()
+  openRightbar(track: boolean, fullscreen: boolean) {
+    writeLayout({ rightbar: { open: true, track, fullscreen } })
   }
 
-  closeDetails() {
-    this.#require().closeDetails()
-  }
-
-  #require() {
-    if (this.#panels === undefined) throw new Error('layout: panel actions not wired (root entry not mounted)')
-    return this.#panels
+  closeRightbar() {
+    writeLayout({ rightbar: { open: false, track: false, fullscreen: false } })
   }
 }
 
 type ThemeSnapshot = {
+  preference?: string
+  fontSize?: number
   active: {
     colorScheme: string
     tokens: Record<string, string>
   }
 }
 
+/** 与上游 ui-layout theme-presenter 同口径：color-scheme + palette 属性 +
+ * 主题来源属性 + 内容字号轴 + token 内联 + theme-color。 */
 class ThemePresenter {
   appliedTokens: string[] = []
   themeColorMeta = document.createElement('meta')
@@ -107,9 +146,16 @@ class ThemePresenter {
   apply(snapshot: ThemeSnapshot) {
     const scheme = snapshot.active.colorScheme
     document.documentElement.style.colorScheme = scheme
+    document.documentElement.setAttribute(
+      THEME_SOURCE_ATTRIBUTE,
+      snapshot.preference === 'system' ? 'system' : scheme,
+    )
     const body = document.body
     if (scheme === 'dark') body.setAttribute(DARK_ATTRIBUTE, '')
     else body.removeAttribute(DARK_ATTRIBUTE)
+    if (typeof snapshot.fontSize === 'number') {
+      body.style.setProperty(CONTENT_FONT_SIZE_VARIABLE, `${snapshot.fontSize}px`)
+    }
     for (const name of this.appliedTokens) body.style.removeProperty(name)
     this.appliedTokens = []
     for (const [name, value] of Object.entries(snapshot.active.tokens)) {
@@ -122,8 +168,10 @@ class ThemePresenter {
 
   dispose() {
     document.documentElement.style.removeProperty('color-scheme')
+    document.documentElement.removeAttribute(THEME_SOURCE_ATTRIBUTE)
     const body = document.body
     body.removeAttribute(DARK_ATTRIBUTE)
+    body.style.removeProperty(CONTENT_FONT_SIZE_VARIABLE)
     for (const name of this.appliedTokens) body.style.removeProperty(name)
     this.appliedTokens = []
     this.themeColorMeta.remove()
@@ -131,6 +179,7 @@ class ThemePresenter {
 }
 
 type LayoutHost = ClientContext & {
+  slots: SlotsLike
   theme: {
     getTheme(): ThemeSnapshot
   }
@@ -145,8 +194,10 @@ export const layoutShim = {
   apply(ctx: ClientContext) {
     const host = ctx as LayoutHost
     const layout = new LayoutController()
-    layout.attachPanels(layoutActions)
+    layout.attachSlots(host.slots)
     ctx.effect(() => host.reflect.provide('layout', layout), 'ui-shell-layout: service')
+    ctx.effect(() => host.slots.provideRoot({ hooks: { panelInfo: layout.panelInfo } }), 'ui-shell-layout: panelInfo')
+    ctx.effect(() => () => layout.dispose(), 'ui-shell-layout: navigation')
     ctx.effect(() => {
       const presenter = new ThemePresenter()
       presenter.apply(host.theme.getTheme())

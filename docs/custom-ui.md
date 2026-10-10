@@ -19,7 +19,7 @@
 - **`/camind`**：SPA 静态托管，只接 GET/HEAD（其余 405，不回退给官方壳）。`serveSpa` 先找 `dist/web` 下对应文件，找不到回退 `index.html`，路径越界 403；返回 HTML 时把 `ctx.clientModules.graph()` 序列化为 `<script>window.__DSH_BOOT__ = ...</script>` 内联进 `<head>`（`ui-shell/src/host/http.ts:69`）。
 - **`/camind/api`**：REST + SSE 协议桥，把 dsh 服务翻译成 HTTP 端点：state/models/permissions/presets/fs/workspaces 等一组 REST，`GET /camind/api/sessions/:id/stream` 是 SSE 事件流（来自 `session/event`、`agent/status`），`/camind/api/client-plugins` 把 boot 图转发给浏览器。未匹配路径 404。
 
-「半注册」的含义：`/camind` 只接管页面与静态资源请求，不代理官方 API；官方界面在 fallback 席位完全不受影响。定制 UI 的路径前缀集中硬编码在以下位置，改名需同步：host 注册与端点字符串（`host/index.ts`、`host/settings.ts`）、`serveSpa` 剥前缀正则（`host/http.ts`）、`BrowserRouter basename`（`web/main.tsx`）、web 侧 API 前缀（`web/api.ts`）、Vite `base` 与 dev proxy（`vite.config.ts`）、桌面壳加载地址（`desktop/main.js`）。
+「半注册」的含义：`/camind` 只接管页面与静态资源请求，不代理官方 API；官方界面在 fallback 席位完全不受影响。定制 UI 的路径前缀集中硬编码在以下位置，改名需同步：host 注册与端点字符串（`host/index.ts`、`host/settings.ts`）、`serveSpa` 剥前缀正则（`host/http.ts`）、`BrowserRouter basename`（`web/main.tsx`）、web 侧 API 前缀（`web/api.ts`）、Vite `base` 与 dev proxy（`vite.config.ts`）。
 
 ## 浏览器侧启动
 
@@ -66,7 +66,7 @@ Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物�
 
 其余 slot：
 
-- conversation 子 slot（官方定义，ui-shell 以 inject 方式注册业务扩展）：`conversation.input.left`（文件上传按钮；所有模式使用 DSH_HOME 会话隔离批次，ZIP 自动解压）、`conversation.input.dock`（待发送文件附件 rail 与拖拽分流器的生命周期锚点；组件通过 portal 落在官方 Composer 卡片内、textarea 上方，不污染 draft；图片继续桥接官方图片草稿）、`conversation.chat.turnTail`。
+- conversation 子 slot（官方定义，ui-shell 以 inject 方式注册业务扩展）：`conversation.input.dock`（待发送文件附件 rail 与拖拽分流器的生命周期锚点；组件通过 portal 落在官方 Composer 卡片内、textarea 上方，不污染 draft；图片继续桥接官方图片草稿）。0.2.0 起官方 composer 的 + 菜单自带文件上传，0.1.1 的 `conversation.input.left` 自定义「+ 文件」按钮已退役；`conversation.chat.turnTail` 自写交付 chips 也在 0.2.0 随官方产出卡覆盖而删除。
 - `shell.overlay`：ui-shell 挂 `DiffOverlay`（全局代码对比，工作台只是调用方）。
 - sidebar 子 slot（ui-sidebar 声明）：`sidebar.brand.mark` / `sidebar.brand.name` 是 0.1.1 起的上游原生席位；`sidebar.workspaces`、`sidebar.settings` 沿用官方契约，owner props 刻意保持不变；`sidebar.footer.action` 是官方 list 席位，owner props 本地扩展为 `{ wide, pathname, navigate }`（官方契约的超集，存量插件忽略多余字段），类型靠 `declare module` 增广，见 `ui-sidebar/src/client/contract/slots.ts`。
 - 侧栏最底部是账号行（ui-sidebar 本地改动）：flex between 布局，左侧用户块（本地无账号体系，固定显示名 `user`，首字母圆形头像 + 名字），右侧 `sidebar.settings`——固定以 `wide: false` 传给官方 occupant，使其渲染 36px 圆形纯图标 trigger 而非整行带标签按钮；折叠 rail 下只保留该图标，与官方行为一致。

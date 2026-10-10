@@ -7,6 +7,8 @@
  * 的 tool-result 节点，callView 是 Host 经 presentCall 算好随帧下发的），按与
  * 官方 deliverables 折叠同一口径（generic/edit 或 diff 的 locations）汇总产出
  * 路径写进 workbenchStore——不依赖任何标签页是否挂载。
+ * 0.2.0：投影绑定的入口从 sessions.binding().session 移到
+ * uiConversation.binding(sessionId).snapshot（会话非保留时抛错，防御式放弃）。
  */
 import { useEffect } from 'react'
 import { getOfficialClient } from './officialClient'
@@ -42,7 +44,7 @@ function deliverablesOfNodes(nodes: readonly unknown[]): string[] {
   return paths
 }
 
-type BindingSession = {
+type BindingSnapshot = {
   getSnapshot(): { nodes?: readonly unknown[] }
   subscribe(listener: () => void): () => void
 }
@@ -50,14 +52,17 @@ type BindingSession = {
 export function DeliverablesSync({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const client = getOfficialClient()
-    const sessions = client?.sessions as unknown as {
-      binding?: (id: string) => { session?: BindingSession } | undefined
-    } | undefined
-    const session = sessions?.binding?.(sessionId)?.session
-    if (session === undefined) return
-    const sync = () => workbenchActions.setDeliverables(sessionId, deliverablesOfNodes(session.getSnapshot().nodes ?? []))
+    let snapshot: BindingSnapshot | undefined
+    try {
+      snapshot = client?.uiConversation.binding(sessionId).snapshot
+    } catch {
+      return
+    }
+    if (snapshot === undefined) return
+    const source = snapshot
+    const sync = () => workbenchActions.setDeliverables(sessionId, deliverablesOfNodes(source.getSnapshot().nodes ?? []))
     sync()
-    return session.subscribe(sync)
+    return source.subscribe(sync)
   }, [sessionId])
   return null
 }

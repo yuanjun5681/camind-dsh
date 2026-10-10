@@ -1,8 +1,8 @@
 # dsh-client-ui-attachment source snapshot
 
 This directory vendors `packages/client/ui-attachment/src` from
-`deepseek-ai/deepseek-harness` tag `dsh-v0.1.1-rc.2`
-(`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`).
+`deepseek-ai/deepseek-harness` tag `dsh-v0.2.0-rc.2`
+(`639ed015397290b3745d163aafe02ffee4aa3f84`).
 
 Since 0.1.1 the package root is a host-side stub: the attachment atoms
 (`DropOverlay` and friends) live at the source root while the plugin half

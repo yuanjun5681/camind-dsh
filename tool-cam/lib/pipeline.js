@@ -90,8 +90,8 @@ function classify(endpoint, envelope) {
   })
 }
 
-// getConfig 返回当前生效的 settings 节（installSettingsSection 的 source thunk，
-// 热更新由 dsh-settings 驱动，本服务每次调用重新读取，不缓存配置）。
+// getConfig 返回当前生效的条目 config（0.2.0 起 settings = 插件条目 config；
+// 编辑经 SettingsForms 写 profile patch 后 fiber 重建，apply 拿新值重建服务）。
 export function createCamPipeline(ctx, getConfig) {
   // baseURL 优先级：settings 值 > 环境变量 CAMIND_NX_AGENT_URL > 空
   function effectiveBaseURL() {

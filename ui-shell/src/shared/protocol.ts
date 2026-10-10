@@ -268,6 +268,16 @@ export interface ClientPluginEntry {
 export interface ClientPluginGraph {
   rev: string
   entries: ClientPluginEntry[]
+  /** 0.2.0 起图必须携带批次：每个 entry 属于恰好一个 combo 批次。 */
+  batches?: ClientPluginBatch[]
+}
+
+/** 官方引导批次：一个 revisioned combo 脚本及其注册的执行序 entry 列表。 */
+export interface ClientPluginBatch {
+  phase: 'bootstrap' | 'application'
+  url: string
+  rev: string
+  entries: string[]
 }
 
 export interface ExecuteCommandRequest {

@@ -1,10 +1,13 @@
 /**
- * ui-shell 的路由感知 AppFrame：全局 Shell 只拥有 sidebar / page / overlay；
- * Conversation / Workbench / Details 三列属于会话详情子布局。
+ * ui-shell 的路由感知 frame（顶替官方 AppFrame 的 root occupant）。
+ * 0.2.0 布局：sidebar 列 + 中央 keyed `main`（conversation 或全局面板）
+ * + Workbench 列 + rightbar 列（官方右侧栏，0.1.1 的 details 已并入）。
+ * 全局 Shell 只拥有 sidebar / page / overlay；会话详情三列属于子布局。
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getLayoutSnapshot, layoutActions, subscribeLayout } from './officialLayout'
+import { getOfficialClient } from './officialClient'
 import { Workbench, type WorkbenchSession } from './Workbench'
 import { DeliverablesSync } from './DeliverablesSync'
 import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'
@@ -15,22 +18,30 @@ const SIDEBAR_AUTO_COLLAPSE = 1024
 const WORKBENCH_DEFAULT = 360
 const WORKBENCH_MIN = 300
 const WORKBENCH_MAX = 560
+const RIGHTBAR_WIDTH = 380
 
 type SessionListState = {
-  current?: string
-  byId: Record<string, WorkbenchSession | undefined>
+  byId: Record<string, (WorkbenchSession & { retainedBy?: Record<string, number | undefined> }) | undefined>
+}
+
+/** 0.2.0 的「当前会话」：mainView 保留计数 > 0 的列表行（ui-workspace 导航写入）。 */
+export function selectMainSession(state: SessionListState): (WorkbenchSession & { id: string }) | undefined {
+  for (const row of Object.values(state.byId)) {
+    if (row && (row.retainedBy?.mainView ?? 0) > 0) return row as WorkbenchSession & { id: string }
+  }
+  return undefined
 }
 
 type RootProps = {
-  renderSlot(name: string, owner: object): ReactNode
+  renderSlot(name: string, owner: object, options?: { entryKey?: string }): ReactNode
   renderSlotChain(name: string, owner: object, options?: { fallback?: ReactNode; overlay?: boolean }): ReactNode
   useSessions<T>(selector: (state: SessionListState) => T): T
 }
 
 type SessionDetailLayoutProps = {
   current?: WorkbenchSession
-  panels: ReturnType<typeof getLayoutSnapshot>
-  renderSlot(name: string, owner: object): ReactNode
+  rightbarOpen: boolean
+  renderSlot(name: string, owner: object, options?: { entryKey?: string }): ReactNode
   viewport: number
 }
 
@@ -47,12 +58,12 @@ function isPluginPagePath(pathname: string): boolean {
   return pathname === '/pages' || pathname.startsWith('/pages/')
 }
 
-function SessionDetailLayout({ current, panels, renderSlot, viewport }: SessionDetailLayoutProps) {
+function SessionDetailLayout({ current, rightbarOpen, renderSlot, viewport }: SessionDetailLayoutProps) {
   const workbench = useSyncExternalStore(subscribeWorkbench, getWorkbenchSnapshot)
   const [workbenchWidth, setWorkbenchWidth] = useState(WORKBENCH_DEFAULT)
   const resize = useRef<{ x: number; width: number }>()
-  const detailsWidth = current ? panels.details : 0
-  const workbenchVisible = Boolean(current) && workbench.open && detailsWidth === 0
+  const rightbarWidth = current && rightbarOpen ? RIGHTBAR_WIDTH : 0
+  const workbenchVisible = Boolean(current) && workbench.open && !rightbarOpen
   const workbenchOverlay = viewport < 1100
   const resolvedWorkbenchWidth = workbenchVisible && !workbenchOverlay
     ? Math.min(workbenchWidth, Math.max(WORKBENCH_MIN, viewport * 0.4))
@@ -79,13 +90,13 @@ function SessionDetailLayout({ current, panels, renderSlot, viewport }: SessionD
   return (
     <section
       className="official-session-page"
-      style={{ gridTemplateColumns: `minmax(0, 1fr) ${resolvedWorkbenchWidth}px ${detailsWidth}px` }}
+      style={{ gridTemplateColumns: `minmax(0, 1fr) ${resolvedWorkbenchWidth}px ${rightbarWidth}px` }}
       data-workbench-collapsed={!workbenchVisible || undefined}
       data-workbench-overlay={workbenchOverlay || undefined}
-      data-details-collapsed={detailsWidth === 0 || undefined}
+      data-details-collapsed={!rightbarOpen || undefined}
     >
       <main className="official-conversation">
-        {renderSlot('conversation', {})}
+        {renderSlot('main', {}, { entryKey: 'conversation' })}
       </main>
       {current && <DeliverablesSync sessionId={current.id} />}
       <div className="official-workbench-column">
@@ -97,9 +108,13 @@ function SessionDetailLayout({ current, panels, renderSlot, viewport }: SessionD
         )}
       </div>
       <div className="official-details-column">
-        {renderSlot('details', {})}
+        {renderSlot('rightbar', {
+          width: rightbarWidth,
+          viewportWidth: viewport,
+          canShow: rightbarOpen,
+        })}
       </div>
-      {current && !workbenchVisible && detailsWidth === 0 && (
+      {current && !workbenchVisible && !rightbarOpen && (
         <button type="button" className="workbench-open" onClick={() => workbenchActions.open()}>
           工作台
         </button>
@@ -113,7 +128,7 @@ export function OfficialSlotRoot({ renderSlot, renderSlotChain, useSessions }: R
   const navigate = useNavigate()
   const panels = useSyncExternalStore(subscribeLayout, getLayoutSnapshot)
   const [viewport, setViewport] = useState(() => window.innerWidth)
-  const current = useSessions((state) => state.current ? state.byId[state.current] : undefined)
+  const current = useSessions(selectMainSession)
 
   useEffect(() => {
     const onResize = () => setViewport(window.innerWidth)
@@ -139,6 +154,17 @@ export function OfficialSlotRoot({ renderSlot, renderSlotChain, useSessions }: R
   const pluginPageRoute = isPluginPagePath(location.pathname)
   const routeSessionId = sessionIdFromPath(location.pathname)
   const routeSession = routeSessionId && current?.id === routeSessionId ? current : undefined
+  const activePanel = panels.activePanel
+  const rightbar = panels.rightbar
+
+  // 插件页与全局面板互斥：进入插件页路由时清掉面板选中；面板选中（侧栏行
+  // 点击）在渲染上压过插件页，形成双向可切换。
+  useEffect(() => {
+    if (pluginPageRoute && activePanel !== null) {
+      const layout = getOfficialClient()?.get('layout') as { selectPanel(id: string | null): void } | undefined
+      layout?.selectPanel(null)
+    }
+  }, [pluginPageRoute, activePanel])
 
   return (
     <div
@@ -154,19 +180,23 @@ export function OfficialSlotRoot({ renderSlot, renderSlotChain, useSessions }: R
         })}
       </div>
       <div className="official-page">
-        {pluginPageRoute ? (
+        {activePanel !== null ? (
+          <main className="official-main-panel">{renderSlot('main', {}, { entryKey: activePanel })}</main>
+        ) : pluginPageRoute ? (
           <main className="official-page-content">{pluginPage}</main>
         ) : routeSessionId ? (
           <SessionDetailLayout
             current={routeSession}
-            panels={panels}
+            rightbarOpen={rightbar.open}
             renderSlot={renderSlot}
             viewport={viewport}
           />
         ) : (
           <main className="official-conversation official-home">
             {homePage}
-            <div className="official-home-conversation">{renderSlot('conversation', {})}</div>
+            <div className="official-home-conversation">
+              {renderSlot('main', {}, { entryKey: 'conversation' })}
+            </div>
           </main>
         )}
       </div>

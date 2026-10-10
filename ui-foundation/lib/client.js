@@ -11,8 +11,8 @@ const {
   Modal,
   Pill,
   Tooltip,
-  IconCloseOutline16,
-  IconRefreshOutline14,
+  IconCloseOutlineRegular,
+  IconRefreshOutlineRegular,
 } = require('@deepseek-ai/dsh-client-ui-primitives')
 
 const FOUNDATION_CSS = `
@@ -312,7 +312,7 @@ function StateNotice({ onRetry, children, className }) {
     kind: 'error',
     className,
     description: children,
-    action: onRetry ? h(Button, { variant: 'outline', size: 'sm', icon: h(IconRefreshOutline14, { size: 14 }), onClick: onRetry }, '重试') : null,
+    action: onRetry ? h(Button, { variant: 'outline', size: 'sm', icon: h(IconRefreshOutlineRegular, { size: 14 }), onClick: onRetry }, '重试') : null,
   })
 }
 
@@ -335,7 +335,7 @@ function Dialog({ size = 'standard', title, onClose, footer, children, className
   }, h('div', { className: 'cui-dialog', 'data-size': size },
     h('div', { className: 'cui-dialog-head' },
       h('h2', { className: 'cui-dialog-title' }, title),
-      h(IconButton, { label: '关闭', icon: h(IconCloseOutline16, { size: 16 }), onClick: onClose })),
+      h(IconButton, { label: '关闭', icon: h(IconCloseOutlineRegular, { size: 16 }), onClick: onClose })),
     h(DialogBody, null, children),
     footer ? h(DialogFooter, null, footer) : null))
 }

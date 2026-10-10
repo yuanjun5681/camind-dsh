@@ -1,10 +1,10 @@
 # dsh-client-ui-primitives source snapshot
 
 This directory vendors `packages/client/ui-primitives/src` from
-`deepseek-ai/deepseek-harness` tag `dsh-v0.1.1-rc.2`
-(`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`).
+`deepseek-ai/deepseek-harness` tag `dsh-v0.2.0-rc.2`
+(`639ed015397290b3745d163aafe02ffee4aa3f84`).
 
-The published `@deepseek-ai/dsh-client-ui-primitives@0.1.1-rc.2` JavaScript
+The published `@deepseek-ai/dsh-client-ui-primitives@0.2.0-rc.2` JavaScript
 replaces CSS Module imports with empty objects. The official web shell builds
 this package from source, so custom consumers otherwise receive the component
 logic without its generated class names. `ui-shell/vite.config.ts` aliases the

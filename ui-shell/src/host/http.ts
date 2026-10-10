@@ -82,7 +82,10 @@ export function serveSpa(res: ServerResponse, urlPath: string, bootGraph?: unkno
     'Cache-Control': ext === '.html' ? 'no-store' : 'no-cache',
   })
   if (ext === '.html' && bootGraph) {
-    const script = `<script>window.__DSH_BOOT__ = ${JSON.stringify(bootGraph).replaceAll('<', '\\u003c')}</script>`
+    // 0.2.0 起官方图/combo URL 是文档相对（plugins/??…，上游为反代子路径
+    // 有意去斜杠）；本 SPA 挂在 /camind/ 下，必须钉 base 到根，否则相对
+    // URL 全落到 /camind/plugins/… 被 SPA fallback 成 HTML。
+    const script = `<base href="/"><link rel="icon" href="/camind/assets/camind-mascot.png"><script>window.__DSH_BOOT__ = ${JSON.stringify(bootGraph).replaceAll('<', '\\u003c')}</script>`
     const html = readFileSync(file, 'utf8').replace('<head>', `<head>${script}`)
     res.end(html)
     return

@@ -1,0 +1,179 @@
+import { jsx as _jsx } from "react/jsx-runtime";
+/**
+ * 挂载 custom root（官方 sidebar / main / rightbar + Workbench），
+ * 并让官方当前会话与 /camind 的 React Router 对齐。
+ *
+ * 0.2.0 契约变化：ctx.sessions.open/clear 与 sessions.list.current 删除，
+ * 会话选中 = ui-workspace 导航以 source 'mainView' 保留的 Session 引用
+ * （列表行 retainedBy.mainView > 0）；动作面收敛到 ctx.uiWorkspace
+ * （openSession / startSession）。路由包装随之改挂 uiWorkspace。
+ */
+import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { getOfficialBootError, getOfficialClient, subscribeOfficialClient, } from './officialClient';
+import { selectMainSession } from './OfficialSlotRoot';
+function useOfficialClient() {
+    return useSyncExternalStore(subscribeOfficialClient, getOfficialClient);
+}
+function useSlotVersion(name) {
+    const ctx = useOfficialClient();
+    return useSyncExternalStore((listener) => {
+        if (!ctx)
+            return subscribeOfficialClient(listener);
+        const offSlot = ctx.slots.subscribe(name, listener);
+        const offClient = subscribeOfficialClient(listener);
+        return () => {
+            offSlot();
+            offClient();
+        };
+    }, () => ctx?.slots.getVersion(name) ?? 0);
+}
+function currentSessionId(pathname) {
+    if (!pathname.startsWith('/s/'))
+        return undefined;
+    return decodeURIComponent(pathname.slice(3));
+}
+function sessionPath(id, blank) {
+    return blank ? '/' : `/s/${encodeURIComponent(id)}`;
+}
+function isPluginPage(pathname) {
+    return pathname === '/pages' || pathname.startsWith('/pages/');
+}
+function readSessionList(ctx) {
+    return ctx.sessions.list.getSnapshot();
+}
+function mainSessionId(ctx) {
+    return selectMainSession(readSessionList(ctx))?.id;
+}
+/**
+ * 给官方动作补上 ui-shell 的 URL 语义。单靠 mainView 保留订阅无法感知
+ * “再次打开当前会话”或“复用当前空白会话”，这两种动作必须在调用边界处理。
+ */
+function useOfficialActionRoutes(ctx, routeSettled) {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const route = useRef({ pathname: location.pathname, navigate });
+    route.current = { pathname: location.pathname, navigate };
+    useEffect(() => {
+        if (!ctx)
+            return;
+        const originalOpenSession = ctx.uiWorkspace.openSession;
+        const originalStartSession = ctx.uiWorkspace.startSession;
+        const openSession = (target) => {
+            originalOpenSession.call(ctx.uiWorkspace, target);
+            const id = typeof target === 'string' ? target : undefined;
+            const summary = id ? readSessionList(ctx).byId[id] : undefined;
+            if (id && summary) {
+                const next = sessionPath(id, Boolean(summary.blank));
+                // 启动阶段 client runtime 自动恢复会话（watchNavigation）；此时路由
+                // 仲裁尚未首轮就绪，不得把显式的插件页深链接导航走。用户在侧栏点选
+                // 会话必然发生在仲裁就绪之后，不受影响。
+                const bootRestore = !routeSettled.current && isPluginPage(route.current.pathname);
+                if (route.current.pathname !== next && !bootRestore)
+                    route.current.navigate(next);
+            }
+        };
+        const startSession = (workspaceId) => {
+            originalStartSession.call(ctx.uiWorkspace, workspaceId);
+            if (route.current.pathname !== '/')
+                route.current.navigate('/');
+        };
+        ctx.uiWorkspace.openSession = openSession;
+        ctx.uiWorkspace.startSession = startSession;
+        return () => {
+            if (ctx.uiWorkspace.openSession === openSession)
+                ctx.uiWorkspace.openSession = originalOpenSession;
+            if (ctx.uiWorkspace.startSession === startSession)
+                ctx.uiWorkspace.startSession = originalStartSession;
+        };
+    }, [ctx]);
+}
+function useOfficialSessionRoute(ctx, routeSettled) {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const previous = useRef();
+    const sessionList = useSyncExternalStore((listener) => {
+        if (!ctx)
+            return subscribeOfficialClient(listener);
+        const offList = ctx.sessions.list.subscribe(listener);
+        const offClient = subscribeOfficialClient(listener);
+        return () => {
+            offList();
+            offClient();
+        };
+    }, () => (ctx ? readSessionList(ctx) : null));
+    // URL 与官方 Session 选中只能在一个 effect 内仲裁。拆成两个双向 effect
+    // 会在 open(B) 后分别按旧 URL 恢复 A、再导航 B，最终形成无限导航抖动。
+    useEffect(() => {
+        if (!ctx || !sessionList) {
+            previous.current = undefined;
+            return;
+        }
+        if (sessionList.phase !== 'ready')
+            return;
+        const pathname = location.pathname;
+        const current = mainSessionId(ctx);
+        const last = previous.current;
+        const pathnameChanged = !last || last.pathname !== pathname;
+        const currentChanged = Boolean(last && last.current !== current);
+        // 先记下本轮观测值，再触发 store/router，确保同步通知产生的下一轮
+        // 能正确识别究竟是哪一侧发生了变化。
+        previous.current = { pathname, current };
+        // 首轮 ready 仲裁完成后，openSession 的导航包装才把调用视为用户操作
+        //（此前的 open 是 client runtime 的启动会话恢复，见 useOfficialActionRoutes）。
+        routeSettled.current = true;
+        if (pathnameChanged) {
+            // 显式 URL 导航优先。插件页只覆盖内容区，属于非会话路由：0.2.0 没有
+            // 公开的选中清除面（clearMain 是 ui-workspace 私有），选中保留——与
+            // 官方全局面板激活时保留当前会话同口径。
+            if (isPluginPage(pathname))
+                return;
+            const pathId = currentSessionId(pathname);
+            if (pathId) {
+                if (sessionList.byId[pathId] && current !== pathId)
+                    ctx.uiWorkspace.openSession(pathId);
+                return;
+            }
+            return;
+        }
+        if (!currentChanged) {
+            // 首条消息把当前空白会话变成已有会话（id 不变，只翻 blank）：按
+            // “已有会话落在 /s/:id” 的语义从 '/' 归位，否则 '/' 下永远不进
+            // 会话详情子布局，Workbench 无从显示。
+            if (pathname === '/' && current && !sessionList.byId[current]?.blank) {
+                navigate(sessionPath(current));
+            }
+            return;
+        }
+        // 插件页内选中变化（侧栏点选会话）仍走下方导航退出插件页；启动恢复
+        //（last.current 为空）不得劫持显式的插件页深链接。
+        if (current && isPluginPage(pathname) && !last?.current)
+            return;
+        // 插件页内选中被清空不触发导航，停留插件页。
+        if (!current && isPluginPage(pathname))
+            return;
+        // Session 选中自身变化表示侧栏操作。空白新会话落在首页，已有
+        // 会话落在 /s/:id；从插件页选会话时也由这里退出插件页。选中消失
+        //（归档当前会话等）归位 '/'。
+        const blank = Boolean(current && sessionList.byId[current]?.blank);
+        const next = current ? sessionPath(current, blank) : '/';
+        if (pathname !== next)
+            navigate(next);
+    }, [ctx, location.pathname, navigate, sessionList, routeSettled]);
+}
+export function OfficialSidebar() {
+    const ctx = useOfficialClient();
+    const error = getOfficialBootError();
+    const routeSettled = useRef(false);
+    useSlotVersion('root');
+    useSlotVersion('sidebar');
+    useOfficialActionRoutes(ctx, routeSettled);
+    useOfficialSessionRoute(ctx, routeSettled);
+    const ready = Boolean(ctx
+        && ctx.slots.entriesOfSlot('root').length > 0
+        && ctx.slots.entriesOfSlot('sidebar').length > 0);
+    if (ready && ctx) {
+        return ctx.slots.renderSlot('root', {});
+    }
+    return (_jsx("aside", { className: "official-shell-fallback", children: _jsx("a", { className: "settings-row", href: "/", title: error ?? '打开官方界面', children: error ? '官方 UI 未加载' : '正在加载官方 UI…' }) }));
+}

@@ -1,0 +1,12 @@
+{
+  "name": "camind-preset-cam-machining",
+  "private": true,
+  "version": "0.1.0",
+  "description": "「CAM 加工」AgentPreset 声明（dsh 0.2.0 起 preset = dsh-agent-preset 声明行，patch-only bundle）。",
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

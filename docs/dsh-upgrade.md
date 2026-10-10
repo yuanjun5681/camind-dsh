@@ -11,7 +11,6 @@ dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧
 | `ui-shell/vendor/*` | 两份上游源码快照（ui-attachment、ui-primitives），各自 `package.json` 的 version 被校验 |
 | `ui-sidebar/package.json` | `dshUpstream.version/tag/commit`（version 被校验）；`peerDependencies` 里的 `@deepseek-ai/*` 也钉着版本 |
 | `ui-foundation/lib/client.js` | 官方 theme token 到 `--camind-*` 的映射，以及 Button/Input/Modal/Tooltip/图标 API |
-| `desktop/scripts/prepare-vendor.mjs` | 打包时安装 `@deepseek-ai/dsh@<version>` 本体，开始前先跑 `--check` |
 
 0.1.1 的上游结构变化（升级到此版本时的已知适配，供后续升级对照）：
 
@@ -21,6 +20,17 @@ dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧
 - `ui-theme` 的五张全局样式表改由官方 ui-theme 客户端插件激活时注入，ui-shell 不再静态引入。
 - 官方前端的 fallback 只在 dist 根与 `/index.html` 提供入口（任意路径不再回退 SPA），ui-shell 注册了 exact `/web` 302 到 `/index.html`。
 - 官方 Sidebar 新增 `sidebar.brand.mark` / `sidebar.brand.name` 席位，且图内新增 `ui-brand-official` 行（priority 0）：camind-ui-brand 以 priority -10 注册压过它（single 席位同优先级重复注册会 throw，低优先级渲染）。
+
+0.2.0 的上游结构变化（详细适配记录见 `docs/upgrades/0.2.0-rc.2.md`）：
+
+- 布局：`conversation`/`details` 席位消失，中央区为 keyed `main`（会话 key `conversation`），右栏 `rightbar`（ui-sidebar-right），新增 `sidebar.panellist`/`sidebar.toggle.badge`/`shell.leading`；`ctx.layout` 契约改 `panelInfo/selectPanel/beginNavigation/toggleSidebar/openRightbar/closeRightbar`，`usePanelInfo` 由布局方 `slots.provideRoot` 供出；`ctx.workspaces` 删除，导航归 `ctx.uiWorkspace`；当前会话 = 列表行 `retainedBy.mainView > 0`。
+- 引导：图 URL 文档相对（SPA 需 `<base href="/">` 钉根）+ `__DSH_BOOT__` 强制 `batches`（combo 脚本会注册批次内全部 factory，本地顶替模块要在 live 口子吞掉同名注册）；静态表新增 `dsh-client-store`/`dsh-client-ui-dockkit`。
+- 门禁（0.1.7 起）：`/?token=` 铸 cookie（仅 pathname `/`），自定义 `/` 302 先委托 `connection.authorizeIndex`；自定义 API 用 `connection.requestRejection({headers})`。
+- Settings = 插件条目 config：`installSettingsSection` 删除；SettingsForms 按条目 id 服务（只收 `.volatile()` 字段），volatile 编辑经 cosmokit cell 原地热更；旧 `settings.yaml` 首启迁入活动 profile（仅认「节名==条目 id」）。
+- 持久化：会话格式 V4（V0 起静态迁移链自动迁移）；`sessionPersistence.inspect` 删除（`open(id,'read')` 句柄 + `read()` + `close()`）；宿主 `Session.events` 删除，用 `snapshotEvents()`。
+- 插件配置卡：`settings.plugin.item` 删除，改官方「插件」页 `plugins.item`/`plugins.bundle.config`（key=包名）/`plugins.row.config`。
+- Composer：`InputState.imageIds`→`attachmentIds`；`conversation.input.left` 无 owner props；dock owner 只剩 `{session,input}`，动作走 `conversation.input.for(actx)`；`conversation.chat.turnTail` 变 list（select 失效）。
+- ui-primitives 图标改名（尺寸后缀→Regular/Medium + size prop）；npm 包零传递依赖，vendor 源码消费需自钉 diff/simple-icons/zustand/immer 等。
 
 不需要动的部分：profile 里的内置 bundle（`@deepseek-ai/dsh-base` 等）始终从正在运行的 dsh 安装自身解析，随 dsh 一起升级；`link:` 挂载的本工作区插件与 dsh 版本解耦。
 
@@ -39,13 +49,12 @@ dsh 处于 developer preview，迭代快、**不保证磁盘格式兼容**（旧
 5. `npm run check:dsh-version`，应全部通过。
 6. 复核 `ui-foundation/lib/client.js`：官方 `--dsw-*` token 与 Button/Input/Modal/Tooltip/图标 API 仍然有效；动态插件的 `dsh.client.external` 无缺失 provider 或环。
 7. `cd ui-shell && npm install && npm run build`，重建前端。
-8. 需要桌面打包时 `cd desktop && npm run dist`（prepare-vendor 会先跑 `--check`，不一致直接失败）。
 9. 冒烟：`node scripts/dsh.mjs --profile headless --dump-config` 确认组合配置正常，再开 `http://127.0.0.1:3080/camind/` 验证自定义前端。
 10. 把本次升级过程记录到 `docs/upgrades/<目标版本>.md`：版本起止与 tag/commit → 上游 breaking changes → 本地适配点（带文件路径）→ 验证结果 → 遗留事项；先翻上一份记录对照哪些适配已做过。
 
 ## 注意
 
-- 版本不一致时，ui-shell 的 `prebuild`/`predev` 和 desktop 的 prepare-vendor 都会拒绝继续——这是设计行为，按上面步骤补齐即可，不要绕过。
+- 版本不一致时，ui-shell 的 `prebuild`/`predev` 会拒绝继续——这是设计行为，按上面步骤补齐即可，不要绕过。
 - vendor 快照与 ui-sidebar 是**人工维护**的上游源码复制，sync 脚本只校验不更新；升级漏了这两处会在 check 阶段报出来。
 - `/camind` 冒烟必须覆盖 light/dark/system、键盘焦点、Dialog Escape、360px 窄屏，并确认官方 `/web` 没有 `data-camind-ui` 和 `.cui-*` 样式。详细矩阵见 `docs/ui-design-standards.md`。
 - ui-home 用结构选择器 CSS 隐藏官方 HeroShell（锚点 `[data-phase="hero"]`/`[data-composer-seat]`/`[data-chain-overlay-fallback]`，见 `ui-home/lib/client.js` 头注释）。升级后冒烟时确认新会话页 `/` 不再出现官方鱼标/「探索未至之境」/预览徽章；官方 hero 的 DOM 结构若变，需同步该选择器。

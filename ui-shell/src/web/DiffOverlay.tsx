@@ -3,7 +3,7 @@
  * diffOverlayActions / window.__camindDiff__. Not owned by Workbench.
  */
 import { useState, useSyncExternalStore } from 'react'
-import { IconCloseOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DiffView, type DiffViewMode } from './DiffView'
 import {
   diffOverlayActions,
@@ -58,7 +58,7 @@ export function DiffOverlay() {
               </button>
             </div>
             <button type="button" aria-label="关闭对比" onClick={() => diffOverlayActions.close()}>
-              <IconCloseOutline16 size={14} />
+              <IconCloseOutlineRegular size={14} />
             </button>
           </div>
         </header>

@@ -25,8 +25,11 @@ const HOME_CSS = `
 .official-home:has([data-camind-home]) [data-phase="hero"] [data-conversation-scroll][data-conversation-scroll] { justify-content: flex-start; overflow: visible; }
 
 /* Upstream has no seat for HeroShell. These hash-free structure anchors are
-   an explicit dsh-upgrade checkpoint in docs/dsh-upgrade.md. */
-[data-phase="hero"] [data-composer-seat] [data-chain-overlay-fallback="conversation.composer"] > div > svg:first-child + div { display: none; }
+   an explicit dsh-upgrade checkpoint in docs/dsh-upgrade.md.
+   0.2.0: HeroShell root is the composer stack's first child div (fish +
+   headline + preview badge inside); the workspace row and composer bar are
+   later siblings and stay visible. */
+[data-phase="hero"] [data-composer-seat] [data-chain-overlay-fallback="conversation.composer"] > div > div:first-child { display: none; }
 
 [data-camind-home] {
   display: flex; flex-direction: column; align-items: center;
@@ -50,11 +53,11 @@ let sessionInput = null
 
 function pickExample(text) {
   if (sessionInput) {
-    sessionInput.inputActions.setDraft(text)
+    sessionInput.setDraft(text)
     return
   }
   pendingDraft = text
-  official?.workspaces.startSession()
+  official?.get('uiWorkspace')?.startSession()
 }
 
 function HomeHero() {
@@ -73,15 +76,17 @@ function HomeHero() {
 // Root-scope home content cannot reach the session input machine. This
 // invisible session entry exposes the live blank composer's actions and applies
 // a prompt stashed while no session existed, without overwriting a user draft.
-function InputBridge({ session, input, inputActions }) {
-  const hero = Boolean(session && session.composerPhase === 'blank' && session.openState === 'open')
+// 0.2.0: the dock owner no longer carries inputActions; the entry's own inject
+// factory resolves the session input facade (conversation.input.for(actx)).
+function InputBridge({ session, input, setDraft }) {
+  const hero = Boolean(session && session.blank && session.openState === 'open')
   useEffect(() => {
-    if (!hero) return
-    sessionInput = { inputActions }
+    if (!hero || !setDraft) return
+    sessionInput = { setDraft }
     if (pendingDraft != null) {
       const text = pendingDraft
       pendingDraft = null
-      if (!input || !input.draft) inputActions.setDraft(text)
+      if (!input || !input.draft) setDraft(text)
     }
     return () => { sessionInput = null }
   })
@@ -112,11 +117,16 @@ function apply(ctx) {
       name: 'conversation.input.dock',
       id: 'camind-home-input-bridge',
       order: 20,
+      inject: (sessionId) => {
+        const actx = ctx.get('sessions')?.scope(sessionId)
+        const input = actx?.get('conversation')?.input.for(actx)
+        return input ? { setDraft: (text) => input.setDraft(text) } : {}
+      },
     }, InputBridge))
 }
 
 exports.name = 'ui-home-client'
-exports.inject = ['slots', 'workspaces']
+exports.inject = ['slots']
 exports.apply = apply
 
 return module.exports; } });

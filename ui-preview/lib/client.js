@@ -128,14 +128,22 @@ function rawFileUrl(sessionId, path) {
 // --- tab activation (internal surface, defensive; see header note) --------------------
 
 let slotsRef = null
+let sessionsRef = null
 
 function activateConversationView(sessionId, viewId) {
   try {
     const slots = slotsRef
     if (!slots || typeof slots.entriesOfSlot !== 'function' || typeof slots.hostFace !== 'function') return
-    const chatEntry = slots.entriesOfSlot('conversation.view').find((item) => item.options?.id === 'chat')
-    if (chatEntry === undefined) return
-    slots.hostFace().storeOf?.(chatEntry, sessionId)?.actions?.setView?.(viewId)
+    // 0.2.0: conversationStore 挂在 conversation.session / conversation.session.header
+    // 条目上（不再是 view 条目），storeOf 的第二参也从 sessionId 变成
+    // ScopedStandardSourceBinding { key, ctx }——用会话自身 binding 的 ctx（框架
+    // 渲染会话域时绑定的同一对象，重复绑定是 no-op）。全部防御式：失败只是不切页。
+    const entry = slots.entriesOfSlot('conversation.session')[0]
+      ?? slots.entriesOfSlot('conversation.session.header')[0]
+    if (entry === undefined) return
+    const binding = sessionsRef?.binding?.(sessionId)
+    if (binding?.ctx === undefined) return
+    slots.hostFace().storeOf?.(entry, { key: sessionId, ctx: binding.ctx })?.actions?.setView?.(viewId)
   } catch {
     // Degradation path: stay on the current view; the preview tab still works.
   }
@@ -337,6 +345,7 @@ function apply(ctx) {
   // The activation helper reaches the slots service instance (which carries the
   // internal hostFace); stashed module-locally for the filePreview service.
   slotsRef = ctx.slots
+  sessionsRef = ctx.get('sessions') ?? null
 
   ctx.provide('filePreview', {
     // 路径模式：预览会话工作区 / upload:// 引用（经 Host 路由取数）。
@@ -372,7 +381,7 @@ function apply(ctx) {
 }
 
 exports.name = 'camind-ui-preview'
-exports.inject = ['slots']
+exports.inject = ['slots', 'sessions']
 exports.apply = apply
 
 return module.exports; } });

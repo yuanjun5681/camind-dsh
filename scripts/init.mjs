@@ -98,8 +98,8 @@ const PROFILE_TEMPLATES = {
   },
   web: {
     dependencies: {
-      'dsh-markdown-preview': '^0.3.0',
       'camind-page-memory': 'link:page-memory',
+      'camind-preset-cam-machining': 'link:agent-presets/cam-machining',
       'camind-service-git-repository': 'link:service-git-repository',
       'camind-service-machine': 'link:service-machine',
       'camind-tool-cam': 'link:tool-cam',
@@ -126,8 +126,8 @@ const PROFILE_TEMPLATES = {
       'camind-ui-brand',
       'camind-ui-home',
       'camind-ui-toolpath-viewer',
-      'dsh-markdown-preview',
       'camind-page-memory',
+      'camind-preset-cam-machining',
     ],
   },
 }
@@ -171,32 +171,6 @@ function writeIfDifferent(file, content) {
   return true
 }
 
-// 4. AgentPreset：仓库 agent-presets/ 是版本化事实源；初始化时把受管文件复制到
-// DSH_HOME/.agent-presets/，让 dsh 的用户级发现器加载（参考 AnaSageHarness 同款机制）。
-// 与 machines 的「不存在才拷」不同：preset 是纯配置（无运行时改写），受管文件以仓库为准
-// 覆盖更新；用户自建的其他 preset 不删除、不覆盖。
-const MANAGED_PRESETS = ['cam-machining']
-const PRESET_FILES = ['preset.yml', 'agent.cordis.yml']
-
-function ensureAgentPresets() {
-  for (const presetId of MANAGED_PRESETS) {
-    const sourceDir = path.join(root, 'agent-presets', presetId)
-    const targetDir = path.join(dshHome, '.agent-presets', presetId)
-    if (fs.existsSync(targetDir) && !fs.lstatSync(targetDir).isDirectory()) {
-      throw new Error(`${targetDir} 已存在且不是目录；请手动处理后重试`)
-    }
-    fs.mkdirSync(targetDir, { recursive: true })
-    let changed = false
-    for (const filename of PRESET_FILES) {
-      changed = writeIfDifferent(
-        path.join(targetDir, filename),
-        fs.readFileSync(path.join(sourceDir, filename), 'utf8'),
-      ) || changed
-    }
-    step(`AgentPreset ${presetId} ${changed ? '已同步' : '已就位'}`)
-  }
-}
-
 // 5. profiles：通用上传工具、记忆库、机床档案与 gitRepository 服务在所有 profile 全局加载。
 function ensureProfiles() {
   for (const [name, template] of Object.entries(PROFILE_TEMPLATES)) {
@@ -232,7 +206,6 @@ function buildUiShell() {
 checkPrerequisites()
 ensureSkillsLink()
 ensureMachinesSeed()
-ensureAgentPresets()
 ensureProfiles()
 checkManualInputs()
 buildUiShell()

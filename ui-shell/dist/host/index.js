@@ -30,6 +30,7 @@ export const inject = [
     'commands',
     'skills',
     'clientModules',
+    'connection',
 ];
 const IMAGE_MEDIA = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -473,13 +474,13 @@ export function apply(ctx) {
         if (sessionId) {
             const live = ctx.sessions.get(sessionId);
             if (live) {
-                const recorded = recordedPresetId(live);
+                const recorded = recordedPresetId({ header: live.header, events: live.snapshotEvents() });
                 if (recorded)
                     return recorded;
             }
             if (persist) {
                 try {
-                    const inspection = await persist.inspect(sessionId);
+                    const inspection = await inspectSession(sessionId);
                     const recorded = recordedPresetId(inspection);
                     if (recorded)
                         return recorded;
@@ -529,14 +530,25 @@ export function apply(ctx) {
         }
         return spawnAgent('resume', sessionId, undefined, requested);
     }
+    /** 0.2.0：inspect 删除，冷读会话 = open('read') 句柄 + read + close。 */
+    async function inspectSession(sessionId) {
+        const handle = await persist.open(sessionId, 'read');
+        try {
+            const result = await handle.read();
+            return { meta: handle.header, events: result.events };
+        }
+        finally {
+            await handle.close();
+        }
+    }
     async function readSessionState(sessionId) {
         const live = ctx.agents.get(sessionId)?.session ?? ctx.sessions.get(sessionId);
         if (live)
-            return { id: live.id, header: live.header, events: [...live.events] };
+            return { id: live.id, header: live.header, events: [...live.snapshotEvents()] };
         if (!persist)
             return undefined;
         try {
-            const inspected = await persist.inspect(sessionId);
+            const inspected = await inspectSession(sessionId);
             return { id: sessionId, header: inspected.meta, events: [...inspected.events] };
         }
         catch {
@@ -607,7 +619,7 @@ export function apply(ctx) {
         if (live?.header.cwd)
             return live.header.cwd;
         if (persist) {
-            const inspection = await persist.inspect(sessionId);
+            const inspection = await inspectSession(sessionId);
             if (inspection.meta.cwd)
                 return inspection.meta.cwd;
         }
@@ -667,16 +679,16 @@ export function apply(ctx) {
         const agent = ctx.agents.get(id);
         const liveSession = agent?.session ?? ctx.sessions.get(id);
         if (liveSession) {
-            const title = titles?.get(liveSession)?.title ?? titleFromEvents(liveSession.events) ?? '新会话';
+            const title = titles?.get(liveSession)?.title ?? titleFromEvents(liveSession.snapshotEvents()) ?? '新会话';
             return {
                 id,
                 title,
                 cwd: liveSession.header.cwd,
                 createdAt: liveSession.header.createdAt,
-                updatedAt: listUpdatedAt(liveSession.header.createdAt, liveSession.events),
+                updatedAt: listUpdatedAt(liveSession.header.createdAt, liveSession.snapshotEvents()),
                 live: Boolean(agent),
                 status: agent?.status ?? 'cold',
-                blank: sessionBlank(liveSession.events),
+                blank: sessionBlank(liveSession.snapshotEvents()),
             };
         }
         let createdAt = header?.createdAt ?? 0;
@@ -686,7 +698,7 @@ export function apply(ctx) {
         let updatedAt = createdAt;
         if (persist) {
             try {
-                const inspection = await persist.inspect(id);
+                const inspection = await inspectSession(id);
                 createdAt = inspection.meta.createdAt;
                 cwd = inspection.meta.cwd;
                 title = titleFromEvents(inspection.events) ?? title;
@@ -722,9 +734,9 @@ export function apply(ctx) {
         const known = new Map();
         for (const session of ctx.sessions.list())
             known.set(session.id, session.header);
-        for (const header of persisted) {
-            if (!known.has(header.id))
-                known.set(header.id, header);
+        for (const snapshot of persisted) {
+            if (!known.has(snapshot.header.id))
+                known.set(snapshot.header.id, snapshot.header);
         }
         for (const [id, header] of known) {
             if (accounted.has(id) || archived.has(id))
@@ -738,22 +750,22 @@ export function apply(ctx) {
         const agent = ctx.agents.get(sessionId);
         const live = agent?.session ?? ctx.sessions.get(sessionId);
         if (live) {
-            const permission = permissionSelect(live.events);
-            const agentPreset = await presetRef(recordedPresetId(live) ?? mountedPresets.get(sessionId) ?? ctx.agentPresets?.defaultId);
+            const permission = permissionSelect(live.snapshotEvents());
+            const agentPreset = await presetRef(recordedPresetId({ header: live.header, events: live.snapshotEvents() }) ?? mountedPresets.get(sessionId) ?? ctx.agentPresets?.defaultId);
             return {
                 id: sessionId,
-                title: titles?.get(live)?.title ?? titleFromEvents(live.events) ?? '新会话',
+                title: titles?.get(live)?.title ?? titleFromEvents(live.snapshotEvents()) ?? '新会话',
                 cwd: live.header.cwd,
                 status: agent?.status ?? 'cold',
-                events: live.events.map(toWire),
-                blank: sessionBlank(live.events),
+                events: live.snapshotEvents().map(toWire),
+                blank: sessionBlank(live.snapshotEvents()),
                 ...permission ? { permission } : {},
                 ...agentPreset ? { agentPreset } : {},
             };
         }
         if (!persist)
             throw new Error('会话不在内存中，且没有持久化后端');
-        const inspection = await persist.inspect(sessionId);
+        const inspection = await inspectSession(sessionId);
         const permission = permissionSelect(inspection.events);
         const agentPreset = await presetRef(recordedPresetId(inspection) ?? ctx.agentPresets?.defaultId);
         return {
@@ -801,6 +813,17 @@ export function apply(ctx) {
                     ...entry.external?.length ? { external: [...entry.external] } : {},
                     ...entry.immediately ? { immediately: true } : {},
                 })),
+                // 0.2.0 起引导清单强制要求 batches（parseBootManifest 校验）；原样转发。
+                ...graph?.batches
+                    ? {
+                        batches: graph.batches.map((batch) => ({
+                            phase: batch.phase,
+                            url: batch.url,
+                            rev: batch.rev,
+                            entries: [...batch.entries],
+                        })),
+                    }
+                    : {},
             };
             sendJson(res, 200, body);
             return;
@@ -1097,7 +1120,7 @@ export function apply(ctx) {
             }
             const agent = await ensureLive(sessionId);
             applyPermission(agent.session, body.preset);
-            const select = permissionSelect(agent.session.events);
+            const select = permissionSelect(agent.session.snapshotEvents());
             if (!select) {
                 sendError(res, 404, '当前环境没有权限预设');
                 return;
@@ -1116,7 +1139,7 @@ export function apply(ctx) {
                 return;
             }
             const agent = await ensureLive(sessionId);
-            if (!sessionBlank(agent.session.events)) {
+            if (!sessionBlank(agent.session.snapshotEvents())) {
                 sendError(res, 409, '会话已经开始，无法更换 Agent 模式');
                 return;
             }
@@ -1210,10 +1233,17 @@ export function apply(ctx) {
         kind: 'prefix',
         path: '/camind/api',
         handler: async (req, res) => {
+            // 0.1.7 起官方 Web 有浏览器 token/cookie 门禁；自定义 API 同一口径。
+            const rejection = ctx.connection.requestRejection({ headers: req.headers });
+            if (rejection !== undefined) {
+                sendError(res, rejection, rejection === 401 ? '未登录' : '拒绝访问');
+                return;
+            }
             try {
                 await handleApi(req, res, parseUrl(req));
             }
             catch (err) {
+                console.error('[ui-shell] api error:', err);
                 if (!res.headersSent)
                     sendError(res, 500, err instanceof Error ? err.message : String(err));
                 else
@@ -1230,6 +1260,11 @@ export function apply(ctx) {
                 res.end();
                 return;
             }
+            const rejection = ctx.connection.requestRejection({ headers: req.headers });
+            if (rejection !== undefined) {
+                sendError(res, rejection, rejection === 401 ? '未登录' : '拒绝访问');
+                return;
+            }
             serveSpa(res, parseUrl(req).pathname, ctx.clientModules.graph());
         },
     });
@@ -1237,10 +1272,14 @@ export function apply(ctx) {
     // 访问 / 时 302 到 /camind/（302 而非 301，随时可撤销）。0.1.1 起官方
     // 前端的 fallback 只在 dist 根与 /index.html 提供入口（任意路径不再
     // 回退 SPA），官方 UI 无 URL 路由逻辑，/web 精确路由 302 到 /index.html。
+    // 0.1.7 起官方在 /?token= 上铸登录 cookie（authorizeIndex 持有响应）：
+    // 先委托官方鉴权，已认证才由我们 302，未认证由官方 401 或 mint+303。
     ctx.webServer.register({
         kind: 'exact',
         path: '/',
         handler: (req, res) => {
+            if (!ctx.connection.authorizeIndex(req, res))
+                return;
             res.writeHead(302, { Location: '/camind/' });
             res.end();
         },

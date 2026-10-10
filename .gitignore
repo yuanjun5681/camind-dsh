@@ -14,8 +14,9 @@
 
 # 依赖与构建产物
 node_modules/
-desktop/vendor/
-desktop/dist/
 
 # cam_deliver 镜像进会话工作区的交付物（工作区恰为仓库根时兜底）
 /delivery/
+# tsc 误跑产生的编译残留（ui-shell web 由 vite 构建，ui-sidebar 由 ui-shell vite 打包；源码目录不应有 .js）
+ui-sidebar/src/**/*.js
+ui-shell/vendor/**/src/**/*.js

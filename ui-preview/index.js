@@ -98,8 +98,13 @@ export function apply(ctx) {
     const live = ctx.agents.get(sessionId)?.session ?? ctx.sessions.get(sessionId)
     if (live?.header.cwd) return live.header.cwd
     if (persist) {
-      const inspection = await persist.inspect(sessionId)
-      if (inspection.meta.cwd) return inspection.meta.cwd
+      // 0.2.0：inspect 删除，冷读 cwd = open('read') 句柄读 header 后关闭。
+      const handle = await persist.open(sessionId, 'read')
+      try {
+        if (handle.header.cwd) return handle.header.cwd
+      } finally {
+        await handle.close()
+      }
     }
     throw previewError('FilePreviewInvalidError', '当前会话没有工作目录')
   }
@@ -178,6 +183,12 @@ export function apply(ctx) {
     kind: 'prefix',
     path: ROUTE_PREFIX,
     handler: async (req, res) => {
+      // 0.1.7 起官方 Web 有浏览器门禁；本路由读会话工作区文件，同一口径。
+      const rejection = ctx.get('connection')?.requestRejection({ headers: req.headers })
+      if (rejection !== undefined) {
+        sendError(res, rejection, rejection === 401 ? '未登录' : '拒绝访问')
+        return
+      }
       if (req.method !== 'GET') {
         sendError(res, 405, '仅支持 GET。')
         return

@@ -3,8 +3,8 @@
 // cam_plan v1 工序单校验/绑定/落盘 + cam_run 远程执行[后台 job + 断点续跑 +
 // 最小自检] + cam_deliver 交付打包[NC 回收对账 + 交付报告 + 加工设定单 +
 // 交付三件套镜像进会话工作区] + tools/pre-execute 高风险声明/交付签字硬闸门）。
-// Host 半：camPipeline Cordis 服务（lib/pipeline.js）+ settings namespace
-// `cam-nx`（照官方 dsh-web-search-deepseek 双件套，热更新）+ web 下的
+// Host 半：camPipeline Cordis 服务（lib/pipeline.js）+ 条目 config（0.2.0 起
+// 即设置面：baseURL/tokenEnv/token，Plugins 页可编辑）+ web 下的
 // POST /camind/api/cam/ping（设置卡片「测试连接」用）与只读路由
 // GET /camind/api/cam/runs（lib/runs-route.js：?session= 列表 + <session>/<runId>
 // 详情，数据源 = run 目录落盘，供 ui-shell 工作台「加工」页签；<session>/<runId>/
@@ -27,7 +27,6 @@
 // 翻面验证/特征核对、2D 图纸解析、刀路查看器本体属后续迭代（设计稿 §4）。
 
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 import { createCamPipeline, DEFAULT_TOKEN_ENV } from './lib/pipeline.js'
 import { registerCamGate } from './lib/gate.js'
@@ -42,26 +41,31 @@ export const inject = ['credentials', 'tools', 'uploads', 'machineRegistry']
 
 // 双字段形态对齐官方模板：tokenEnv 是凭据引用（界面写 .credentials.yaml），
 // token 是组合层直存（role('secret')，describe 时被结构性剥离）。
+// 0.2.0 起 settings 即插件条目 config：本 Config 由 SettingsForms 按条目 id
+// （tool-cam）服务，值落在 profile patch 的条目 config 里；volatile 字段在
+// 界面保存后原地热更（cordis updateVolatile），不重建 fiber。
 export const Config = z.object({
-  baseURL: z.string().default(''),
-  tokenEnv: z.string().role('credential-ref').default(DEFAULT_TOKEN_ENV),
-  token: z.string().role('secret'),
+  baseURL: z.string().default('').volatile(),
+  tokenEnv: z.string().role('credential-ref').default(DEFAULT_TOKEN_ENV).volatile(),
+  token: z.string().role('secret').volatile(),
 })
-
-const SETTINGS_NS = settingsNamespace('cam-nx')
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
 }
 
+// volatile 字段在解析后的 config 里是 cosmokit cell（.get() 读活值）；
+// 非 volatile 兼容普通值。pipeline 每次调用经这里取当前快照。
+function cellValue(value) {
+  return value && typeof value.get === 'function' ? value.get() : value
+}
+
 export function apply(ctx, config) {
-  let current = () => config
-  installSettingsSection(ctx, SETTINGS_NS, Config, config, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: () => {},
+  const current = () => ({
+    baseURL: cellValue(config.baseURL),
+    tokenEnv: cellValue(config.tokenEnv),
+    token: cellValue(config.token),
   })
 
   const camPipeline = createCamPipeline(ctx, () => current())
@@ -81,6 +85,9 @@ export function apply(ctx, config) {
         kind: 'exact',
         path: '/camind/api/cam/ping',
         handler: async (req, res) => {
+          // 0.1.7 起官方 Web 有浏览器门禁；本路由回显连接信息，同一口径。
+          const rejection = routeCtx.get('connection')?.requestRejection({ headers: req.headers })
+          if (rejection !== undefined) return sendJson(res, rejection, { ok: false, message: rejection === 401 ? '未登录' : '拒绝访问' })
           if (req.method !== 'POST') return sendJson(res, 405, { ok: false, message: '仅支持 POST。' })
           const result = await camPipeline.ping()
           const { baseURL } = await camPipeline.connectionInfo()
@@ -100,13 +107,18 @@ export function apply(ctx, config) {
       })
       // run 只读查询 + 交付下载（列表/详情数据源是 run 目录落盘；delivery 子路径
       // 委托 delivery-route.js），严格防越界见 runs-route.js / delivery-route.js。
+      const runsHandler = createRunsRouteHandler()
       routeCtx.webServer.register({
         kind: 'prefix',
         path: '/camind/api/cam/runs',
-        handler: createRunsRouteHandler(),
+        handler: (req, res) => {
+          const rejection = routeCtx.get('connection')?.requestRejection({ headers: req.headers })
+          if (rejection !== undefined) return sendJson(res, rejection, { ok: false, message: rejection === 401 ? '未登录' : '拒绝访问' })
+          return runsHandler(req, res)
+        },
       })
     },
   })
 
-  console.log('[tool-cam] loaded；registered: camPipeline 服务（connectionInfo/ping/call/run/uploadFile/zipDir/downloadFile/listDir/stat/ensureReady/windowsPath）、settings namespace cam-nx、工具 cam_survey, cam_plan, cam_run, cam_deliver、cam_run/cam_deliver 硬闸门、web 路由 /camind/api/cam/ping 与 /camind/api/cam/runs（run 列表/详情 + 交付下载）')
+  console.log('[tool-cam] loaded；registered: camPipeline 服务（connectionInfo/ping/call/run/uploadFile/zipDir/downloadFile/listDir/stat/ensureReady/windowsPath）、条目 config（baseURL/tokenEnv/token）、工具 cam_survey, cam_plan, cam_run, cam_deliver、cam_run/cam_deliver 硬闸门、web 路由 /camind/api/cam/ping 与 /camind/api/cam/runs（run 列表/详情 + 交付下载）')
 }

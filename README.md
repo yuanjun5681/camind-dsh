@@ -10,7 +10,6 @@ dsh 本体通过 `npx` 从 npm 运行（`@deepseek-ai/dsh`），不需要克隆�
 ```
 .dsh/             dsh 数据目录（DSH_HOME，已 gitignore，`npm run init` 重建）：profiles、会话、设置、上传批次
   profiles/       两个 profile：headless / web，各自声明要组合的 bundle
-  .agent-presets/ 运行时 AgentPreset（用户自建）
   skills/         symlink -> ../skills（DSH_HOME 级发现，任何工作区的会话都能加载）
   uploads/        所有模式共用的会话隔离上传批次（<session>/<batch>/）
   memory/         OKF 记忆库 bundle（knowledge/ + experience/），DSH_HOME 级共享
@@ -24,7 +23,6 @@ ui-foundation/    Web UI 基础层：Camind 语义 token + 跨页面公共组件
 ui-sidebar/       /camind 专用的官方 Sidebar 兼容实现，增加品牌与一级菜单 slot
 ui-brand/         品牌插件：CAM 虎钳工匠 mascot + 字标，注册到 sidebar.brand.mark/name 席位
 ui-home/          新会话首页定制（/）：Camind 品牌区 + 紧随其下的示例卡片，与官方输入卡合成一个整体居中组；示例经不可见的 inputActions 桥（conversation.input.dock）写官方草稿
-desktop/          Electron 桌面壳：spawn `dsh web` 并加载自定义 UI（/camind/）；`npm start` 开发运行，`npm run dist` 打包 .app/.dmg
 docs/             项目专题文档（UI 架构、记忆库设计、dsh 升级）+ 指向上游官方文档的 README
 docs/dsh-topology.svg  dsh 架构拓扑图
 ```
@@ -111,26 +109,6 @@ vendor 源码快照（`ui-shell/vendor/`）与 ui-sidebar 上游基线需要人�
 - profile 里的内置 bundle（`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-headless` 等）始终从正在运行的 dsh 安装自身解析，随 dsh 一起升级，profile 无需改动。
 - 通过 `link:` 挂载的本地插件（如本工作区的 tool-memory、ui-shell）与 dsh 版本解耦，不受影响。
 - dsh 处于 developer preview，**不保证磁盘格式兼容**：升级后旧版写入的会话日志等数据可能被新版直接拒绝打开（见上游文档 `docs/subsystems/persistence.md`）。升级后可用 `--dump-config` 快速验证组合是否正常。
-
-## 打包桌面客户端
-
-`desktop/` 是一个 Electron 壳：启动时自动选一个空闲端口 spawn `dsh web`，在窗口里加载其 Web UI；关掉窗口即退出并回收 dsh 子进程。
-
-```sh
-cd desktop
-npm install
-npm start        # 开发模式：npx 跑 dsh，DSH_HOME 复用 Camind 项目根的 .dsh（本项目插件直接生效）
-npm run dist     # 打包：先 prepare-vendor 再 electron-builder，产物在 desktop/dist/（.app/.dmg/.zip）
-```
-
-打包版完全自包含，用户机器无需安装 Node：dsh 由 Electron 内嵌的 Node 24 直接运行，`desktop/scripts/prepare-vendor.mjs` 负责安装 `@deepseek-ai/dsh` 本体，把本工作区插件从 `link:` 引用实体化，并把 skills 复制进种子 DSH_HOME（`desktop/vendor/dsh-home/`）。首次启动时种子释放到 `~/Library/Application Support/Camind/dsh-home`（删除该目录即重置；设 `DSH_HOME` 环境变量可覆盖默认位置）。
-
-两个实现要点（改动 `desktop/` 前先读）：
-
-- **子进程必须传 `--expose-internals`**。dsh 的插件加载器要拿到 Node 内部 ESM loader 才能按 profile 目录解析插件包名；常规 Node 下由 `node-addon-require-builtin` 旁路提供，Electron 的 Node 下该旁路不可用，只能靠这个 flag（见 `desktop/main.js`）。
-- **extraResources 必须从 `vendor/` 整体拷贝**（`from: vendor, to: .`）。electron-builder 会静默剥掉拷贝源目录根级的 `node_modules`，嵌套层级的不受影响；直接以 `vendor/dsh` 为源会丢光依赖。
-
-其他：升级 dsh 时修改根目录 `dsh-version.json`、运行 `npm run sync:dsh-version` 后重新 `npm run dist`；构建配置未签名（`identity: null`），本机直接用没问题，分发到其他 Mac 首次打开需右键 → 打开，正式分发要配开发者证书；目前只配置了 mac 目标，Windows/Linux 在 `desktop/package.json` 的 `build` 里加 target 即可。
 
 ## 编写自己的插件
 

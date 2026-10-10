@@ -15,14 +15,14 @@ var module = { exports: {} }; var exports = module.exports;
 const React = require('react')
 const { createElement: h, useEffect, useRef, useState } = React
 const {
-  IconCheckOutline16,
-  IconChevronLeftOutline14,
-  IconChevronRightOutline14,
-  IconEditOutline16,
-  IconRefreshOutline14,
-  IconThinkOutline16,
-  IconTrashOutline16,
-  IconWarningOutline16,
+  IconCheckOutlineRegular,
+  IconChevronLeftOutlineRegular,
+  IconChevronRightOutlineRegular,
+  IconEditOutlineRegular,
+  IconRefreshOutlineRegular,
+  IconThinkOutlineRegular,
+  IconTrashOutlineRegular,
+  IconWarningOutlineRegular,
 } = require('@deepseek-ai/dsh-client-ui-primitives')
 const {
   Badge,
@@ -231,7 +231,7 @@ function KnowledgeCard({ entry, navigate }) {
       h('span', { className: 'pmm-card-title' }, entry.title),
       pending ? h(Badge, { tone: 'warn' }, '生成中') : null,
       failed ? h(Badge, { tone: 'error' }, '生成失败') : null,
-      h('span', { className: 'pmm-card-chevron' }, h(IconChevronRightOutline14, { size: 14 }))),
+      h('span', { className: 'pmm-card-chevron' }, h(IconChevronRightOutlineRegular, { size: 14 }))),
     h('p', { className: 'pmm-card-name' },
       h('span', { className: 'name' }, entry.name),
       h('span', { className: 'time' }, relativeTime(entry.updated_at))),
@@ -256,7 +256,7 @@ function ExperienceCard({ entry, navigate }) {
       h('span', { className: 'pmm-card-title' }, entry.title),
       pending ? h(Badge, { tone: 'warn' }, '生成中') : null,
       failed ? h(Badge, { tone: 'error' }, '生成失败') : null,
-      h('span', { className: 'pmm-card-chevron' }, h(IconChevronRightOutline14, { size: 14 }))),
+      h('span', { className: 'pmm-card-chevron' }, h(IconChevronRightOutlineRegular, { size: 14 }))),
     h('p', { className: 'pmm-card-name' },
       h('span', { className: 'name' }, entry.name),
       h('span', { className: 'time' }, relativeTime(entry.updated_at))),
@@ -373,7 +373,7 @@ function LibraryPage({ navigate, tab }) {
           }),
           h(Button, { variant: 'outline', size: 'sm', disabled: uploading, onClick: () => fileRef.current?.click() },
             uploading ? '上传中…' : '上传')) : null,
-        h(IconButton, { label: '刷新', icon: h(IconRefreshOutline14, { size: 14 }), onClick: refresh })),
+        h(IconButton, { label: '刷新', icon: h(IconRefreshOutlineRegular, { size: 14 }), onClick: refresh })),
       h(Tabs, {
         value: tab,
         ariaLabel: '记忆库类型',
@@ -517,7 +517,7 @@ function DetailPage({ navigate, type, name }) {
   return h('section', { className: 'pmm-page2', 'data-page-memory': '' },
     h('div', { className: 'pmm-dhead' },
       h('div', { className: 'pmm-dhead-row' },
-        h(IconButton, { label: '返回列表', icon: h(IconChevronLeftOutline14, { size: 14 }), onClick: () => navigate(listPath) }),
+        h(IconButton, { label: '返回列表', icon: h(IconChevronLeftOutlineRegular, { size: 14 }), onClick: () => navigate(listPath) }),
         h('h1', { className: 'pmm-dhead-name' }, name),
         type === 'knowledge'
           ? h(Badge, { tone: CATEGORY_TONES[summary.category] ?? null }, CATEGORY_LABELS[summary.category] ?? summary.category)
@@ -525,13 +525,13 @@ function DetailPage({ navigate, type, name }) {
         metadataBadge,
         h('span', { className: 'pmm-dhead-flex' }),
         type === 'experience' && summary.status !== 'stable'
-          ? h(Button, { variant: 'outline', size: 'sm', icon: h(IconCheckOutline16, { size: 14 }), disabled: acting, onClick: doPromote }, '采纳')
+          ? h(Button, { variant: 'outline', size: 'sm', icon: h(IconCheckOutlineRegular, { size: 14 }), disabled: acting, onClick: doPromote }, '采纳')
           : null,
         type === 'experience' && summary.status !== 'deprecated'
           ? h(Button, { variant: 'outline', size: 'sm', disabled: acting, onClick: doDeprecate }, '弃用')
           : null,
-        h(Button, { variant: 'outline', size: 'sm', icon: h(IconEditOutline16, { size: 14 }), onClick: () => setEditing(true) }, '编辑'),
-        h(Button, { variant: 'outline', size: 'sm', className: 'pmm-danger-action', icon: h(IconTrashOutline16, { size: 14 }), disabled: acting, onClick: doDelete }, '删除'))),
+        h(Button, { variant: 'outline', size: 'sm', icon: h(IconEditOutlineRegular, { size: 14 }), onClick: () => setEditing(true) }, '编辑'),
+        h(Button, { variant: 'outline', size: 'sm', className: 'pmm-danger-action', icon: h(IconTrashOutlineRegular, { size: 14 }), disabled: acting, onClick: doDelete }, '删除'))),
     h('div', { className: 'pmm-dbody cui-scroll' },
       h('div', { className: 'pmm-dbody-inner' },
         pending
@@ -540,7 +540,7 @@ function DetailPage({ navigate, type, name }) {
             : '元数据（标题 / 描述 / 标签）正在由 AI 自动生成，数秒后自动刷新。')
           : null,
         summary.metadata_status === 'failed'
-          ? h('div', { className: 'pmm-banner error' }, h(IconWarningOutline16, { size: 14 }), '元数据自动生成失败。可点「编辑」手动填写，保存即生效。')
+          ? h('div', { className: 'pmm-banner error' }, h(IconWarningOutlineRegular, { size: 14 }), '元数据自动生成失败。可点「编辑」手动填写，保存即生效。')
           : null,
         h('h2', { className: 'pmm-doc-title' }, fm.title ?? name),
         fm.description ? h('p', { className: 'pmm-doc-desc' }, fm.description) : null,
@@ -630,7 +630,7 @@ function MemoryMenuItem({ wide, pathname, navigate }) {
     return h(SidebarAction, {
       wide,
       active,
-      icon: h(IconThinkOutline16, { size: wide ? 16 : 18 }),
+      icon: h(IconThinkOutlineRegular, { size: wide ? 16 : 18 }),
       label: '记忆库',
       onClick: open,
     })
@@ -648,7 +648,7 @@ function MemoryMenuItem({ wide, pathname, navigate }) {
       if (!active) event.currentTarget.style.background = 'transparent'
     },
   },
-  h(IconThinkOutline16, { size: wide ? 16 : 18 }),
+  h(IconThinkOutlineRegular, { size: wide ? 16 : 18 }),
   wide ? h('span', { style: menuStyles.label }, '记忆库') : null)
 
   return h(Tooltip, { label: '记忆库', delayMs: 500, disabled: wide }, button)

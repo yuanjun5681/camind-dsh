@@ -1,15 +1,15 @@
 // camind-tool-cam browser bundle — hand-written, no build step.
-// One keyed `settings.plugin.item` card (key `cam-nx`) rendered by the official
-// configurable-plugins tab (dsh-client-ui-settings-plugins): NX workbench
-// (CAM-Agent proxy) connection settings. The baseURL field rides the
-// `cam-nx` settings namespace via settingsScope; the token is write-only and
-// goes through the credentials wire API, addressed by the reference the
-// section names (default CAMIND_NX_AGENT_TOKEN) — its literal never crosses
-// the wire back. The "test connection" button calls the plugin's Host route
-// POST /camind/api/cam/ping (the browser cannot call the proxy directly:
-// CORS, and the token must stay Host-side). Only platform seed modules may
-// be required. UI copy is hardcoded Chinese, matching the workspace's
-// model-facing language convention.
+// One `plugins.bundle.config` card (key `camind-tool-cam`, rendered on the bundle's
+// detail page while the Host serves the `tool-cam` entry config form) on the
+// official Plugins page (dsh-client-ui-plugin-manager): NX workbench (CAM-Agent
+// proxy) connection settings. The baseURL field rides the `tool-cam` entry config
+// via configForms; the token is write-only and goes
+// through the credentials remote domain, addressed by the reference the section
+// names (default CAMIND_NX_AGENT_TOKEN) — its literal never crosses the wire back.
+// The "test connection" button calls the plugin's Host route POST /camind/api/cam/ping
+// (the browser cannot call the proxy directly: CORS, and the token must stay
+// Host-side). Only platform seed modules may be required. UI copy is hardcoded
+// Chinese, matching the workspace's model-facing language convention.
 //
 // 会话卡片已退役（2026-08-26）：cam/stage、cam/check-report、cam/delivered
 // 三个会话事件及其 keyed `conversation.chat.node` 渲染器曾在此实现，但
@@ -27,10 +27,14 @@ var module = { exports: {} }; var exports = module.exports;
 
 const React = require('react')
 const { createElement: h, useState } = React
-const { Button, IconChevronDownOutline14, Input } = require('@deepseek-ai/dsh-client-ui-primitives')
-const { createSnapshotStore } = require('@deepseek-ai/dsh-client-runtime/client')
+const { Button, IconApiOutlineRegular, Input } = require('@deepseek-ai/dsh-client-ui-primitives')
+const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store')
+const { Page, PageBody, PageHeader, SidebarAction } = require('camind-ui-foundation')
 
-const NS = 'cam-nx'
+const NS = 'tool-cam'
+const BUNDLE_NAME = 'camind-tool-cam'
+// 独立配置页路由（ui-shell 的 shell.content chain）；底部菜单项点此进。
+const PAGE_ROUTE = '/pages/cam-nx'
 const BASE_URL_FIELD = 'baseURL'
 const TOKEN_FIELD = 'token'
 const DEFAULT_TOKEN_REF = 'CAMIND_NX_AGENT_TOKEN'
@@ -39,6 +43,8 @@ const PING_API = '/camind/api/cam/ping'
 // --- stylesheet ------------------------------------------------------------------
 
 const cardCss = `
+/* 0.2.0：卡片镀铬由官方插件页提供，这里只保留表单域样式；camnx-page 是详情页根。 */
+.camnx-page .camnx-body { border-top: 0; margin: 0; }
 .camnx-card {
   list-style: none; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
   background: var(--dsw-alias-bg-layer-3);
@@ -100,10 +106,12 @@ const cardCss = `
 // Staged form over the `cam-nx` namespace plus the credentials domain, in the
 // shape of the official WebSearchCardController: staged text writes only on
 // save; the token is the one control living outside the section (write-only).
+// 0.2.0: the namespace scope comes from ctx.configForms.get(NS) (writes are
+// revision-fenced mutate ops), credentials ride ctx.remote.credentials.
 class CamNxCardController {
-  constructor(scope, api) {
+  constructor(scope, ctx) {
     this.scope = scope
-    this.api = api
+    this.ctx = ctx
     this.staged = new Map()
     this.saving = false
     this.failed = false
@@ -152,13 +160,13 @@ class CamNxCardController {
       if (trimmed === '') {
         if (this.stored(field)) {
           writes.push(async () => {
-            await this.scope.unset(field)
+            await this.scope.mutate([{ op: 'unset', path: [field] }])
             return !this.stored(field)
           })
         }
       } else {
         writes.push(async () => {
-          await this.scope.set(field, trimmed)
+          await this.scope.mutate([{ op: 'set', path: [field], value: trimmed }])
           return this.scope.getSnapshot().user?.[field] === trimmed
         })
       }
@@ -233,12 +241,12 @@ class CamNxCardController {
     }
     let response
     try {
-      response = await this.api.credentials.describe({ refs: [ref] })
+      response = await this.ctx.remote.credentials.describe([ref])
     } catch {
       return
     }
-    if (!response.result.ok || ref !== this.refOf()) return
-    const view = response.result.value.credentials[ref]
+    if (!response.ok || ref !== this.refOf()) return
+    const view = response.value[ref]
     const next = { ref, configured: view?.configured ?? false, writable: view?.writable ?? true }
     if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
     this.credential = next
@@ -253,7 +261,7 @@ class CamNxCardController {
 
   async writeToken(value) {
     try {
-      await this.api.credentials.set({ ref: this.refOf(), value })
+      await this.ctx.remote.credentials.set(this.refOf(), value)
     } catch {
       return false
     }
@@ -276,9 +284,6 @@ function Field({ label, badge, hint, children }) {
 function CamNxCard(props) {
   const state = props.useCamNxCard((snapshot) => snapshot)
   const [test, setTest] = useState({ phase: 'idle', message: '' })
-  // Disclosure is card-local state, matching the official PluginCard: staged
-  // edits outlive collapsing, so the header marks a card holding unsaved edits.
-  const [open, setOpen] = useState(false)
   if (!state.available) return null
   const disabled = !state.writable
 
@@ -293,20 +298,12 @@ function CamNxCard(props) {
     }
   }
 
-  return h('li', { className: open ? 'camnx-card camnx-card-open' : 'camnx-card' },
-    h('button', {
-      type: 'button',
-      className: 'camnx-header',
-      'aria-expanded': open,
-      'aria-label': `${open ? '收起设置' : '展开设置'}：NX 工作台`,
-      onClick: () => setOpen(!open),
-    },
-      h('span', { className: 'camnx-headtext' },
-        h('span', { className: 'camnx-name' }, 'NX 工作台'),
-        h('span', { className: 'camnx-desc' }, 'CAM-Agent proxy（Windows 侧 NX 远程执行）的连接配置。')),
-      state.dirty ? h('span', { className: 'camnx-pending' }, '未保存') : null,
-      h(IconChevronDownOutline14, { className: open ? 'camnx-chevron camnx-chevron-open' : 'camnx-chevron' })),
-    open ? h('div', { className: 'camnx-body' },
+  // plugins.bundle.config 只会以 'page' 渲染（bundle 详情页拥有自己的标题）；
+  // 防御其他 view 时不画任何东西。
+  if (props.view !== undefined && props.view !== 'page') return null
+
+  return h('div', { className: 'camnx-page' },
+    h('div', { className: 'camnx-body' },
       disabled ? h('p', { className: 'camnx-readonly', role: 'status' }, '本部署的设置为只读。') : null,
       h(Field, {
         label: '连接地址',
@@ -349,7 +346,49 @@ function CamNxCard(props) {
         state.failed ? h('p', { className: 'camnx-failed', role: 'status' }, '保存失败：本部署没有接受这些值，已保留供你修改。') : null,
         h(Button, { variant: 'ghost', size: 'sm', disabled: !state.dirty || state.saving, onClick: props.discard }, '放弃修改'),
         h(Button, { variant: 'primary', size: 'sm', disabled: !state.dirty || state.saving, onClick: props.save },
-          state.saving ? '保存中…' : '保存'))) : null)
+          state.saving ? '保存中…' : '保存'))))
+}
+
+// --- standalone config page（底部菜单「NX 工作台」→ /camind/pages/cam-nx） -------------
+
+// /camind 壳的 footer.action owner props 带 { wide, pathname, navigate }（本地扩展）；
+// 官方 /web 壳只给 { wide }，点击降级为整页跳转 /camind 页面。
+function CamNxMenuItem({ wide, pathname, navigate }) {
+  const active = typeof pathname === 'string' && pathname === PAGE_ROUTE
+  const open = () => {
+    if (typeof navigate === 'function') navigate(PAGE_ROUTE)
+    else location.assign('/camind' + PAGE_ROUTE)
+  }
+  if (typeof navigate === 'function') {
+    return h(SidebarAction, {
+      wide,
+      active,
+      icon: h(IconApiOutlineRegular, { size: wide ? 16 : 18 }),
+      label: 'NX 工作台',
+      onClick: open,
+    })
+  }
+  return h('button', {
+    type: 'button',
+    'aria-label': '打开 NX 工作台配置页',
+    'aria-current': active ? 'page' : undefined,
+    style: {
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: 36, height: 36, borderRadius: 10, border: 0, cursor: 'pointer',
+      background: 'transparent', color: 'var(--dsw-alias-label-secondary)',
+    },
+    onClick: open,
+  }, h(IconApiOutlineRegular, { size: 18 }))
+}
+
+function CamNxPage(props) {
+  return h(Page, null,
+    h(PageHeader, {
+      title: 'NX 工作台',
+      description: 'CAM-Agent proxy（Windows 侧 NX 远程执行）的连接配置。',
+      icon: h(IconApiOutlineRegular, { size: 20 }),
+    }),
+    h(PageBody, { scroll: true }, h('div', { style: { maxWidth: 640 } }, h(CamNxCard, { ...props, view: 'page' }))))
 }
 
 // --- registration ----------------------------------------------------------------------
@@ -363,22 +402,41 @@ function apply(ctx) {
     return () => { style.remove() }
   }, 'tool-cam: settings stylesheet')
 
-  const { api } = ctx.get('connection')
-  const controller = new CamNxCardController(ctx.settingsScope.bind({ namespace: NS }), api)
+  const controller = new CamNxCardController(ctx.configForms.get(NS), ctx)
   ctx.effect(
     () => ctx.remote.$on('credentials/reference-updated', (ref) => controller.refreshCredential(ref)),
     'tool-cam: credential invalidations',
   )
-  ctx.slots.inject('settings.plugin.item', () =>
+  // 0.2.0 起设置 = 插件条目 config；本卡注册到官方插件页「插件」里本 bundle
+  // 的详情页（plugins.bundle.config，key = 包名，仅 view 'page'）。旧的
+  //  settings.plugin.item keyed 席位随 Settings 插件页退役。
+  ctx.effect(() => ctx.configForms.whileServed([NS], () => ctx.slots.inject('plugins.bundle.config', () =>
     ctx.slots.register({
-      name: 'settings.plugin.item',
-      key: NS,
+      name: 'plugins.bundle.config',
+      key: BUNDLE_NAME,
       inject: () => controller.inject(),
-    }, CamNxCard))
+    }, CamNxCard))), 'tool-cam: plugins page card')
+
+  // 独立入口：侧栏底部菜单 + 自有页面（设置面板在 0.2.0 不再收插件配置）。
+  ctx.slots.inject('sidebar.footer.action', () =>
+    ctx.slots.register({
+      name: 'sidebar.footer.action',
+      id: 'cam-nx-page',
+      order: 30,
+      label: 'NX 工作台',
+    }, CamNxMenuItem))
+
+  ctx.slots.inject('shell.content', () =>
+    ctx.slots.register({
+      name: 'shell.content',
+      priority: 100,
+      select: ({ pathname }) => (pathname === PAGE_ROUTE ? {} : null),
+      inject: () => controller.inject(),
+    }, CamNxPage))
 }
 
 exports.name = 'tool-cam-client'
-exports.inject = ['slots', 'connection', 'remote', 'settingsScope']
+exports.inject = ['slots', 'remote', 'remote.credentials', 'configForms']
 exports.apply = apply
 
 return module.exports; } });
