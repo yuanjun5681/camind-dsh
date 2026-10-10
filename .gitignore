@@ -16,3 +16,6 @@
 node_modules/
 desktop/vendor/
 desktop/dist/
+
+# cam_deliver 镜像进会话工作区的交付物（工作区恰为仓库根时兜底）
+/delivery/

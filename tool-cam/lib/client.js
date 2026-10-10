@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({ id: "camind-tool-cam", factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
 
 const React = require('react')
-const { createElement: h } = React
+const { createElement: h, useState } = React
 const { Button, IconChevronDownOutline14, Input } = require('@deepseek-ai/dsh-client-ui-primitives')
 const { createSnapshotStore } = require('@deepseek-ai/dsh-client-runtime/client')
 
