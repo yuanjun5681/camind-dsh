@@ -29,12 +29,12 @@ const React = require('react')
 const { createElement: h, useState } = React
 const { Button, IconApiOutlineRegular, Input } = require('@deepseek-ai/dsh-client-ui-primitives')
 const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store')
-const { Page, PageBody, PageHeader, SidebarAction } = require('camind-ui-foundation')
+const { SidebarAction } = require('camind-ui-foundation')
 
 const NS = 'tool-cam'
 const BUNDLE_NAME = 'camind-tool-cam'
-// 独立配置页路由（ui-shell 的 shell.content chain）；底部菜单项点此进。
-const PAGE_ROUTE = '/pages/cam-nx'
+// apply 的 ctx 存模块级：菜单项点击时要够到 slots 内部面（见 openNxSettings）。
+let applyCtx = null
 const BASE_URL_FIELD = 'baseURL'
 const TOKEN_FIELD = 'token'
 const DEFAULT_TOKEN_REF = 'CAMIND_NX_AGENT_TOKEN'
@@ -349,51 +349,40 @@ function CamNxCard(props) {
           state.saving ? '保存中…' : '保存'))))
 }
 
-// --- standalone config page（底部菜单「NX 工作台」→ /camind/pages/cam-nx） -------------
+// --- settings section + sidebar entry -----------------------------------------------------
 
-// /camind 壳的 footer.action owner props 带 { wide, pathname, navigate }（本地扩展）；
-// 官方 /web 壳只给 { wide }，点击降级为整页跳转 /camind 页面。
-function CamNxMenuItem({ wide, pathname, navigate }) {
-  const active = typeof pathname === 'string' && pathname === PAGE_ROUTE
-  const open = () => {
-    if (typeof navigate === 'function') navigate(PAGE_ROUTE)
-    else location.assign('/camind' + PAGE_ROUTE)
-  }
-  if (typeof navigate === 'function') {
-    return h(SidebarAction, {
-      wide,
-      active,
-      icon: h(IconApiOutlineRegular, { size: wide ? 16 : 18 }),
-      label: 'NX 工作台',
-      onClick: open,
-    })
-  }
-  return h('button', {
-    type: 'button',
-    'aria-label': '打开 NX 工作台配置页',
-    'aria-current': active ? 'page' : undefined,
-    style: {
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 36, height: 36, borderRadius: 10, border: 0, cursor: 'pointer',
-      background: 'transparent', color: 'var(--dsw-alias-label-secondary)',
-    },
-    onClick: open,
-  }, h(IconApiOutlineRegular, { size: 18 }))
+// 「NX 工作台」是官方设置面板里的一节（settings.section id cam-nx）。侧栏底部菜单项
+// 直接打开该节：面板的开合与选节在官方 settings shell store（挂在 sidebar.settings
+// 条目上，root scope），经 slots 内部 hostFace().storeOf 触达——与 ui-preview 的切页
+// 同一类非公开面，防御式降级（失败只在 console 留痕，菜单项还在）。
+// 两个壳通用：/camind 与官方 /web 的设置面板是同一注册。
+function openNxSettings(ctx) {
+  try {
+    const entry = ctx.slots.entriesOfSlot('sidebar.settings')[0]
+    const store = entry && ctx.slots.hostFace().storeOf(entry, undefined)
+    if (store?.actions?.openSection) {
+      store.actions.openSection('cam-nx')
+      return true
+    }
+  } catch { /* fall through */ }
+  console.warn('[tool-cam] 打开设置面板失败：settings shell store 不可达')
+  return false
 }
 
-function CamNxPage(props) {
-  return h(Page, null,
-    h(PageHeader, {
-      title: 'NX 工作台',
-      description: 'CAM-Agent proxy（Windows 侧 NX 远程执行）的连接配置。',
-      icon: h(IconApiOutlineRegular, { size: 20 }),
-    }),
-    h(PageBody, { scroll: true }, h('div', { style: { maxWidth: 640 } }, h(CamNxCard, { ...props, view: 'page' }))))
+function CamNxMenuItem({ wide }) {
+  return h(SidebarAction, {
+    wide,
+    active: false,
+    icon: h(IconApiOutlineRegular, { size: wide ? 16 : 18 }),
+    label: 'NX 工作台',
+    onClick: () => { openNxSettings(applyCtx) },
+  })
 }
 
 // --- registration ----------------------------------------------------------------------
 
 function apply(ctx) {
+  applyCtx = ctx
   ctx.effect(() => {
     const style = document.createElement('style')
     style.setAttribute('data-camind-tool-cam-settings', '')
@@ -417,7 +406,17 @@ function apply(ctx) {
       inject: () => controller.inject(),
     }, CamNxCard))), 'tool-cam: plugins page card')
 
-  // 独立入口：侧栏底部菜单 + 自有页面（设置面板在 0.2.0 不再收插件配置）。
+  // 配置页本体：官方设置面板的一节（0.2.0 的 settings.section 席位；账户/通用/
+  // 模型/插件同席）。入口：设置面板左侧导航，或侧栏底部菜单「NX 工作台」直达。
+  ctx.effect(() => ctx.configForms.whileServed([NS], () => ctx.slots.inject('settings.section', () =>
+    ctx.slots.register({
+      name: 'settings.section',
+      id: 'cam-nx',
+      order: 30,
+      label: 'NX 工作台',
+      inject: () => controller.inject(),
+    }, CamNxCard))), 'tool-cam: settings section')
+
   ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register({
       name: 'sidebar.footer.action',
@@ -425,14 +424,6 @@ function apply(ctx) {
       order: 30,
       label: 'NX 工作台',
     }, CamNxMenuItem))
-
-  ctx.slots.inject('shell.content', () =>
-    ctx.slots.register({
-      name: 'shell.content',
-      priority: 100,
-      select: ({ pathname }) => (pathname === PAGE_ROUTE ? {} : null),
-      inject: () => controller.inject(),
-    }, CamNxPage))
 }
 
 exports.name = 'tool-cam-client'
