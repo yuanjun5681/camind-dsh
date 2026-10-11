@@ -130,6 +130,43 @@ const PROFILE_TEMPLATES = {
       'camind-preset-cam-machining',
     ],
   },
+  // 官方桌面应用（0.2.0 起）启动入口 scripts/desktop.sh：DSH_HOME 指到项目 .dsh，
+  // 桌面宿主加载的就是这个 desktop profile（受管 profile 只在缺失时创建，不覆写）。
+  // bundle 组合与 web 完全一致。
+  desktop: {
+    dependencies: {
+      'camind-page-memory': 'link:page-memory',
+      'camind-preset-cam-machining': 'link:agent-presets/cam-machining',
+      'camind-service-git-repository': 'link:service-git-repository',
+      'camind-service-machine': 'link:service-machine',
+      'camind-tool-cam': 'link:tool-cam',
+      'camind-tool-memory': 'link:tool-memory',
+      'camind-tool-upload': 'link:tool-upload',
+      'camind-ui-brand': 'link:ui-brand',
+      'camind-ui-foundation': 'link:ui-foundation',
+      'camind-ui-home': 'link:ui-home',
+      'camind-ui-shell': 'link:ui-shell',
+      'camind-ui-preview': 'link:ui-preview',
+      'camind-ui-toolpath-viewer': 'link:ui-toolpath-viewer',
+    },
+    bundles: [
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-web-app',
+      'camind-tool-upload',
+      'camind-service-git-repository',
+      'camind-service-machine',
+      'camind-tool-memory',
+      'camind-tool-cam',
+      'camind-ui-shell',
+      'camind-ui-foundation',
+      'camind-ui-preview',
+      'camind-ui-brand',
+      'camind-ui-home',
+      'camind-ui-toolpath-viewer',
+      'camind-page-memory',
+      'camind-preset-cam-machining',
+    ],
+  },
 }
 
 const PATCH_YML = `# Your patch layer for this dsh profile, applied after every bundle layer:
@@ -177,7 +214,9 @@ function ensureProfiles() {
     const dir = path.join(dshHome, 'profiles', name)
     fs.mkdirSync(dir, { recursive: true })
     const changed = writeIfDifferent(path.join(dir, 'package.json'), profilePackageJson(name, template))
-    writeIfDifferent(path.join(dir, 'cordis.patch.yml'), PATCH_YML)
+    // cordis.patch.yml 只在缺失时创建：0.2.0 起设置值落在 patch 的条目 config 里，
+    // 重写会清掉用户配置（如 tool-cam 的 baseURL）。
+    if (!fs.existsSync(path.join(dir, 'cordis.patch.yml'))) writeIfDifferent(path.join(dir, 'cordis.patch.yml'), PATCH_YML)
     writeIfDifferent(path.join(dir, 'cordis.yml'), CORDIS_YML)
     writeIfDifferent(path.join(dir, 'pnpm-workspace.yaml'), PNPM_WORKSPACE_YML)
     if (changed || !fs.existsSync(path.join(dir, 'node_modules'))) {
@@ -212,4 +251,4 @@ buildUiShell()
 run(process.execPath, [path.join(root, 'scripts', 'sync-dsh-version.mjs'), '--check'], root)
 
 for (const warning of warnings) console.warn(`[init] 警告：${warning}`)
-console.log('[init] 完成。日常运行：node scripts/dsh.mjs web（桌面打包见 README「打包桌面客户端」）')
+console.log('[init] 完成。日常运行：node scripts/dsh.mjs web；桌面端：scripts/desktop.sh（官方桌面应用 + 本项目 DSH_HOME）')

@@ -110,6 +110,20 @@ vendor 源码快照（`ui-shell/vendor/`）与 ui-sidebar 上游基线需要人�
 - 通过 `link:` 挂载的本地插件（如本工作区的 tool-memory、ui-shell）与 dsh 版本解耦，不受影响。
 - dsh 处于 developer preview，**不保证磁盘格式兼容**：升级后旧版写入的会话日志等数据可能被新版直接拒绝打开（见上游文档 `docs/subsystems/persistence.md`）。升级后可用 `--dump-config` 快速验证组合是否正常。
 
+## 桌面端（官方桌面应用）
+
+0.2.0 起上游官方提供桌面应用（本仓库不再维护自写 Electron 壳）。装好后用本项目入口启动，桌面端即加载全部 camind 插件与「CAM 加工」模式，数据（会话/记忆库/机床档案/CAM run）与 Web 端共享同一份 `.dsh/`：
+
+```sh
+# 首次：安装官方桌面应用（macOS arm64）
+curl -LO https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg
+# 打开 dmg 把「Deep Seek Harness」拖进 /Applications
+
+scripts/desktop.sh   # 以本项目 .dsh 为 DSH_HOME 启动官方桌面应用
+```
+
+原理：官方桌面宿主读 `DSH_HOME` 环境变量，其受管 desktop profile 只在缺失时创建、不覆写已有内容；`npm run init` 在 `.dsh/profiles/desktop/` 预置与 web 完全一致的 bundle 组合。注意桌面窗口渲染的是烘焙进 App 的官方前端（`dsh-app://` 协议直出，不经 Host 路由），`/camind` 定制 SPA 属于浏览器路径；记忆库管理页等 `/camind/pages/*` 在桌面端不可用（其菜单项点击在桌面端无效，用浏览器开）。
+
 ## 编写自己的插件
 
 ### 1. 最小插件
