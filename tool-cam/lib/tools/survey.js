@@ -7,6 +7,7 @@
 // （候选供人确认，非判定）。全部失败路径返回中文、可行动的错误 JSON。
 
 import { createHash } from 'node:crypto'
+import { existsSync, statSync } from 'node:fs'
 
 import { deriveRiskCandidates } from '../survey-candidates.js'
 
@@ -46,6 +47,29 @@ export function safeRemoteName(name) {
   return String(name).replace(/[\\/]/g, '_').replace(/[^\x20-\x7E]/g, '_')
 }
 
+// 会话消息里 @/绝对路径 提及的零件文件（用户在 composer 用 @ 引主机文件而非
+// 上传时）。命中即得绝对路径——路径是用户自己写在会话里的，fs 工具本来就可读，
+// cam_survey 把它当上传件推给 proxy。
+function mentionedParts(exec) {
+  const events = exec?.agent?.session?.snapshotEvents?.()
+  if (!events) return []
+  const found = new Map()
+  for (const event of events) {
+    if (event.type !== 'user/message') continue
+    const content = event.data?.content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if (part?.type !== 'text' || typeof part.text !== 'string') continue
+      for (const m of part.text.matchAll(/@(\/[^\s@]+)/g)) {
+        const absolute = m[1]
+        const name = absolute.split('/').pop()
+        if (!found.has(name)) found.set(name, absolute)
+      }
+    }
+  }
+  return [...found.entries()].map(([name, absolute]) => ({ name, absolute }))
+}
+
 // 在当前 session 的全部上传批次里按文件名/清单路径找文件；跨 session 与越界
 // 由 uploads 服务的 manifest 校验挡住（这里只读到 batch.files 的声明清单）。
 export function resolvePart(uploads, exec, requested) {
@@ -57,13 +81,25 @@ export function resolvePart(uploads, exec, requested) {
     }
   }
   if (matches.length === 0) {
+    // @/绝对路径 提及兜底（0.2.0 起 desktop/官方 composer 常见形态）。
+    const mentioned = mentionedParts(exec).filter((m) => m.name === requested || m.absolute === requested)
+    if (mentioned.length === 1) {
+      const file = mentioned[0]
+      if (!existsSync(file.absolute) || !statSync(file.absolute).isFile()) {
+        return { error: json({ status: 'error', stage: 'resolve_upload', msg: `会话里 @ 提及的文件在盘上不存在或不是文件：${file.absolute}` }) }
+      }
+      return { batch: null, file: { name: file.name, absolute: file.absolute, size: statSync(file.absolute).size } }
+    }
+    if (mentioned.length > 1) {
+      return { error: json({ status: 'error', stage: 'resolve_upload', msg: `文件名「${requested}」在会话提及里不唯一：${mentioned.map((m) => m.absolute).join('、')}，请按全路径调用。` }) }
+    }
     return {
       error: json({
         status: 'error',
         stage: 'resolve_upload',
         msg: batches.length === 0
-          ? '当前会话没有上传文件。请先在会话里上传 3D 零件模型（.prt），再调用本工具。'
-          : `当前会话的上传文件里没有「${requested}」。请先用 list_uploaded_files 查看已上传列表，按其中的文件名调用。`,
+          ? '当前会话没有上传文件。请先在会话里上传 3D 零件模型（.prt），或在消息里用 @ 引用其主机绝对路径，再调用本工具。'
+          : `当前会话的上传文件里没有「${requested}」。请先用 list_uploaded_files 查看已上传列表，按其中的文件名调用；也可用 @ 直接引用主机上的零件文件。`,
       }),
     }
   }
@@ -73,7 +109,7 @@ export function resolvePart(uploads, exec, requested) {
         status: 'error',
         stage: 'resolve_upload',
         msg: `文件名「${requested}」在多个上传批次中都存在，请改用 list_uploaded_files 返回的 path 精确定位：`
-          + matches.map((m) => `${m.batch.batch_id}/${m.file.path}`).join('、'),
+          + matches.map((m) => `${m.batch?.batch_id ?? 'mention'}/${m.file.path}`).join('、'),
       }),
     }
   }
@@ -93,7 +129,7 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
       properties: {
         part: {
           type: 'string',
-          description: '当前会话已上传的 3D 零件文件名（如 part.prt），或 list_uploaded_files 返回的 path',
+          description: '当前会话的 3D 零件文件名（如 part.prt）：会话上传清单里的文件名/path，或会话消息里 @ 引用的主机绝对路径对应文件名',
         },
       },
       required: ['part'],
@@ -114,7 +150,8 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
         return json({ status: 'error', stage: 'resolve_upload', msg: `读取上传清单失败：${error.message}` })
       }
       if (resolved.error) return resolved.error
-      const { batch, file } = resolved
+      const { file } = resolved
+      const batchId = resolved.batch?.batch_id ?? null
 
       const sessionId = safeSessionId(exec?.agent?.id)
       const sha8 = createHash('sha256').update(file.absolute).digest('hex').slice(0, 8)
@@ -131,7 +168,7 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
         status: 'ok',
         part: {
           source: file.name,
-          batch_id: batch.batch_id,
+          batch_id: batchId,
           uploaded_as: remoteRel,
         },
         survey,
