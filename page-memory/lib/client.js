@@ -602,60 +602,60 @@ function isPagePath(pathname) {
   return pathname === route || pathname.startsWith(route + '/')
 }
 
-function MemoryPage({ matched }) {
-  const { pathname, navigate } = matched
-  const rest = pathname.slice(route.length)
+// 0.2.0 起记忆库是官方全局面板（main keyed 'memory'）：/camind、官方 /web、
+// 桌面端同一席位可用。子导航（列表/详情）是组件内部 view state，不再走路由；
+// /camind 下的旧 /pages/memory* 深链接由 MemoryRouteRedirect 接进面板，
+// 挂载时按当前 URL 取初始 view。
+function parseMemoryView(pathname) {
+  const rest = String(pathname ?? '').slice(route.length)
   const segments = rest.split('/').filter(Boolean).map(decodeURIComponent)
-  let page
   if (segments.length >= 2 && (segments[0] === 'knowledge' || segments[0] === 'experience')) {
-    page = h(DetailPage, { key: `${segments[0]}/${segments[1]}`, navigate, type: segments[0], name: segments[1] })
-  } else {
-    const tab = segments[0] === 'experience' ? 'experience' : 'knowledge'
-    page = h(LibraryPage, { key: tab, navigate, tab })
+    return { kind: 'detail', type: segments[0], name: segments[1] }
   }
-  return page
+  return { kind: 'list', tab: segments[0] === 'experience' ? 'experience' : 'knowledge' }
+}
+
+function MemoryPanel() {
+  const [view, setView] = useState(() => parseMemoryView(location.pathname))
+  const go = (path) => setView(parseMemoryView(path))
+  if (view.kind === 'detail') {
+    return h(DetailPage, { key: `${view.type}/${view.name}`, navigate: go, type: view.type, name: view.name })
+  }
+  return h(LibraryPage, { key: view.tab, navigate: go, tab: view.tab })
+}
+
+const MEMORY_ROUTE_MATCH = {}
+
+function MemoryRouteRedirect() {
+  useEffect(() => {
+    const layout = applyCtx?.get('layout')
+    if (layout?.panelInfo?.getSnapshot?.().activePanelId !== 'memory') layout?.selectPanel('memory')
+  }, [])
+  return null
+}
+
+function MemoryPanelIcon({ size }) {
+  return h(IconThinkOutlineRegular, { size })
 }
 
 // --- sidebar entry ---------------------------------------------------------------------
 
-function MemoryMenuItem({ wide, pathname, navigate }) {
-  // The official shell (served at /web) renders this list with { wide } only —
-  // the route-aware props are a /camind extension, so degrade gracefully there.
-  const active = typeof pathname === 'string' && isPagePath(pathname)
-  const open = () => {
-    if (typeof navigate === 'function') navigate(route)
-    else location.assign('/camind' + route)
-  }
-  if (typeof navigate === 'function') {
-    return h(SidebarAction, {
-      wide,
-      active,
-      icon: h(IconThinkOutlineRegular, { size: wide ? 16 : 18 }),
-      label: '记忆库',
-      onClick: open,
-    })
-  }
-  const button = h('button', {
-    type: 'button',
-    'aria-label': '打开记忆库页面',
-    'aria-current': active ? 'page' : undefined,
-    style: menuStyles.button(active, wide),
+function MemoryMenuItem({ wide, usePanelInfo }) {
+  // 全局面板激活态经 usePanelInfo（/camind shim 与官方 layout 均提供）。
+  const active = usePanelInfo?.((info) => info.activePanelId === 'memory') ?? false
+  const open = () => { applyCtx?.get('layout')?.selectPanel('memory') }
+  return h(SidebarAction, {
+    wide,
+    active,
+    icon: h(IconThinkOutlineRegular, { size: wide ? 16 : 18 }),
+    label: '记忆库',
     onClick: open,
-    onPointerEnter: (event) => {
-      if (!active) event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover)'
-    },
-    onPointerLeave: (event) => {
-      if (!active) event.currentTarget.style.background = 'transparent'
-    },
-  },
-  h(IconThinkOutlineRegular, { size: wide ? 16 : 18 }),
-  wide ? h('span', { style: menuStyles.label }, '记忆库') : null)
-
-  return h(Tooltip, { label: '记忆库', delayMs: 500, disabled: wide }, button)
+  })
 }
 
 function apply(ctx) {
-  if (location.pathname === '/camind' || location.pathname.startsWith('/camind/')) {
+  applyCtx = ctx
+  if (location.pathname === '/camind' || location.pathname.startsWith('/camind/') || location.protocol === 'dsh-app:') {
     ctx.effect(() => {
       const style = document.createElement('style')
       style.setAttribute('data-camind-page-memory', '')
@@ -665,6 +665,20 @@ function apply(ctx) {
     }, 'page-memory: stylesheet')
   }
 
+  ctx.slots.inject('main', () =>
+    ctx.slots.register({
+      name: 'main',
+      key: 'memory',
+    }, MemoryPanel))
+
+  ctx.slots.inject('sidebar.panellist', () =>
+    ctx.slots.register({
+      name: 'sidebar.panellist',
+      id: 'memory',
+      order: 30,
+      label: '记忆库',
+    }, MemoryPanelIcon))
+
   ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register({
       name: 'sidebar.footer.action',
@@ -673,16 +687,19 @@ function apply(ctx) {
       label: '记忆库',
     }, MemoryMenuItem))
 
-  ctx.slots.inject('shell.content', () =>
-    ctx.slots.register({
-      name: 'shell.content',
-      priority: 100,
-      select: ({ pathname, navigate }) => {
-        if (!isPagePath(pathname)) return null
-        return { pathname, navigate }
-      },
-    }, MemoryPage))
+  // 旧 /pages/memory* 深链接：接进全局面板（初始 view 按 URL 解析）。
+  // 临时摘掉做崩溃隔离（IsolationProbe）。
+  if (!globalThis.__CAMIND_NO_MEMORY_REDIRECT__) {
+    ctx.slots.inject('shell.content', () =>
+      ctx.slots.register({
+        name: 'shell.content',
+        priority: 100,
+        select: ({ pathname }) => (isPagePath(pathname) ? MEMORY_ROUTE_MATCH : null),
+      }, MemoryRouteRedirect))
+  }
 }
+
+let applyCtx = null
 
 exports.name = 'page-memory-client'
 exports.inject = ['slots']

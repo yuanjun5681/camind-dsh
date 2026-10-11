@@ -111,7 +111,9 @@ function SessionDetailLayout({ current, rightbarOpen, renderSlot, viewport }: Se
         {renderSlot('rightbar', {
           width: rightbarWidth,
           viewportWidth: viewport,
-          canShow: rightbarOpen,
+          // 是否放得下由视口宽度决定，不拿当前开合状态当闸门——seat 要能用
+          // syncPresentation 把 layout 打开（openTab 等主动入口）。
+          canShow: viewport >= 900,
         })}
       </div>
       {current && !workbenchVisible && !rightbarOpen && (
@@ -156,15 +158,6 @@ export function OfficialSlotRoot({ renderSlot, renderSlotChain, useSessions }: R
   const routeSession = routeSessionId && current?.id === routeSessionId ? current : undefined
   const activePanel = panels.activePanel
   const rightbar = panels.rightbar
-
-  // 插件页与全局面板互斥：进入插件页路由时清掉面板选中；面板选中（侧栏行
-  // 点击）在渲染上压过插件页，形成双向可切换。
-  useEffect(() => {
-    if (pluginPageRoute && activePanel !== null) {
-      const layout = getOfficialClient()?.get('layout') as { selectPanel(id: string | null): void } | undefined
-      layout?.selectPanel(null)
-    }
-  }, [pluginPageRoute, activePanel])
 
   return (
     <div

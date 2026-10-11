@@ -353,7 +353,10 @@ function SidebarAction({ wide, active, icon, label, onClick }) {
 }
 
 function isCamindPath() {
+  // /camind 定制壳与官方桌面端（dsh-app://，经 scripts/desktop.sh 以本项目
+  // DSH_HOME 启动）都是 Camind 面；官方 /web 浏览器壳保持隔离。
   return location.pathname === '/camind' || location.pathname.startsWith('/camind/')
+    || location.protocol === 'dsh-app:'
 }
 
 function apply(ctx) {

@@ -142,17 +142,22 @@ function useOfficialSessionRoute(ctx: OfficialClient | null, routeSettled: RefOb
     //（此前的 open 是 client runtime 的启动会话恢复，见 useOfficialActionRoutes）。
     routeSettled.current = true
 
+    // URL 权威：指向一个存在会话的 /s/:id 时，无论选中何时、被谁改走
+    //（ui-workspace 的启动恢复是异步的——它可能在仲裁后才落位，把选中
+    // 覆盖成恢复的会话/新建 blank），都重新指回 URL 的会话。恢复流程只跑
+    // 一次，本规则在随后的 sessionList 变化里收敛，不会形成往返。
+    const pathId = currentSessionId(pathname)
+    if (pathId && sessionList.byId[pathId] && current !== pathId) {
+      ctx.uiWorkspace.openSession(pathId)
+      return
+    }
+
     if (pathnameChanged) {
       // 显式 URL 导航优先。插件页只覆盖内容区，属于非会话路由：0.2.0 没有
       // 公开的选中清除面（clearMain 是 ui-workspace 私有），选中保留——与
       // 官方全局面板激活时保留当前会话同口径。
       if (isPluginPage(pathname)) return
 
-      const pathId = currentSessionId(pathname)
-      if (pathId) {
-        if (sessionList.byId[pathId] && current !== pathId) ctx.uiWorkspace.openSession(pathId)
-        return
-      }
       return
     }
 

@@ -73,6 +73,10 @@ export const layoutActions = {
 
 type MainPanelId = string
 
+// panelInfo 快照必须是引用稳定的对象：useSyncExternalStore 按 Object.is 比
+// 较快照，每次新对象会让官方订阅方（WorkspaceBrowser 等）陷入 #185 更新风暴。
+let panelInfoSnapshot: { activePanelId: MainPanelId | null } = { activePanelId: null }
+
 type SlotsLike = {
   entries(name: string): readonly { options: { key?: string } }[]
   provideRoot(contribution: { hooks?: Record<string, unknown> }): () => void
@@ -81,7 +85,7 @@ type SlotsLike = {
 class LayoutController {
   /** Root-scoped navigation state exposed to panel-aware components. */
   readonly panelInfo = {
-    getSnapshot: () => ({ activePanelId: layoutState.activePanel as MainPanelId | null }),
+    getSnapshot: () => panelInfoSnapshot,
     subscribe: (listener: () => void) => subscribeLayout(listener),
   }
 
@@ -96,8 +100,10 @@ class LayoutController {
     if (panelId !== null && !this.#slots?.entries('main').some((entry) => entry.options.key === panelId)) {
       throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
     }
+    if (layoutState.activePanel === panelId) return
     this.#navigation.abort()
     this.#navigation = new AbortController()
+    panelInfoSnapshot = { activePanelId: panelId }
     writeLayout({ activePanel: panelId })
   }
 
