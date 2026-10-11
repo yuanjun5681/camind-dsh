@@ -61,6 +61,11 @@ ui-toolpath-viewer/ NC 刀路查看器（`camind-ui-toolpath-viewer`，设计稿
                     （含时间轴动画：画布满幅、HUD/播放条叠加、源码抽屉、快移/切削图层、俯视/等轴）；
                     keyed slot `cam.nc.preview` key `toolpath-viewer`，owner props
                     `{ content, fileName }`；仅 web profile
+ui-model-viewer/    PRT 三维模型预览插件：从 Camind-desktop 迁移的 TS/WebGL2 核心，
+                    仅扩展「预览」页的 cam.model.preview 席位（无独立三维标签）；支持已发送的桌面 @path 文件引用（与右侧工作台「输入」共用
+                    ui-preview 的 previewFiles.list/resolve；不读取未发送草稿）。Host 复用
+                    camPipeline 顺序导出几何包并按 session/source SHA256 缓存，
+                    源件不覆盖，未保存 NX 会话阻断；详见 ui-model-viewer/README.md
 page-memory/        记忆库管理页（`camind-page-memory`）：底部菜单「记忆库」+ 两级页面
                     `/pages/memory`（知识/经验双 tab 列表 → `/pages/memory/<type>/<name>` 详情）；
                     Host 半注册 `/camind/api/memory`；上传/新建/编辑缺元数据时经
@@ -162,7 +167,7 @@ npm run check:dsh-version
 
 ## 测试策略
 
-本项目**没有自动化测试**（无任何 test 脚本或测试框架）。验证手段是手动冒烟：
+本项目没有统一测试框架；文件预览引用边界有 assert 自检：`node ui-preview/selfcheck.mjs`，三维模型插件自检：`node ui-model-viewer/selfcheck.mjs`（先 `node ui-model-viewer/build.mjs`；构建复用 ui-shell 的 esbuild）。其余主要验证手段是手动冒烟：
 
 1. `--dump-config`（无需 API key）：确认插件行出现在组合后的配置里。
 2. `http://127.0.0.1:3080/`（302 到 `/camind/`）：验证自定义前端（需先在 `ui-shell/` 执行 `npm install && npm run build`）。新会话页 `/` 显示 Camind 品牌区（CAM 虎钳工匠 mascot + 字标 + Harness 徽章）、紧随其下的示例卡片，与官方工作区行/输入卡组成一个整体居中组，官方鱼标/「探索未至之境」/预览徽章不再出现（ui-home 叠加 + CSS 隐藏）；点示例直接写入输入框草稿（无会话时先自动接最近工作区的 blank 会话再预填）。侧栏顶部显示同一 mascot + 字标（ui-brand 占 `sidebar.brand.mark`/`sidebar.brand.name` 席位；折叠 rail 只剩 mascot），底部「设置」上方显示「记忆库」（page-memory），点击进入 `/camind/pages/memory`：知识/经验双 tab 列表、搜索与 chip 过滤、上传 .md/.txt 后元数据自动生成（「生成中」→ 自动填好或「生成失败」可编辑手填）、编辑/删除、经验采纳/弃用，详情深链接刷新保持。Composer 加号打开斜杠命令列表（含命令与技能），输入 `/` 同样弹出。官方壳由 `http://127.0.0.1:3080/web`（302 到 `/index.html`）访问，保持原生品牌与布局。

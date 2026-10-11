@@ -1,0 +1,4 @@
+# PRT geometry preview: Host pipeline + keyed renderer in the preview conversation view.
+- insert:
+    - id: camind-ui-model-viewer
+      name: camind-ui-model-viewer

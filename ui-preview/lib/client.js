@@ -155,6 +155,19 @@ function isNcName(name) {
   return String(name ?? '').toLowerCase().endsWith('.nc')
 }
 
+function useModelViewer() {
+  const [component, setComponent] = useState(null)
+  useEffect(() => {
+    const update = () => {
+      const entry = slotsRef?.entriesOfSlot('cam.model.preview').find(item => item.options?.key === 'model-viewer')
+      setComponent(() => entry?.component ?? null)
+    }
+    update()
+    return slotsRef?.subscribe('cam.model.preview', update)
+  }, [])
+  return component
+}
+
 function useToolpathViewer() {
   const [component, setComponent] = useState(null)
   useEffect(() => {
@@ -262,10 +275,14 @@ function NcRawBody({ sessionId, preview }) {
 }
 
 function FilePreviewBody({ sessionId, preview, error }) {
+  const ModelViewer = useModelViewer()
   if (error) return h('div', { className: 'campv-error' }, error)
   if (!preview) return h('div', { className: 'campv-empty' }, '正在读取文件…')
   const raw = rawFileUrl(sessionId, preview.path)
   const ncName = isNcName(preview.name)
+  if (/\.prt$/i.test(preview.name) && ModelViewer) {
+    return h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId, path: preview.path }))
+  }
   return h('div', { className: 'campv-pane' },
     preview.kind === 'text' && isMarkdownPreview(preview)
       ? h('div', { className: 'campv-markdown' }, h(MarkdownText, { text: preview.text ?? '' }))
@@ -305,15 +322,15 @@ function FilePreviewView({ sessionId }) {
   }
 
   const contentMode = target.kind === 'content'
-  const title = contentMode ? target.name : fileNameFromPath(preview?.path || target.path)
-  const displayPath = contentMode ? target.name : (preview?.path ?? target.path)
+  const title = contentMode ? target.name : (preview?.name || fileNameFromPath(target.path))
+  const displayPath = contentMode ? target.name : (preview?.displayPath ?? preview?.path ?? target.path)
   const relocated = !contentMode && Boolean(preview && String(preview.path).replaceAll('\\', '/') !== String(target.path).replaceAll('\\', '/'))
   const meta = contentMode
     ? `${bytesLabel(new Blob([target.content]).size)} · 内容预览`
     : preview
-      ? `${relocated ? '已发布 · ' : ''}${preview.path} · ${bytesLabel(preview.size)} · ${preview.mediaType}`
+      ? `${relocated ? '已发布 · ' : ''}${preview.displayPath ?? preview.path} · ${bytesLabel(preview.size)} · ${preview.mediaType}`
       : target.path
-  const openUrl = contentMode ? blobUrl : rawFileUrl(target.sessionId, displayPath)
+  const openUrl = contentMode ? blobUrl : rawFileUrl(target.sessionId, preview?.path ?? target.path)
 
   return h('div', { className: 'campv-view' },
     h('div', { className: 'campv-chrome' },
@@ -375,7 +392,10 @@ function apply(ctx) {
     // NC 刀路查看器席位（原 ui-shell root entry，随「查看刀路」迁入预览插件）：
     // camind-ui-toolpath-viewer 经 inject 注册 key toolpath-viewer，本插件
     // 直读注册表渲染（owner props { content, fileName }）。
-    children: { 'cam.nc.preview': { kind: 'keyed', scope: 'root' } },
+    children: {
+      'cam.nc.preview': { kind: 'keyed', scope: 'root' },
+      'cam.model.preview': { kind: 'keyed', scope: 'root' },
+    },
     inject: (sessionId) => ({ sessionId }),
   }, FilePreviewView))
 }

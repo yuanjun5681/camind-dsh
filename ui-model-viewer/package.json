@@ -1,0 +1,11 @@
+{
+  "name": "camind-ui-model-viewer",
+  "version": "0.1.0",
+  "description": "NX PRT geometry-package preview with the migrated TypeScript WebGL2 renderer",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./client": "./lib/client.js", "./package.json": "./package.json" },
+  "files": ["index.js", "lib", "cordis.patch.yml"],
+  "scripts": { "build": "node build.mjs", "selfcheck": "node selfcheck.mjs" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web" } }
+}

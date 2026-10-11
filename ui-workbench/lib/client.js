@@ -2,7 +2,7 @@
 // 「工作台」右侧栏页签：输入 / 交付物 / 加工 三个子页签，0.2.0 官方
 // sidebar.right.pane.tab 席位——/camind 定制壳、官方 /web、桌面端（dsh-app://）
 // 同一份注册都可用（ui-shell 的会话工作台列只在 /camind SPA 里）。
-// 数据源：ui-shell 的 /camind/api/sessions/:id/uploads（上传）+ tool-cam 的
+// 数据源：ui-preview 的 /camind/api/preview/sessions/:id/files（上传/附件/桌面引用）+ tool-cam 的
 // /camind/api/cam/runs（加工时间线）+ 官方 uiConversation 投影（交付物）。
 // 预览按钮经 ui-preview 的 filePreview 服务进「预览」标签页。
 // 样式自含，token 走 --dsw-alias-*（不依赖 ui-shell/foundation）。
@@ -15,7 +15,7 @@ const { Button, IconGaugeOutlineRegular, Tooltip } = require('@deepseek-ai/dsh-c
 
 const TAB_ID = 'camind-ui-workbench/bench'
 const TAB_KIND = 'cam-workbench'
-const UPLOADS_API = '/camind/api/sessions'
+const INPUTS_API = '/camind/api/preview/sessions'
 const RUNS_API = '/camind/api/cam/runs'
 
 // --- stylesheet ------------------------------------------------------------------
@@ -158,33 +158,43 @@ function InputTab({ sessionId }) {
   const running = row?.running === true
   const [state, setState] = useState({ phase: 'loading', files: [] })
   useEffect(() => {
-    let cancelled = false
-    fetch(`${UPLOADS_API}/${encodeURIComponent(sessionId)}/uploads`, { headers: { Accept: 'application/json' } })
-      .then(async (res) => {
+    const controller = new AbortController()
+    let timer
+    setState({ phase: 'loading', files: [] })
+    const refresh = async () => {
+      try {
+        const res = await fetch(`${INPUTS_API}/${encodeURIComponent(sessionId)}/files`, { headers: { Accept: 'application/json' }, signal: controller.signal })
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body.message ?? `HTTP ${res.status}`)
-        if (!cancelled) setState({ phase: 'ready', files: body.files ?? [] })
-      })
-      .catch((error) => { if (!cancelled) setState({ phase: 'error', files: [], message: error instanceof Error ? error.message : String(error) }) })
-    return () => { cancelled = true }
+        if (!controller.signal.aborted) setState({ phase: 'ready', files: body.files ?? [] })
+      } catch (error) {
+        if (!controller.signal.aborted) setState({ phase: 'error', files: [], message: error instanceof Error ? error.message : String(error) })
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(refresh, 3000)
+      }
+    }
+    void refresh()
+    return () => { controller.abort(); clearTimeout(timer) }
   }, [sessionId])
 
   return h('div', { className: 'wb-section' },
     h('dl', { className: 'wb-facts' },
       h('div', null, h('dt', null, '工作目录'), h('dd', { title: cwd }, cwd || '未设置')),
       h('div', null, h('dt', null, '状态'), h('dd', null, running ? '运行中' : '空闲'))),
-    h('h3', { className: 'wb-h3' }, '本次上传'),
-    state.phase === 'loading' && h('div', { className: 'wb-empty' }, '读取上传列表…'),
-    state.phase === 'error' && h('div', { className: 'wb-empty' }, `上传列表读取失败：${state.message}`),
+    h('h3', { className: 'wb-h3' }, '输入文件'),
+    state.phase === 'loading' && h('div', { className: 'wb-empty' }, '读取输入文件…'),
+    state.phase === 'error' && h('div', { className: 'wb-empty' }, `输入文件读取失败：${state.message}`),
     state.phase === 'ready' && (state.files.length === 0
-      ? h('div', { className: 'wb-empty' }, '尚未通过 Composer 上传文件。')
+      ? h('div', { className: 'wb-empty' }, '当前会话尚无上传文件或已发送的本地文件引用。')
       : h('div', { className: 'wb-file-list' }, state.files.map((file) => h('button', {
           type: 'button',
           key: file.path,
           className: 'wb-file',
-          title: file.path,
+          title: file.message || file.displayPath || file.path,
+          disabled: file.available === false,
           onClick: () => previewService()?.preview(sessionId, file.path),
-        }, h('span', null, file.name), h('small', null, bytesLabel(file.size)))))))
+        }, h('span', null, file.name), h('small', null,
+          file.available === false ? file.message : `${file.source === 'reference' ? '本地引用 · ' : ''}${bytesLabel(file.size)}`))))))
 }
 
 // --- 交付物 tab --------------------------------------------------------------------------
@@ -535,7 +545,7 @@ const SUBTABS = [
 
 function WorkbenchTab({ sessionId, useTabInfo }) {
   const navTab = useTabInfo?.((info) => info.tab.navigation.params?.tab)
-  const [tab, setTab] = useState(navTab ?? 'input')
+  const [tab, setTab] = useState(SUBTABS.some(sub => sub.id === navTab) ? navTab : 'input')
   return h('div', { className: 'wb' },
     h('div', { className: 'wb-tabs', role: 'tablist' },
       SUBTABS.map((sub) => h('button', {

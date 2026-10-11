@@ -1,0 +1,88 @@
+{
+  "format": "camind-geom",
+  "format_version": 1,
+  "pipeline_version": "gp-1",
+  "part_ref": "prt_ffb77696@gp-1",
+  "part_sha256": "ffb77696d04f68bc8d1151c37f95d4c093aefe27c6b60533e418444012f75073",
+  "stamped_sha256": "2afce35db1ea89b2aff00b089bfd128daffa59689d516126e7ddc93cd3625e67",
+  "nx_version": "synthetic",
+  "worker_version": "cam-agent/geompack export-fixtures",
+  "units": "mm",
+  "origin_offset": [
+    1520.25,
+    -340.5,
+    87.125
+  ],
+  "bbox_relative": {
+    "min": [
+      -40.0,
+      -30.0,
+      -10.0
+    ],
+    "max": [
+      40.0,
+      30.0,
+      10.0
+    ]
+  },
+  "face_count": 6,
+  "edge_count": 12,
+  "stage_timings": {
+    "open": 0.0,
+    "facet_coarse": 0.0,
+    "facet_fine": 0.0,
+    "edges": 0.0,
+    "manifest": 0.0
+  },
+  "files": [
+    {
+      "role": "faces",
+      "name": "faces.json",
+      "bytes": 210,
+      "sha256": "61c0569829b568132423ff536ad5e3380faaf468460e918e236f392c72194df1",
+      "encoding": "gzip",
+      "url": ""
+    },
+    {
+      "role": "mesh",
+      "lod": "coarse",
+      "chord_tol_mm": 0.05,
+      "angle_tol_deg": 15,
+      "name": "mesh_coarse.bin",
+      "bytes": 198,
+      "sha256": "56398735bb1fb4aa2bcbc58aa84770a43e6ffde4980113987199cc341faf2830",
+      "encoding": "gzip",
+      "url": ""
+    },
+    {
+      "role": "mesh",
+      "lod": "fine",
+      "chord_tol_mm": 0.01,
+      "angle_tol_deg": 5,
+      "name": "mesh_fine.bin",
+      "bytes": 1175,
+      "sha256": "f8a36496f2f4c0e44a27b70fc49df114072a62e102f6143c129efecf9b0a86cf",
+      "encoding": "gzip",
+      "url": ""
+    },
+    {
+      "role": "edges",
+      "name": "edges.bin",
+      "bytes": 145,
+      "sha256": "6b1861f6aa3d0e69946e7706f1d605575f4088254077a179a00f2f31a3d1d07a",
+      "encoding": "gzip",
+      "url": ""
+    }
+  ],
+  "body_count": 1,
+  "bodies": [
+    {
+      "body": 0,
+      "name": "box",
+      "layer": 1,
+      "color": 87,
+      "translucency": 0,
+      "n_faces": 6
+    }
+  ]
+}
