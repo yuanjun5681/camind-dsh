@@ -47,6 +47,25 @@ const HOME_CSS = `
 }
 `
 
+// Desktop hero (dsh-app://): hide the official slogan + preview badge; the
+// mascot arrives through conversation.hero.brand.mark (ui-brand). Structure
+// anchors are hash-free and listed in docs/dsh-upgrade.md as an upgrade
+// checkpoint: composerStack > HeroShell(.root) > .stack > .headline >
+// .fishHitbox + .titleGroup。注意 /camind 的 HeroShell 整隐规则不能进桌面——
+// mascot 也在 HeroShell 里。
+const DESKTOP_HOME_CSS = `
+[data-phase="hero"] [data-chain-overlay-fallback="conversation.composer"] > div > div:first-child > div > div > span:last-child { display: none; }
+/* The desktop examples strip sits in conversation.input.dock (full-width row
+   above the composer card)。卡面排版样式在桌面端没有 foundation 语境，这里自含。 */
+.camhome-examples-dock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; width: 100%; }
+.camhome-examples-dock .camhome-example { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+.camhome-examples-dock .camhome-example-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.camhome-examples-dock .camhome-example-text {
+  font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-secondary);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+`
+
 let official = null
 let pendingDraft = null
 let sessionInput = null
@@ -71,6 +90,21 @@ function HomeHero() {
       },
         h('span', { className: 'camhome-example-title' }, example.title),
         h('span', { className: 'camhome-example-text' }, example.text)))))
+}
+
+// 桌面端（dsh-app://）的官方 hero 没有 /camind 的首页扩展席；示例卡挂进
+// conversation.input.dock（hero 输入卡上方的整行位），只在桌面且 blank 会话时渲染。
+function DockExamples({ session }) {
+  const blank = Boolean(session?.blank && session.openState === 'open')
+  if (!blank || location.protocol !== 'dsh-app:') return null
+  return h('div', { className: 'camhome-examples-dock' },
+    EXAMPLES.map((example) => h(Card, {
+      key: example.title,
+      className: 'camhome-example',
+      onClick: () => pickExample(example.text),
+    },
+      h('span', { className: 'camhome-example-title' }, example.title),
+      h('span', { className: 'camhome-example-text' }, example.text))))
 }
 
 // Root-scope home content cannot reach the session input machine. This
@@ -104,6 +138,15 @@ function apply(ctx) {
       return () => { style.remove() }
     }, 'ui-home: stylesheet')
   }
+  if (location.protocol === 'dsh-app:') {
+    ctx.effect(() => {
+      const style = document.createElement('style')
+      style.setAttribute('data-camind-ui-home-desktop', '')
+      style.textContent = DESKTOP_HOME_CSS
+      document.head.appendChild(style)
+      return () => { style.remove() }
+    }, 'ui-home: desktop stylesheet')
+  }
 
   ctx.slots.inject('shell.home', () =>
     ctx.slots.register({
@@ -123,6 +166,13 @@ function apply(ctx) {
         return input ? { setDraft: (text) => input.setDraft(text) } : {}
       },
     }, InputBridge))
+
+  ctx.slots.inject('conversation.input.dock', () =>
+    ctx.slots.register({
+      name: 'conversation.input.dock',
+      id: 'camind-home-examples',
+      order: 25,
+    }, DockExamples))
 }
 
 exports.name = 'ui-home-client'

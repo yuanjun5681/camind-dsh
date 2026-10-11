@@ -78,6 +78,13 @@ function apply(ctx) {
       name: 'sidebar.brand.name',
       priority: -10,
     }, CamindBrandName))
+  // 官方 hero 的鱼标席位（conversation.hero.brand.mark，图内 ui-brand-official
+  // 同样在 priority 0 注册）：桌面端没有 /camind 首页，品牌区经这里进官方 hero。
+  ctx.slots.inject('conversation.hero.brand.mark', () =>
+    ctx.slots.register({
+      name: 'conversation.hero.brand.mark',
+      priority: -10,
+    }, CamindBrandMark))
 }
 
 exports.name = 'ui-brand-client'
