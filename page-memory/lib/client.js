@@ -327,7 +327,7 @@ function LibraryPage({ navigate, tab }) {
   }
 
   return h('section', { className: 'pmm-page1', 'data-page-memory': '' },
-    h('div', { className: 'pmm-head' },
+    h('div', { className: 'pmm-head', 'data-window-drag': '' },
       h('div', { className: 'pmm-head-row' },
         h('h1', { className: 'pmm-title' }, '记忆库'),
         h('p', { className: 'pmm-lead' },
@@ -487,7 +487,7 @@ function DetailPage({ navigate, type, name }) {
     : null
 
   return h('section', { className: 'pmm-page2', 'data-page-memory': '' },
-    h('div', { className: 'pmm-dhead' },
+    h('div', { className: 'pmm-dhead', 'data-window-drag': '' },
       h('div', { className: 'pmm-dhead-row' },
         h(IconButton, { label: '返回列表', icon: h(IconChevronLeftOutlineRegular, { size: 14 }), onClick: () => navigate(listPath) }),
         h('h1', { className: 'pmm-dhead-name' }, name),
