@@ -47,20 +47,22 @@ const HOME_CSS = `
 }
 `
 
-// Desktop hero (dsh-app://): hide the official slogan + preview badge; the
-// mascot arrives through conversation.hero.brand.mark (ui-brand). Structure
-// anchors are hash-free and listed in docs/dsh-upgrade.md as an upgrade
-// checkpoint: composerStack > HeroShell(.root) > .stack > .headline >
-// .fishHitbox + .titleGroup。注意 /camind 的 HeroShell 整隐规则不能进桌面——
-// mascot 也在 HeroShell 里。
+// Desktop hero (dsh-app://) 与 /camind 首页同形态：品牌区（大 mascot + 字标 +
+// 徽章 + 标语）+ 示例卡挂进 conversation.input.dock（hero 工作区行与输入卡之间
+// 的整行位），官方 HeroShell 整体隐藏（结构锚点与 /camind 一致，升级复核点见
+// docs/dsh-upgrade.md）。
 const DESKTOP_HOME_CSS = `
-[data-phase="hero"] [data-chain-overlay-fallback="conversation.composer"] > div > div:first-child > div > div > span:last-child { display: none; }
-/* The desktop examples strip sits in conversation.input.dock (full-width row
-   above the composer card)。卡面排版样式在桌面端没有 foundation 语境，这里自含。 */
-.camhome-examples-dock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; width: 100%; }
-.camhome-examples-dock .camhome-example { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
-.camhome-examples-dock .camhome-example-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
-.camhome-examples-dock .camhome-example-text {
+[data-phase="hero"] [data-chain-overlay-fallback="conversation.composer"] > div > div:first-child { display: none; }
+/* dock 提到工作区行之上，与 /camind 首页的品牌区在上同序（仅含我们内容时） */
+[data-phase="hero"] [data-slot="conversation.input.dock"]:has(.camhome-hero-dock) { order: -1; }
+.camhome-hero-dock {
+  display: flex; flex-direction: column; align-items: center; gap: 22px;
+  width: 100%; padding: 16px 0 8px;
+}
+.camhome-hero-dock .camhome-examples-dock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; width: 100%; max-width: 748px; }
+.camhome-hero-dock .camhome-example { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+.camhome-hero-dock .camhome-example-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.camhome-hero-dock .camhome-example-text {
   font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-secondary);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
@@ -97,14 +99,16 @@ function HomeHero() {
 function DockExamples({ session }) {
   const blank = Boolean(session?.blank && session.openState === 'open')
   if (!blank || location.protocol !== 'dsh-app:') return null
-  return h('div', { className: 'camhome-examples-dock' },
-    EXAMPLES.map((example) => h(Card, {
-      key: example.title,
-      className: 'camhome-example',
-      onClick: () => pickExample(example.text),
-    },
-      h('span', { className: 'camhome-example-title' }, example.title),
-      h('span', { className: 'camhome-example-text' }, example.text))))
+  return h('div', { className: 'camhome-hero-dock' },
+    h(BrandLockup, { variant: 'hero', tagline: 'Agent 助你驾驭 CAM 加工的复杂' }),
+    h('div', { className: 'camhome-examples-dock' },
+      EXAMPLES.map((example) => h(Card, {
+        key: example.title,
+        className: 'camhome-example',
+        onClick: () => pickExample(example.text),
+      },
+        h('span', { className: 'camhome-example-title' }, example.title),
+        h('span', { className: 'camhome-example-text' }, example.text)))))
 }
 
 // Root-scope home content cannot reach the session input machine. This
