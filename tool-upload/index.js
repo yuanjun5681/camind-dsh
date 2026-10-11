@@ -9,7 +9,9 @@ export const name = 'tool-upload'
 export const inject = ['tools']
 
 export function apply(ctx) {
-  const uploads = createUploadService()
+  // attachments/sessions 是宿主官方服务：官方 composer 上传落盘在 attachments/v1
+  //（桌面端只有这条路），service.js 把它们桥进 uploads 列举/解析。
+  const uploads = createUploadService({ ctx })
   ctx.provide('uploads', uploads)
   registerListUploadedFiles(ctx, uploads)
   registerReadUploadedFile(ctx, uploads)
