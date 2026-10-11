@@ -54,9 +54,10 @@ function CamindBrandName() {
 }
 
 function apply(ctx) {
-  // /camind-only: the same graph also boots the official shell (/web), whose
-  // brand seats belong to ui-brand-official's stock occupants.
-  if (!location.pathname.startsWith('/camind')) return
+  // /camind 与官方桌面端（dsh-app://app，经 scripts/desktop.sh 以本项目
+  // DSH_HOME 启动）注册；官方 /web 壳的品牌席位留给 ui-brand-official。
+  const isCamindSurface = location.pathname.startsWith('/camind') || location.protocol === 'dsh-app:'
+  if (!isCamindSurface) return
   ctx.effect(() => {
     const style = document.createElement('style')
     style.setAttribute('data-camind-ui-brand', '')

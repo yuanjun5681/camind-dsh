@@ -124,6 +124,8 @@ scripts/desktop.sh   # 以本项目 .dsh 为 DSH_HOME 启动官方桌面应用
 
 原理：官方桌面宿主读 `DSH_HOME` 环境变量，其受管 desktop profile 只在缺失时创建、不覆写已有内容；`npm run init` 在 `.dsh/profiles/desktop/` 预置与 web 完全一致的 bundle 组合。注意桌面窗口渲染的是烘焙进 App 的官方前端（`dsh-app://` 协议直出，不经 Host 路由），`/camind` 定制 SPA 属于浏览器路径；记忆库管理页等 `/camind/pages/*` 在桌面端不可用（其菜单项点击在桌面端无效，用浏览器开）。
 
+品牌化（桌面图标用 Camind mascot）：官方包是已签名/公证 bundle，macOS 对其施加 MACL 写保护，图标只能走「拷贝 + ad-hoc 重签」——`scripts/brand-desktop-app.sh` 一键完成（iconutil 全尺寸 .icns + icon.png + `CFBundleDisplayName`，重签并刷新注册），产出 `/Applications/Camind.app`，`scripts/desktop.sh` 优先启动它。官方桌面自动更新会整体替换官方 App，更新后重跑该脚本即可。图标规范：macOS `.icns` 带 16~1024 全尺寸（圆角蒙版由系统施加，源图满幅方形）；Windows 若做同等品牌化，需同名多尺寸 `.ico`（16/24/32/48/64/128/256 px，NSIS 安装包与任务栏读取）。
+
 ## 编写自己的插件
 
 ### 1. 最小插件

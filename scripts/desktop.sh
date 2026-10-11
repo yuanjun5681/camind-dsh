@@ -10,14 +10,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export DSH_HOME="$ROOT/.dsh"
 
 APP=""
-for candidate in "/Applications/DeepSeek Harness.app" "$HOME/Applications/DeepSeek Harness.app"; do
+# 优先 Camind.app（官方 App 的品牌化副本：Camind 图标 + ad-hoc 重签；
+# 由官方桌面自动更新覆盖后需按 README 步骤重做）。
+for candidate in "/Applications/Camind.app" "$HOME/Applications/Camind.app" \
+                 "/Applications/DeepSeek Harness.app" "$HOME/Applications/DeepSeek Harness.app"; do
   if [ -d "$candidate" ]; then
     APP="$candidate"
     break
   fi
 done
 if [ -z "$APP" ]; then
-  echo "未找到 DeepSeek Harness 桌面应用。请先安装：" >&2
+  echo "未找到 Camind.app 或 DeepSeek Harness 桌面应用。请先安装：" >&2
   echo "  curl -LO https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg" >&2
   exit 1
 fi

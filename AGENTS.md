@@ -6,7 +6,7 @@
 
 Camind 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）插件机制搭建的 CAM 加工业 Agent Harness 工作区，**不是 dsh 本体的源码仓库**。dsh 本体通过 `npx` 从 npm 运行（`@deepseek-ai/dsh`，仓库由根目录 `dsh-version.json` 固定版本，当前为 `0.2.0-rc.2`；developer preview 阶段，迭代快、不保证磁盘格式兼容）。`scripts/dsh.mjs`、ui-shell 客户端包和桌面 vendor 必须保持该版本一致。
 
-dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工具、命令、LLM、shell 等）都是挂在 [Cordis](https://github.com/cordiverse/cordis) 插件框架上的插件。本工作区包含一组通用插件（上传、记忆库、Git 仓库服务）、一个独立定制前端和一份 dsh 数据目录（`.dsh/`）。桌面端用官方桌面应用（0.2.0 起上游官方提供）：启动入口 `scripts/desktop.sh`（官方 App 二进制 + `DSH_HOME` 指向项目 `.dsh`；macOS `open` 不能传环境变量，故直接 exec App 内二进制）。官方桌面宿主加载 `.dsh/profiles/desktop/`（init.mjs 的 desktop 模板生成，bundle 组合与 web 一致：全部 camind 插件 + 「CAM 加工」模式都进桌面；桌面窗口渲染的是上游烘焙进 App 的官方前端壳——/camind 定制 SPA 只在浏览器路径可达，桌面里 Camind 内容经官方壳的席位呈现；该应用的窗口不注册 AX 树，GUI 自动化只能截图）。
+dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工具、命令、LLM、shell 等）都是挂在 [Cordis](https://github.com/cordiverse/cordis) 插件框架上的插件。本工作区包含一组通用插件（上传、记忆库、Git 仓库服务）、一个独立定制前端和一份 dsh 数据目录（`.dsh/`）。桌面端用官方桌面应用（0.2.0 起上游官方提供）：启动入口 `scripts/desktop.sh`（优先 /Applications/Camind.app，其次官方 App；macOS `open` 不能传环境变量，故直接 exec App 内二进制）；品牌化由 `scripts/brand-desktop-app.sh` 产出（官方包 MACL 写保护，只能拷贝 + ad-hoc 重签，官方自动更新后需重跑）。官方桌面宿主加载 `.dsh/profiles/desktop/`（init.mjs 的 desktop 模板生成，bundle 组合与 web 一致：全部 camind 插件 + 「CAM 加工」模式都进桌面；桌面窗口渲染的是上游烘焙进 App 的官方前端壳——/camind 定制 SPA 只在浏览器路径可达，桌面里 Camind 内容经官方壳的席位呈现；该应用的窗口不注册 AX 树，GUI 自动化只能截图）。
 
 ## 技术栈
 
