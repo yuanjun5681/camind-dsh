@@ -43,4 +43,4 @@ echo "==> ad-hoc 重签"
 codesign --force --deep --sign - "$TARGET"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$TARGET"
 
-echo "完成：$TARGET（Dock/聚焦/Finder 均显示 Camind 图标；scripts/desktop.sh 会优先启动它）"
+echo "完成：${TARGET}（Dock/聚焦/Finder 均显示 Camind 图标；scripts/desktop.sh 会优先启动它）"
