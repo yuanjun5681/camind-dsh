@@ -1,0 +1,5 @@
+# camind-ui-workbench: client-only bundle; the tab registers its own seat and
+# needs no Host entry.
+- insert:
+    - id: ui-workbench
+      name: camind-ui-workbench

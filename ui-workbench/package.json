@@ -1,0 +1,25 @@
+{
+  "name": "camind-ui-workbench",
+  "version": "0.1.0",
+  "description": "Camind workbench as an official right-Sidebar tab (输入/交付物/加工 subtabs); runs in /camind, official /web, and the desktop shell.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "lib/client.js"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

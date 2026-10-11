@@ -111,6 +111,7 @@ const PROFILE_TEMPLATES = {
       'camind-ui-shell': 'link:ui-shell',
       'camind-ui-preview': 'link:ui-preview',
       'camind-ui-toolpath-viewer': 'link:ui-toolpath-viewer',
+      'camind-ui-workbench': 'link:ui-workbench',
     },
     bundles: [
       '@deepseek-ai/dsh-base',
@@ -126,6 +127,7 @@ const PROFILE_TEMPLATES = {
       'camind-ui-brand',
       'camind-ui-home',
       'camind-ui-toolpath-viewer',
+      'camind-ui-workbench',
       'camind-page-memory',
       'camind-preset-cam-machining',
     ],
@@ -148,6 +150,7 @@ const PROFILE_TEMPLATES = {
       'camind-ui-shell': 'link:ui-shell',
       'camind-ui-preview': 'link:ui-preview',
       'camind-ui-toolpath-viewer': 'link:ui-toolpath-viewer',
+      'camind-ui-workbench': 'link:ui-workbench',
     },
     bundles: [
       '@deepseek-ai/dsh-base',
@@ -163,6 +166,7 @@ const PROFILE_TEMPLATES = {
       'camind-ui-brand',
       'camind-ui-home',
       'camind-ui-toolpath-viewer',
+      'camind-ui-workbench',
       'camind-page-memory',
       'camind-preset-cam-machining',
     ],
