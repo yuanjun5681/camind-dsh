@@ -53,13 +53,14 @@ const HOME_CSS = `
 // docs/dsh-upgrade.md）。
 const DESKTOP_HOME_CSS = `
 [data-phase="hero"] [data-chain-overlay-fallback="conversation.composer"] > div > div:first-child { display: none; }
-/* dock 提到工作区行之上，与 /camind 首页的品牌区在上同序（仅含我们内容时） */
-[data-phase="hero"] [data-slot="conversation.input.dock"]:has(.camhome-hero-dock) { order: -1; }
+/* dock 提到工作区行之上，与 /camind 首页的品牌区在上同序。slot 包装是
+   display:contents，order 要打在内容本体（包装不成盒，内容直接进 flex 序）。 */
 .camhome-hero-dock {
   display: flex; flex-direction: column; align-items: center; gap: 22px;
   width: 100%; padding: 16px 0 8px;
+  order: -1;
 }
-.camhome-hero-dock .camhome-examples-dock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; width: 100%; max-width: 748px; }
+.camhome-hero-dock .camhome-examples-dock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 10px; width: 100%; max-width: 748px; }
 .camhome-hero-dock .camhome-example { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
 .camhome-hero-dock .camhome-example-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .camhome-hero-dock .camhome-example-text {

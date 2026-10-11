@@ -33,7 +33,6 @@ const {
   Field,
   IconButton,
   Input,
-  SidebarAction,
   StateNotice,
   StateView,
   Tabs,
@@ -49,8 +48,11 @@ const pageCss = `
 [data-page-memory] { box-sizing: border-box; color: var(--camind-color-text); background: var(--camind-surface-page); font: inherit; }
 [data-page-memory] *, [data-page-memory] *::before, [data-page-memory] *::after { box-sizing: border-box; }
 
+/* 顶部留白对齐官方插件页（PluginManagerPage .pageHead: 28px；macOS 桌面端
+   叠加 frame 顶部 clearance 避开红绿灯条）。 */
 .pmm-page1, .pmm-page2 { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.pmm-head { flex: none; padding: 10px var(--camind-page-inline) 0; }
+.pmm-head { flex: none; padding: 28px var(--camind-page-inline) 0; }
+[data-platform='darwin'] .pmm-head { padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px)); }
 .pmm-head-row { display: flex; align-items: center; gap: 10px; }
 .pmm-title { margin: 0; font-size: 24px; font-weight: 600; line-height: 32px; }
 .pmm-lead { flex: 1; min-width: 0; margin: 0; color: var(--camind-color-text-tertiary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -76,7 +78,8 @@ const pageCss = `
 .pmm-card-gap { flex: 1; min-height: 12px; }
 .pmm-card-badges { display: flex; flex-wrap: nowrap; overflow: hidden; align-items: center; gap: 4px; padding-top: 10px; border-top: 1px solid var(--camind-border-default); }
 
-.pmm-dhead { flex: none; border-bottom: 1px solid var(--camind-border-default); padding: 10px var(--camind-page-inline) 12px; }
+.pmm-dhead { flex: none; border-bottom: 1px solid var(--camind-border-default); padding: 28px var(--camind-page-inline) 12px; }
+[data-platform='darwin'] .pmm-dhead { padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px)); }
 .pmm-dhead-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pmm-dhead-name { margin: 0; font-family: var(--camind-font-mono); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pmm-dhead-flex { flex: 1; }
@@ -102,37 +105,6 @@ const pageCss = `
 .pmm-danger-action { color: var(--camind-color-danger); }
 @media (max-width: 760px) { .pmm-dialog-cols { grid-template-columns: 1fr; } }
 `
-
-// --- inline styles (sidebar menu item only, geometry depends on props) -----------
-
-const menuStyles = {
-  button(active, wide) {
-    return {
-      width: wide ? 'calc(100% + 4px)' : 36,
-      height: wide ? 42 : 36,
-      flex: 'none',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: wide ? 'flex-start' : 'center',
-      gap: wide ? 8 : 0,
-      margin: wide ? '4px -2px' : '4px 0',
-      padding: wide ? '0 10px 0 8px' : 0,
-      border: 0,
-      borderRadius: wide ? 12 : '50%',
-      background: active ? 'var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover))' : 'transparent',
-      color: 'var(--dsw-alias-label-primary)',
-      font: 'inherit',
-      fontWeight: active ? 600 : 400,
-      cursor: 'pointer',
-      overflow: 'hidden',
-    }
-  },
-  label: {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-}
 
 // --- api -----------------------------------------------------------------------
 
@@ -640,19 +612,6 @@ function MemoryPanelIcon({ size }) {
 
 // --- sidebar entry ---------------------------------------------------------------------
 
-function MemoryMenuItem({ wide, usePanelInfo }) {
-  // 全局面板激活态经 usePanelInfo（/camind shim 与官方 layout 均提供）。
-  const active = usePanelInfo?.((info) => info.activePanelId === 'memory') ?? false
-  const open = () => { applyCtx?.get('layout')?.selectPanel('memory') }
-  return h(SidebarAction, {
-    wide,
-    active,
-    icon: h(IconThinkOutlineRegular, { size: wide ? 16 : 18 }),
-    label: '记忆库',
-    onClick: open,
-  })
-}
-
 function apply(ctx) {
   applyCtx = ctx
   if (location.pathname === '/camind' || location.pathname.startsWith('/camind/') || location.protocol === 'dsh-app:') {
@@ -678,14 +637,6 @@ function apply(ctx) {
       order: 30,
       label: '记忆库',
     }, MemoryPanelIcon))
-
-  ctx.slots.inject('sidebar.footer.action', () =>
-    ctx.slots.register({
-      name: 'sidebar.footer.action',
-      id: 'page-memory',
-      order: 20,
-      label: '记忆库',
-    }, MemoryMenuItem))
 
   // 旧 /pages/memory* 深链接：接进全局面板（初始 view 按 URL 解析）。
   // 临时摘掉做崩溃隔离（IsolationProbe）。
