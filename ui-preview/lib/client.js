@@ -312,6 +312,7 @@ function FilePreviewBody({ sessionId, preview, error }) {
 function FilePreviewView({ sessionId }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot)
   const target = snap.target?.sessionId === sessionId ? snap.target : undefined
+  const ModelViewer = useModelViewer()
   const isPath = target?.kind === 'path'
   const { preview, error } = useFilePreview(isPath ? target.sessionId : undefined, isPath ? target.path : undefined)
   const blobUrl = useBlobUrl(target?.kind === 'content' ? target.content : undefined)
@@ -321,16 +322,16 @@ function FilePreviewView({ sessionId }) {
       h('div', { className: 'campv-empty' }, '尚未预览文件——在「交付物」「加工」页签或输入区文件列表点「预览」，内容显示在这里。'))
   }
 
-  const contentMode = target.kind === 'content'
-  const title = contentMode ? target.name : (preview?.name || fileNameFromPath(target.path))
-  const displayPath = contentMode ? target.name : (preview?.displayPath ?? preview?.path ?? target.path)
-  const relocated = !contentMode && Boolean(preview && String(preview.path).replaceAll('\\', '/') !== String(target.path).replaceAll('\\', '/'))
-  const meta = contentMode
+  const contentMode = target.kind === 'content', runMode = target.kind === 'run'
+  const title = runMode ? `加工检查 · ${target.runId}` : contentMode ? target.name : (preview?.name || fileNameFromPath(target.path))
+  const displayPath = runMode ? target.runId : contentMode ? target.name : (preview?.displayPath ?? preview?.path ?? target.path)
+  const relocated = isPath && Boolean(preview && String(preview.path).replaceAll('\\', '/') !== String(target.path).replaceAll('\\', '/'))
+  const meta = runMode ? '工序驱动的模型与 NC 联合预览' : contentMode
     ? `${bytesLabel(new Blob([target.content]).size)} · 内容预览`
     : preview
       ? `${relocated ? '已发布 · ' : ''}${preview.displayPath ?? preview.path} · ${bytesLabel(preview.size)} · ${preview.mediaType}`
       : target.path
-  const openUrl = contentMode ? blobUrl : rawFileUrl(target.sessionId, preview?.path ?? target.path)
+  const openUrl = runMode ? null : contentMode ? blobUrl : rawFileUrl(target.sessionId, preview?.path ?? target.path)
 
   return h('div', { className: 'campv-view' },
     h('div', { className: 'campv-chrome' },
@@ -343,7 +344,7 @@ function FilePreviewView({ sessionId }) {
             ? h('a', { href: openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')
             : null)),
       h('div', { className: 'campv-stage' },
-        contentMode
+        runMode ? ModelViewer ? h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId: target.sessionId, runId: target.runId })) : h('div', { className: 'campv-error' }, '加工查看器未加载') : contentMode
           ? h(NcOrText, { name: target.name, text: target.content })
           : h(FilePreviewBody, { sessionId: target.sessionId, preview, error }))))
 }
@@ -371,6 +372,12 @@ function apply(ctx) {
       const target = String(path ?? '')
       if (!id || !target) return
       publish({ target: { kind: 'path', sessionId: id, path: target } })
+      activateConversationView(id, 'preview')
+    },
+    previewRun(sessionId, runId) {
+      const id = String(sessionId ?? ''), run = String(runId ?? '')
+      if (!/^[A-Za-z0-9_-]+$/.test(id) || !/^[A-Za-z0-9_-]+$/.test(run)) return
+      publish({ target: { kind: 'run', sessionId: id, runId: run } })
       activateConversationView(id, 'preview')
     },
     // 内容模式：调用方已持有文本（如 tool-cam delivery 路由开包取出的 NC），

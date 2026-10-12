@@ -16,7 +16,7 @@
 //     恢复时重建渲染器并把 CPU 侧数据重新喂一遍(feedRenderer);
 //   · loadNcFile 的文件读取留在壳层(Electron 主进程),这里收 parseNc 的结果(setNc)。
 import { fidToIndex, meshBounds, RigidTransform, OrbitCamera, buildToolpathBuffers } from "@camind/core";
-import type { Mesh, Edges, FaceInfo, BodyInfo, PickHit, ProjectionKind, StandardViewKind, NcParseResult } from "@camind/core";
+import type { Mesh, Edges, FaceInfo, BodyInfo, PickHit, ProjectionKind, StandardViewKind, NcParseResult, BoundingBox } from "@camind/core";
 import { Projection, StandardView } from "@camind/core";
 import { SceneRenderer, viewParamsFromCamera, toolpathSegmentCount } from "./scene_renderer.ts";
 import type { ViewParams, RenderOptions, ToolpathGeometry, Rgba, RendererStats } from "./scene_renderer.ts";
@@ -56,6 +56,7 @@ export interface GeomViewCallbacks {
     segmentClicked?(segment: number, ncLine: number): void;
     playheadChanged?(segment: number): void;
     renderingFailed?(reason: string): void;
+    frameRendered?(): void;
 }
 
 export interface GeomViewOptions {
@@ -96,6 +97,8 @@ export class GeomView {
     private pathBuffers: ToolpathGeometry | null = null;
     private stationTransform = new RigidTransform();
     private playhead = 0;
+    private playbackStart = 0;
+    private playbackEnd = 1e30;
     private futureVisible = true;
 
     private selection: SelectionPort;
@@ -331,6 +334,13 @@ export class GeomView {
     }
 
     playheadSegment(): number { return this.playhead; }
+    setPlaybackRange(start: number, end: number): void {
+        this.playbackStart = start; this.playbackEnd = end;
+        this.renderer?.setPlaybackRange(start, end);
+        this.scheduleRender();
+    }
+    setModelVisible(visible: boolean): void { this.options.showMesh = visible; this.scheduleRender(); }
+    setPickMode(mode: 'face' | 'path'): void { this.options.pickMode = mode; this.setHoverFace(null); }
 
     /** 还没走到的线段是否淡淡地显示出来(关掉就是「只画前 N 段」)。 */
     setFutureSegmentsVisible(visible: boolean): void {
@@ -413,7 +423,7 @@ export class GeomView {
         const hit = this.renderer.pick(this.currentView(), this.pixelSize().width, this.pixelSize().height,
                                        pixel.x, pixel.y, this.options);
         this.lastPickMs = this.now() - t0;
-        return hit;
+        return this.options.pickMode === 'path' && hit.kind === 1 ? { kind: 0, index: 0 } : hit;
     }
 
     faceSubject(faceIndex: number): FaceSubject {
@@ -538,8 +548,11 @@ export class GeomView {
 
     getCamera(): OrbitCamera { return this.camera; }
 
-    fitView(): void {
+    fitView(bounds?: BoundingBox): void {
+        const original = this.camera.sceneBounds();
+        if (bounds) this.camera.setSceneBounds(bounds);
         this.camera.fit(this.aspect());
+        if (bounds) this.camera.setSceneBounds(original);
         this.scheduleRender();
     }
 
@@ -571,6 +584,7 @@ export class GeomView {
         this.renderer.setToolpath(this.pathBuffers);
         this.renderer.setToolpathTransform(this.stationTransform);
         this.renderer.setPlayhead(this.playhead);
+        this.renderer.setPlaybackRange(this.playbackStart, this.playbackEnd);
         this.renderer.setFutureVisibility(this.futureVisible ? 0.25 : 0);
         this.refreshAllFaceColors();
     }
@@ -602,6 +616,7 @@ export class GeomView {
         const t0 = this.now();
         try {
             this.renderer.render(this.currentView(), phys.width, phys.height, this.options);
+            this.callbacks.frameRendered?.();
         } catch (e) {
             this.callbacks.renderingFailed?.(e instanceof Error ? e.message : String(e));
             return;
@@ -658,6 +673,7 @@ export class GeomView {
             this.callbacks.segmentClicked?.(hit.index, this.ncLineOfSegment(hit.index));
             return;
         }
+        if (this.options.pickMode === 'path') return;
         const toggle = ev.ctrlKey || ev.metaKey;
         const mode: ClickMode = toggle ? "toggle" : "replace";
         if (hit.kind === 1 /* Face */) {

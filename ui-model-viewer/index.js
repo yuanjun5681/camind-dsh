@@ -3,10 +3,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { createModelService, FILES } from './lib/models.js'
+import { createJointService } from './lib/joint.js'
 const PREFIX = '/camind/api/models/sessions'
 export const inject = ['webServer', 'previewFiles', 'camPipeline']
 export function apply(ctx) {
-  const models = createModelService({ home: process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh'), resolve: (...args) => ctx.previewFiles.resolve(...args), pipeline: ctx.camPipeline })
+  const home = process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh')
+  const models = createModelService({ home, resolve: (...args) => ctx.previewFiles.resolve(...args), pipeline: ctx.camPipeline })
+  const joint = createJointService({ home, models })
   ctx.provide('modelPreview', models)
   ctx.webServer.register({ kind: 'prefix', path: PREFIX, handler: async (req, res) => {
     const json = (code, body) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)) }
@@ -16,8 +19,15 @@ export function apply(ctx) {
       const url = new URL(req.url, 'http://localhost')
       const segments = decodeURIComponent(url.pathname).slice(PREFIX.length + 1).split('/')
       const [session, action, name] = segments
-      if (!/^[A-Za-z0-9_-]+$/.test(session) || action !== 'model' || segments.length > 3) return json(404, { message: '未知接口' })
+      if (!/^[A-Za-z0-9_-]+$/.test(session) || !['model', 'runs'].includes(action) || segments.length > 3) return json(404, { message: '未知接口' })
       if (req.method !== 'GET' && req.method !== 'POST') return json(405, { message: '仅支持 GET / POST' })
+      if (action === 'runs') {
+        if (req.method !== 'GET') return json(405, { message: '仅支持 GET' })
+        if (name) return json(200, await joint.detail(session, name))
+        const requested = url.searchParams.get('path')
+        if (!requested || requested.length > 4096) return json(400, { message: '需要有效 path' })
+        return json(200, { runs: await joint.list(session, requested) })
+      }
       const requested = url.searchParams.get('path')
       if (!requested || requested.length > 4096) return json(400, { message: '需要有效 path' })
       const t = await models.target(session, requested)

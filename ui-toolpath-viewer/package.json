@@ -1,7 +1,7 @@
 {
   "name": "camind-ui-toolpath-viewer",
   "version": "0.1.0",
-  "description": "NC toolpath viewer for the keyed cam.nc.preview seat (self-written parser + minimal WebGL lines renderer with feed-timed playback animation, no vendor assets).",
+  "description": "Compatibility bundle for the unified camind-ui-model-viewer; retains the legacy pure NC parser for regression checks.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -21,7 +21,7 @@
     "client": {
       "platform": "web",
       "external": [
-        "camind-ui-foundation"
+        "camind-ui-model-viewer"
       ]
     }
   }

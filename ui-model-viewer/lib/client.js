@@ -32,13 +32,14 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var client_exports = {};
 __export(client_exports, {
   ModelViewer: () => ModelViewer,
+  ToolpathViewer: () => ToolpathViewer,
   apply: () => apply,
   inject: () => inject,
   name: () => name
 });
 module.exports = __toCommonJS(client_exports);
-var import_react = __toESM(require("react"), 1);
-var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react2 = __toESM(require("react"), 1);
+var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // ui-model-viewer/src/core/version.ts
 var kPackFormatName = "camind-geom";
@@ -887,15 +888,15 @@ function paintFace(colors, mesh, face, color) {
   if (face >= mesh.faceCount())
     return { offset: 0, size: 0 };
   const r = mesh.faceRange(face);
-  const base = r.vertexOffset * 4;
+  const base2 = r.vertexOffset * 4;
   for (let v = 0; v < r.vertexCount; ++v) {
-    const o = base + v * 4;
+    const o = base2 + v * 4;
     colors[o] = color[0];
     colors[o + 1] = color[1];
     colors[o + 2] = color[2];
     colors[o + 3] = color[3];
   }
-  return { offset: base, size: r.vertexCount * 4 };
+  return { offset: base2, size: r.vertexCount * 4 };
 }
 function buildFaceIdAttribute(mesh) {
   const ids = new Uint8Array(mesh.vertexCount() * 4);
@@ -1079,7 +1080,449 @@ var SelectionModel = class {
 };
 
 // ui-model-viewer/src/core/nc/parser.ts
+var WORD_RE = /([A-Za-z])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/g;
+var CANNED_CYCLES = {
+  73: "\u9AD8\u901F\u5544\u94BB",
+  74: "\u5DE6\u65CB\u653B\u4E1D",
+  76: "\u7CBE\u9557",
+  81: "\u94BB\u5B54",
+  82: "\u952A\u5B54",
+  83: "\u5544\u94BB",
+  84: "\u653B\u4E1D",
+  85: "\u9557\u5B54",
+  86: "\u9557\u5B54",
+  87: "\u80CC\u9557",
+  88: "\u9557\u5B54",
+  89: "\u9557\u5B54"
+};
+function isG(g, code) {
+  return Math.abs(g - code) < 0.01;
+}
+var PLANES = {
+  17: { u: 0, v: 1, n: 2, ou: "I", ov: "J" },
+  18: { u: 2, v: 0, n: 1, ou: "K", ov: "I" },
+  19: { u: 1, v: 2, n: 0, ou: "J", ov: "K" }
+};
 var TAU = Math.PI * 2;
+var TAP_OR_BORE_FEED_OUT = /* @__PURE__ */ new Set([74, 84, 85, 89]);
+var SIMPLE_BORE = /* @__PURE__ */ new Set([76, 87, 88]);
+function parseNc(text, options = {}) {
+  const segmentCap = options.segmentCap ?? 1e6;
+  const segments = [];
+  const cycles = [];
+  const skipped = [];
+  const warnings = [];
+  const tools = [];
+  let program = null;
+  let truncated = false;
+  let min = null;
+  let max = null;
+  const stats = { rapid: 0, feed: 0, arc: 0, cycle: 0, skipped: 0 };
+  let pos = [0, 0, 0];
+  let motion = null;
+  let plane = 17;
+  let absolute = true;
+  let units = "mm";
+  let returnInitial = true;
+  let canned = null;
+  let cannedInitialZ = 0;
+  let feed = null;
+  let spindle = null;
+  let pendingTool = null;
+  let warnedS0 = false;
+  let warnedCyclePlane = false;
+  let warnedSimpleCycle = false;
+  function warn(message) {
+    if (warnings.length < 200) warnings.push(message);
+  }
+  function growBounds(p) {
+    if (!min || !max) {
+      min = [...p];
+      max = [...p];
+      return;
+    }
+    for (let i = 0; i < 3; i++) {
+      if (p[i] < min[i]) min[i] = p[i];
+      if (p[i] > max[i]) max[i] = p[i];
+    }
+  }
+  function pushSegment(from, to, kind, line) {
+    if (truncated) return;
+    if (from[0] === to[0] && from[1] === to[1] && from[2] === to[2]) return;
+    if (segments.length >= segmentCap) {
+      truncated = true;
+      warn(`\u8F68\u8FF9\u6BB5\u6570\u8FBE\u5230\u4E0A\u9650 ${segmentCap}\uFF0C\u663E\u793A\u5DF2\u622A\u65AD`);
+      return;
+    }
+    segments.push({ from: [...from], to: [...to], kind, line, feed: kind === "rapid" ? null : feed });
+    stats[kind] += 1;
+    growBounds(from);
+    growBounds(to);
+  }
+  function targetPoint(params) {
+    const next = [...pos];
+    for (const [axis, letter] of [[0, "X"], [1, "Y"], [2, "Z"]]) {
+      const value = params[letter];
+      if (value === void 0) continue;
+      next[axis] = absolute ? value : pos[axis] + value;
+    }
+    return next;
+  }
+  function hasAxisWord(params) {
+    return params.X !== void 0 || params.Y !== void 0 || params.Z !== void 0;
+  }
+  function emitArc(cw, params, line) {
+    const frame = PLANES[plane];
+    const end = targetPoint(params);
+    const start = pos;
+    const su = start[frame.u];
+    const sv = start[frame.v];
+    const eu = end[frame.u];
+    const ev = end[frame.v];
+    let cu;
+    let cv;
+    if (params.R !== void 0) {
+      const r = Math.abs(params.R);
+      const dx = eu - su;
+      const dy = ev - sv;
+      const chord = Math.hypot(dx, dy);
+      if (chord === 0) {
+        warn(`\u7B2C ${line} \u884C\uFF1AR \u5706\u5F27\u5F26\u957F\u4E3A 0\uFF0C\u6574\u5706\u8BF7\u7528 IJK`);
+        return false;
+      }
+      if (r < chord / 2 - 1e-9) {
+        warn(`\u7B2C ${line} \u884C\uFF1A\u5706\u5F27\u534A\u5F84 ${r} \u5C0F\u4E8E\u534A\u5F26 ${chord / 2}\uFF0C\u5DF2\u94B3\u5236`);
+      }
+      const h3 = Math.sqrt(Math.max(0, r * r - (chord / 2) ** 2));
+      const mx = (su + eu) / 2;
+      const my = (sv + ev) / 2;
+      const lx = -dy / chord;
+      const ly = dx / chord;
+      const sign = (cw ? -1 : 1) * (params.R >= 0 ? 1 : -1);
+      cu = mx + sign * h3 * lx;
+      cv = my + sign * h3 * ly;
+    } else {
+      const ou = params[frame.ou] ?? 0;
+      const ov = params[frame.ov] ?? 0;
+      if (ou === 0 && ov === 0) {
+        warn(`\u7B2C ${line} \u884C\uFF1A\u5706\u5F27\u7F3A\u5C11 IJK \u5706\u5FC3\u6216 R\uFF0C\u5DF2\u8DF3\u8FC7`);
+        return false;
+      }
+      cu = su + ou;
+      cv = sv + ov;
+    }
+    const radius = Math.hypot(su - cu, sv - cv);
+    if (radius < 1e-9) {
+      warn(`\u7B2C ${line} \u884C\uFF1A\u96F6\u534A\u5F84\u5706\u5F27\uFF0C\u5DF2\u8DF3\u8FC7`);
+      return false;
+    }
+    const a0 = Math.atan2(sv - cv, su - cu);
+    let a1 = Math.atan2(ev - cv, eu - cu);
+    const fullCircle = su === eu && sv === ev && params.R === void 0;
+    let sweep;
+    if (fullCircle) {
+      sweep = cw ? -TAU : TAU;
+    } else if (cw) {
+      while (a1 >= a0) a1 -= TAU;
+      sweep = a1 - a0;
+    } else {
+      while (a1 <= a0) a1 += TAU;
+      sweep = a1 - a0;
+    }
+    const step = Math.min(Math.PI / 6, Math.max(Math.PI / 45, 2 * Math.acos(Math.max(-1, Math.min(1, 1 - 0.05 / radius)))));
+    const steps = Math.min(720, Math.max(4, Math.ceil(Math.abs(sweep) / step)));
+    const n0 = start[frame.n];
+    const dn = end[frame.n] - n0;
+    let prev = start;
+    for (let i = 1; i <= steps; i++) {
+      const angle = a0 + sweep * i / steps;
+      const p = [...start];
+      p[frame.u] = cu + radius * Math.cos(angle);
+      p[frame.v] = cv + radius * Math.sin(angle);
+      p[frame.n] = n0 + dn * i / steps;
+      pushSegment(prev, p, "arc", line);
+      prev = p;
+    }
+    pos = end;
+    return true;
+  }
+  function emitCanned(params, line) {
+    const next = targetPoint(params);
+    const tx = next[0];
+    const ty = next[1];
+    let rPlane;
+    let zDepth;
+    if (absolute) {
+      rPlane = canned.r ?? pos[2];
+      zDepth = canned.z ?? pos[2];
+    } else {
+      rPlane = cannedInitialZ + (canned.r ?? 0);
+      zDepth = rPlane + (canned.z ?? 0);
+    }
+    const code = canned.code;
+    cycles.push({
+      code,
+      label: CANNED_CYCLES[code] ?? `G${code}`,
+      at: [tx, ty],
+      r: rPlane,
+      z: zDepth,
+      line
+    });
+    if (plane !== 17 && !warnedCyclePlane) {
+      warnedCyclePlane = true;
+      warn(`\u7B2C ${line} \u884C\uFF1A\u56FA\u5B9A\u5FAA\u73AF\u5728 G${plane} \u5E73\u9762\u6309 XY \u5B54\u4F4D\u5C55\u5F00\uFF0C\u8BF7\u590D\u6838`);
+    }
+    if (tx !== pos[0] || ty !== pos[1]) {
+      pushSegment(pos, [tx, ty, pos[2]], "rapid", line);
+      pos = [tx, ty, pos[2]];
+    }
+    const retractZ = returnInitial ? cannedInitialZ : rPlane;
+    if (SIMPLE_BORE.has(code)) {
+      if (!warnedSimpleCycle) {
+        warnedSimpleCycle = true;
+        warn(`G${code} ${CANNED_CYCLES[code]}\u6309 R\u2192Z \u7B80\u5316\u663E\u793A\uFF0C\u9557\u5B54\u5B50\u6B65\u672A\u5C55\u5F00`);
+      }
+      if (pos[2] !== rPlane) {
+        pushSegment(pos, [tx, ty, rPlane], "rapid", line);
+        pos = [tx, ty, rPlane];
+      }
+      pushSegment([tx, ty, rPlane], [tx, ty, zDepth], "cycle", line);
+      if (zDepth !== retractZ) pushSegment([tx, ty, zDepth], [tx, ty, retractZ], "rapid", line);
+      pos = [tx, ty, retractZ];
+      return;
+    }
+    if (pos[2] !== rPlane) {
+      pushSegment(pos, [tx, ty, rPlane], "rapid", line);
+      pos = [tx, ty, rPlane];
+    }
+    const q = Math.abs(canned.q ?? 0);
+    const pecking = (code === 83 || code === 73) && q > 0 && rPlane !== zDepth;
+    if (pecking) {
+      const down = rPlane > zDepth;
+      let zc = rPlane;
+      let peckAt = rPlane;
+      let guard = 0;
+      while (guard < 1e4) {
+        guard += 1;
+        const zn = down ? Math.max(peckAt - q, zDepth) : Math.min(peckAt + q, zDepth);
+        pushSegment([tx, ty, zc], [tx, ty, zn], "cycle", line);
+        pos = [tx, ty, zn];
+        peckAt = zn;
+        if (Math.abs(zn - zDepth) < 1e-9) break;
+        if (code === 83) {
+          pushSegment([tx, ty, zn], [tx, ty, rPlane], "rapid", line);
+          zc = rPlane;
+        } else {
+          const up = down ? Math.min(zn + 1, rPlane) : Math.max(zn - 1, rPlane);
+          pushSegment([tx, ty, zn], [tx, ty, up], "rapid", line);
+          zc = up;
+        }
+      }
+    } else {
+      pushSegment([tx, ty, rPlane], [tx, ty, zDepth], "cycle", line);
+      pos = [tx, ty, zDepth];
+    }
+    if (pos[2] !== retractZ) {
+      const kind = TAP_OR_BORE_FEED_OUT.has(code) ? "cycle" : "rapid";
+      pushSegment(pos, [tx, ty, retractZ], kind, line);
+    }
+    pos = [tx, ty, retractZ];
+  }
+  function handleLine(rawText, lineNo) {
+    let line = rawText.replace(/\r/g, "");
+    let stripped = "";
+    let depth = 0;
+    for (const ch of line) {
+      if (ch === "(") {
+        depth += 1;
+        if (depth > 1) {
+          skipped.push({ line: lineNo, text: line.trim().slice(0, 120), reason: "nested comment" });
+          stats.skipped += 1;
+          return;
+        }
+        continue;
+      }
+      if (ch === ")") {
+        if (depth === 0) {
+          skipped.push({ line: lineNo, text: line.trim().slice(0, 120), reason: "unmatched )" });
+          stats.skipped += 1;
+          return;
+        }
+        depth = 0;
+        continue;
+      }
+      if (ch === ";" && depth === 0) break;
+      if (depth === 0) stripped += ch;
+    }
+    if (depth !== 0) {
+      skipped.push({ line: lineNo, text: line.trim().slice(0, 120), reason: "unterminated comment" });
+      stats.skipped += 1;
+      return;
+    }
+    line = stripped.trim();
+    if (line === "" || line === "%") return;
+    if (line.startsWith("/")) line = line.replace(/^\/+\s*/, "");
+    const words = [];
+    let covered = 0;
+    for (const match of line.matchAll(WORD_RE)) {
+      const gap = line.slice(covered, match.index);
+      if (gap.trim() !== "") {
+        skipped.push({
+          line: lineNo,
+          text: line.trim().slice(0, 120),
+          reason: `stray characters ${JSON.stringify(gap.trim())}`
+        });
+        stats.skipped += 1;
+        return;
+      }
+      covered = match.index + match[0].length;
+      words.push([match[1].toUpperCase(), Number.parseFloat(match[2])]);
+    }
+    if (line.slice(covered).trim() !== "") {
+      skipped.push({
+        line: lineNo,
+        text: line.trim().slice(0, 120),
+        reason: `stray characters ${JSON.stringify(line.slice(covered).trim())}`
+      });
+      stats.skipped += 1;
+      return;
+    }
+    if (words.length === 0) return;
+    const gCodes = [];
+    const mCodes = [];
+    const params = {};
+    for (const [letter, value] of words) {
+      if (letter === "G") gCodes.push(value);
+      else if (letter === "M") mCodes.push(value);
+      else if (letter === "N") continue;
+      else if (letter === "O") {
+        program = program ?? String(Math.trunc(value));
+      } else params[letter] = value;
+    }
+    let motionHere = null;
+    let cannedHere = null;
+    let refReturn = false;
+    for (const g of gCodes) {
+      if (isG(g, 17)) plane = 17;
+      else if (isG(g, 18)) plane = 18;
+      else if (isG(g, 19)) plane = 19;
+      else if (isG(g, 20)) {
+        if (units !== "inch") warn(`\u7B2C ${lineNo} \u884C\uFF1AG20 \u82F1\u5236\u6309\u6587\u4EF6\u6570\u503C\u7ED8\u5236\uFF0C\u672A\u6362\u7B97\u6BEB\u7C73`);
+        units = "inch";
+      } else if (isG(g, 21)) units = "mm";
+      else if (isG(g, 90)) absolute = true;
+      else if (isG(g, 91)) absolute = false;
+      else if (isG(g, 90.1)) warn(`\u7B2C ${lineNo} \u884C\uFF1AG90.1 \u7EDD\u5BF9\u5706\u5FC3\u4E0D\u652F\u6301\uFF0CIJK \u4ECD\u6309\u589E\u91CF\u5904\u7406`);
+      else if (isG(g, 98)) returnInitial = true;
+      else if (isG(g, 99)) returnInitial = false;
+      else if (isG(g, 80)) canned = null;
+      else if (isG(g, 28) || isG(g, 30)) refReturn = true;
+      else if (isG(g, 0) || isG(g, 1) || isG(g, 2) || isG(g, 3)) motionHere = Math.trunc(g);
+      else if (CANNED_CYCLES[Math.trunc(g)] !== void 0 && Math.abs(g - Math.trunc(g)) < 0.01) cannedHere = Math.trunc(g);
+    }
+    if (params.F !== void 0) feed = params.F;
+    if (params.S !== void 0) {
+      spindle = params.S;
+      if (params.S === 0 && !warnedS0) {
+        warnedS0 = true;
+        warn(`\u7B2C ${lineNo} \u884C\uFF1AS0 \u4E3B\u8F74\u8F6C\u901F\u4E3A 0\uFF0C\u5FC5\u987B\u56DE\u5230 NC \u590D\u6838`);
+      }
+    }
+    if (params.T !== void 0) pendingTool = params.T;
+    if (mCodes.some((m) => Math.trunc(m) === 6) && pendingTool !== null) {
+      tools.push(pendingTool);
+      pendingTool = null;
+    }
+    if (refReturn) {
+      if (hasAxisWord(params)) {
+        const next2 = targetPoint(params);
+        pushSegment(pos, next2, "rapid", lineNo);
+        pos = next2;
+      }
+      return;
+    }
+    if (motionHere !== null) {
+      motion = motionHere;
+      canned = null;
+    }
+    if (cannedHere !== null) {
+      canned = {
+        code: cannedHere,
+        z: params.Z,
+        r: params.R,
+        q: params.Q,
+        p: params.P,
+        f: params.F ?? feed
+      };
+      cannedInitialZ = pos[2];
+      emitCanned(params, lineNo);
+      return;
+    }
+    if (canned !== null && motionHere === null) {
+      if (params.Q !== void 0) canned.q = params.Q;
+      if (params.P !== void 0) canned.p = params.P;
+      if (params.X !== void 0 || params.Y !== void 0) {
+        emitCanned(params, lineNo);
+        return;
+      }
+      if (params.Z !== void 0 || params.R !== void 0) {
+        if (params.Z !== void 0) canned.z = params.Z;
+        if (params.R !== void 0) canned.r = params.R;
+        return;
+      }
+    }
+    if (!hasAxisWord(params)) return;
+    if (motion === null) {
+      skipped.push({
+        line: lineNo,
+        text: rawText.trim().slice(0, 120),
+        reason: "axis words without an active motion mode"
+      });
+      stats.skipped += 1;
+      return;
+    }
+    const next = targetPoint(params);
+    if (motion === 0) {
+      pushSegment(pos, next, "rapid", lineNo);
+      pos = next;
+    } else if (motion === 1) {
+      pushSegment(pos, next, "feed", lineNo);
+      pos = next;
+    } else {
+      emitArc(motion === 2, params, lineNo);
+    }
+  }
+  const lines = String(text ?? "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    try {
+      handleLine(lines[i], i + 1);
+    } catch (error) {
+      skipped.push({
+        line: i + 1,
+        text: lines[i].trim().slice(0, 120),
+        reason: `parser error: ${error instanceof Error ? error.message : String(error)}`
+      });
+      stats.skipped += 1;
+    }
+  }
+  return {
+    meta: {
+      program,
+      units,
+      tools,
+      lines: lines.length,
+      skipped,
+      warnings,
+      truncated,
+      feed,
+      spindle
+    },
+    segments,
+    cycles,
+    bounds: min && max ? { min, max } : null,
+    stats
+  };
+}
 
 // ui-model-viewer/src/core/nc/toolpath.ts
 function defaultToolpathColors() {
@@ -1236,10 +1679,12 @@ void main()
 {
     float seg = float(gl_VertexID / 2);
     vec3 c = aColor.rgb;
-    if (seg > ub.params.x)
-        c = mix(ub.background.rgb, c, ub.params.y);      // \u8FD8\u6CA1\u8D70\u5230
-    else if (seg > ub.params.x - 1.0)
-        c = mix(c, vec3(1.0), 0.65);                     // \u6B63\u5728\u8D70\u7684\u8FD9\u4E00\u6BB5
+    if (seg >= ub.params.z && seg < ub.params.w) {
+        if (seg > ub.params.x)
+            c = mix(ub.background.rgb, c, ub.params.y);
+        else if (seg > ub.params.x - 1.0)
+            c = mix(c, vec3(1.0), 0.65);
+    }
     vColor = vec4(c, 1.0);
     gl_Position = ub.mvp * vec4(aPos, 1.0);
 }`;
@@ -1300,6 +1745,8 @@ var SceneRenderer = class {
   pathModel = new Mat4();
   // 工位变换的逆
   playhead = 1e30;
+  playbackStart = 0;
+  playbackEnd = 1e30;
   futureKeep = 0.25;
   // 显卡资源
   posBuf = null;
@@ -1444,6 +1891,10 @@ var SceneRenderer = class {
   playheadPos() {
     return this.playhead;
   }
+  setPlaybackRange(start, end) {
+    this.playbackStart = start;
+    this.playbackEnd = end;
+  }
   /** 还没走到的线段保留多少本色:0 = 完全不显示,1 = 与走过的一样。 */
   setFutureVisibility(keep) {
     this.futureKeep = keep;
@@ -1474,6 +1925,8 @@ var SceneRenderer = class {
     depthBiasMatrix(PATH_DEPTH_BIAS).mul(view.viewProj).mul(this.pathModel).toFloat32().forEach((v, i) => pu[i] = v);
     pu[16] = Math.min(this.playhead, 1e9);
     pu[17] = this.futureKeep;
+    pu[18] = this.playbackStart;
+    pu[19] = Math.min(this.playbackEnd, 1e9);
     pu[20] = options.background[0];
     pu[21] = options.background[1];
     pu[22] = options.background[2];
@@ -1557,6 +2010,7 @@ var SceneRenderer = class {
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
       gl.disable(gl.BLEND);
+      gl.depthMask(true);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       if (options.showMesh && this.posBuf && this.idBuf && this.indexBuf) {
         this.applyPipeline({
@@ -1570,7 +2024,7 @@ var SceneRenderer = class {
         gl.bindVertexArray(this.idMeshVao);
         this.drawIndexed(gl.TRIANGLES, this.mesh.indexCount());
       }
-      if (options.showToolpath && this.pathPosBuf && this.pathIdBuf) {
+      if (options.pickMode !== "face" && options.showToolpath && this.pathPosBuf && this.pathIdBuf) {
         const segments = this.visibleSegmentCount();
         if (segments > 0) {
           this.applyPipeline({
@@ -1882,14 +2336,14 @@ function mixRgba(a, b, t) {
   out[3] = a[3];
   return out;
 }
-function displayFaceColor(base, selected, hovered, selectable) {
+function displayFaceColor(base2, selected, hovered, selectable) {
   if (selected)
     return hovered ? SELECTED_HOVER_COLOR : SELECTED_COLOR;
   if (!selectable)
-    return mixRgba(base, [40, 44, 52, 255], 0.55);
+    return mixRgba(base2, [40, 44, 52, 255], 0.55);
   if (hovered)
-    return mixRgba(base, [120, 200, 255, 255], 0.45);
-  return base;
+    return mixRgba(base2, [120, 200, 255, 255], 0.45);
+  return base2;
 }
 
 // ui-model-viewer/src/viewer/geom_view.ts
@@ -1918,6 +2372,8 @@ var GeomView = class _GeomView {
   pathBuffers = null;
   stationTransform = new RigidTransform();
   playhead = 0;
+  playbackStart = 0;
+  playbackEnd = 1e30;
   futureVisible = true;
   selection;
   hoverFace = null;
@@ -2164,6 +2620,20 @@ var GeomView = class _GeomView {
   playheadSegment() {
     return this.playhead;
   }
+  setPlaybackRange(start, end) {
+    this.playbackStart = start;
+    this.playbackEnd = end;
+    this.renderer?.setPlaybackRange(start, end);
+    this.scheduleRender();
+  }
+  setModelVisible(visible) {
+    this.options.showMesh = visible;
+    this.scheduleRender();
+  }
+  setPickMode(mode) {
+    this.options.pickMode = mode;
+    this.setHoverFace(null);
+  }
   /** 还没走到的线段是否淡淡地显示出来(关掉就是「只画前 N 段」)。 */
   setFutureSegmentsVisible(visible) {
     this.futureVisible = visible;
@@ -2217,8 +2687,8 @@ var GeomView = class _GeomView {
   pixelSize() {
     const dpr = this.dpr();
     const w = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
-    const h2 = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
-    return { width: w, height: h2 };
+    const h3 = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
+    return { width: w, height: h3 };
   }
   aspect() {
     const s = this.pixelSize();
@@ -2243,7 +2713,7 @@ var GeomView = class _GeomView {
       this.options
     );
     this.lastPickMs = this.now() - t0;
-    return hit;
+    return this.options.pickMode === "path" && hit.kind === 1 ? { kind: 0, index: 0 } : hit;
   }
   faceSubject(faceIndex) {
     if (faceIndex >= this.faces.length)
@@ -2305,8 +2775,8 @@ var GeomView = class _GeomView {
   displayColorOf(face) {
     const selected = this.selection.isSelected(face);
     const hovered = this.hoverFace === face;
-    const base = this.renderer ? this.renderer.baseFaceColor(face) : [180, 180, 180, 255];
-    return displayFaceColor(base, selected, hovered, this.selection.isSelectable(face));
+    const base2 = this.renderer ? this.renderer.baseFaceColor(face) : [180, 180, 180, 255];
+    return displayFaceColor(base2, selected, hovered, this.selection.isSelectable(face));
   }
   refreshFaceColor(face) {
     this.renderer?.setFaceColor(face, this.displayColorOf(face));
@@ -2354,8 +2824,11 @@ var GeomView = class _GeomView {
   getCamera() {
     return this.camera;
   }
-  fitView() {
+  fitView(bounds) {
+    const original = this.camera.sceneBounds();
+    if (bounds) this.camera.setSceneBounds(bounds);
     this.camera.fit(this.aspect());
+    if (bounds) this.camera.setSceneBounds(original);
     this.scheduleRender();
   }
   setStandardView(view) {
@@ -2383,6 +2856,7 @@ var GeomView = class _GeomView {
     this.renderer.setToolpath(this.pathBuffers);
     this.renderer.setToolpathTransform(this.stationTransform);
     this.renderer.setPlayhead(this.playhead);
+    this.renderer.setPlaybackRange(this.playbackStart, this.playbackEnd);
     this.renderer.setFutureVisibility(this.futureVisible ? 0.25 : 0);
     this.refreshAllFaceColors();
   }
@@ -2410,6 +2884,7 @@ var GeomView = class _GeomView {
     const t0 = this.now();
     try {
       this.renderer.render(this.currentView(), phys.width, phys.height, this.options);
+      this.callbacks.frameRendered?.();
     } catch (e) {
       this.callbacks.renderingFailed?.(e instanceof Error ? e.message : String(e));
       return;
@@ -2460,6 +2935,7 @@ var GeomView = class _GeomView {
       this.callbacks.segmentClicked?.(hit.index, this.ncLineOfSegment(hit.index));
       return;
     }
+    if (this.options.pickMode === "path") return;
     const toggle = ev.ctrlKey || ev.metaKey;
     const mode = toggle ? "toggle" : "replace";
     if (hit.kind === 1) {
@@ -2522,15 +2998,188 @@ function toolpathGeometryBounds(path) {
   return { min, max };
 }
 
-// ui-model-viewer/src/client.ts
+// ui-model-viewer/src/controls.ts
+var import_react = __toESM(require("react"), 1);
+var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 var h = import_react.default.createElement;
+function ModelControls({ view }) {
+  const [selected, setSelected] = (0, import_react.useState)([]);
+  const [input, setInput] = (0, import_react.useState)(""), [message, setMessage] = (0, import_react.useState)("");
+  const [filter, setFilter] = (0, import_react.useState)([]);
+  const types = view.availableSurfaceTypes();
+  (0, import_react.useEffect)(() => {
+    const sync = () => setSelected(view.selectedFids());
+    view.callbacks.selectionChanged = sync;
+    sync();
+    return () => {
+      if (view.callbacks.selectionChanged === sync) delete view.callbacks.selectionChanged;
+    };
+  }, [view]);
+  const select = (event) => {
+    event.preventDefault();
+    const fids = [...new Set(input.trim().toUpperCase().split(/[\s,，;；]+/).filter(Boolean))];
+    const faces = view.facesOf();
+    const unknown = fids.filter((fid) => !faces.some((face) => face.fid === fid));
+    const excluded = faces.filter((face) => fids.includes(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType));
+    if (unknown.length || excluded.length) {
+      setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
+      return;
+    }
+    view.setSelectedFids(fids);
+    setMessage("");
+  };
+  const changeFilter = (allowed) => {
+    const next = allowed.length === types.length ? [] : allowed.length ? allowed : ["<none>"];
+    view.setSurfaceTypeFilter(next);
+    setFilter(next);
+    setMessage("");
+  };
+  return h(
+    "section",
+    { className: "cmv-selection", "aria-label": "\u9009\u62E9\u9762\u4E0E\u7C7B\u578B\u7B5B\u9009" },
+    h("strong", null, `\u9009\u9762\u4E0E\u7B5B\u9009 \xB7 \u5DF2\u9009 ${selected.length} \u9762`),
+    h(
+      "div",
+      { className: "cmv-selection-body" },
+      h(
+        "form",
+        { className: "cmv-face-form", onSubmit: select },
+        h(import_dsh_client_ui_primitives.Input, { "aria-label": "\u9762\u7F16\u53F7", placeholder: "F000001\uFF0C\u591A\u4E2A\u7F16\u53F7\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694", value: input, onChange: (e) => setInput(e.target.value) }),
+        h(import_dsh_client_ui_primitives.Button, { type: "submit" }, "\u9009\u62E9"),
+        h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => {
+          view.clearSelection();
+          setInput("");
+          setMessage("");
+        } }, "\u6E05\u7A7A")
+      ),
+      message ? h("div", { role: "alert" }, message) : null,
+      h(
+        "fieldset",
+        null,
+        h("legend", null, "\u53EF\u9009\u66F2\u9762\u7C7B\u578B\uFF08\u5176\u4F59\u9762\u538B\u6697\uFF09"),
+        ...types.map((type) => h("label", { key: type }, h("input", { type: "checkbox", checked: filter.length === 0 || filter.includes(type), onChange: (e) => {
+          const allowed = filter.length === 0 ? types : filter.filter((t) => t !== "<none>");
+          changeFilter(e.target.checked ? [...allowed, type] : allowed.filter((t) => t !== type));
+        } }), ` ${type}`)),
+        h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => changeFilter(types) }, "\u5168\u90E8"),
+        h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => changeFilter([]) }, "\u5168\u4E0D\u9009")
+      ),
+      h("div", { className: "cmv-selected", "aria-live": "polite" }, selected.length ? selected.map((fid) => {
+        const face = view.facesOf().find((face2) => face2.fid === fid);
+        return h("div", { key: fid }, `${fid} \xB7 ${face.surfaceType} \xB7 ${face.areaMm2.toFixed(2)} mm\xB2`);
+      }) : "\u672A\u9009\u9762\u3002\u5355\u51FB\u9009\u62E9\uFF0CCtrl/Cmd + \u5355\u51FB\u589E\u51CF\u591A\u9009\uFF1BEsc \u9000\u51FA\u9009\u62E9\u5DE5\u5177\u3002")
+    )
+  );
+}
+
+// ui-model-viewer/src/scene.ts
+function makeProgram(op, station) {
+  const parsed = parseNc(op.content, { segmentCap: 1e6 });
+  if (station) {
+    if (parsed.meta.units !== "mm" || parsed.meta.truncated || parsed.meta.skipped.length) throw new Error(`${op.file}\uFF1A\u5355\u4F4D\u975E\u6BEB\u7C73\u6216\u7A0B\u5E8F\u89E3\u6790\u4E0D\u5B8C\u6574\uFF0C\u4E0D\u80FD\u8054\u5408\u663E\u793A`);
+    for (const raw of op.content.split("\n")) {
+      const line = raw.replace(/\([^)]*\)/g, "").split(";")[0];
+      for (const match of line.matchAll(/G\s*([+-]?(?:\d+\.?\d*|\.\d+))/gi)) {
+        const g = Number(match[1]);
+        if (![0, 1, 2, 3, 4, 17, 21, 28, 30, 40, 41, 42, 43, 44, 49, 54, 55, 56, 57, 58, 59, 61, 64, 73, 74, 76, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 91.1, 94, 98, 99].includes(g) || g >= 54 && g <= 59 && `G${g}` !== station.name) throw new Error(`${op.file}\uFF1A\u542B\u672A\u652F\u6301\u6216\u672A\u7ED1\u5B9A\u7684\u6307\u4EE4 G${g}\uFF0C\u4E0D\u80FD\u8054\u5408\u663E\u793A`);
+      }
+      if (/[ABC]\s*[+-]?(?:\d|\.)/i.test(line)) throw new Error(`${op.file}\uFF1A\u542B\u65CB\u8F6C\u8F74\u8FD0\u52A8\uFF0C\u5F53\u524D\u4EC5\u652F\u6301\u4E09\u8F74\u8F68\u8FF9`);
+    }
+  }
+  const transform = new RigidTransform();
+  if (station) {
+    transform.r = station.part_to_nc.r.map((row) => [...row]);
+    transform.t = [...station.part_to_nc.t];
+  }
+  const times = new Float64Array(parsed.segments.length + 1);
+  parsed.segments.forEach((s, i) => {
+    const distance = Math.hypot(...s.to.map((v, k) => v - s.from[k]));
+    const rate = s.kind === "rapid" ? 8e3 : s.feed && s.feed > 0 ? s.feed : 500;
+    times[i + 1] = times[i] + distance / rate * 60;
+  });
+  return { ...op, station: station?.name ?? "NC\u539F\u59CB\u5750\u6807", parsed, toPackage: transform.inverse(), times, duration: times[times.length - 1] };
+}
+function atTime(program, time) {
+  const { times, parsed } = program;
+  if (!parsed.segments.length) return { index: 0, fraction: 0, point: null };
+  let lo = 0, hi = parsed.segments.length;
+  while (lo < hi) {
+    const mid = lo + hi >>> 1;
+    if (times[mid + 1] <= time) lo = mid + 1;
+    else hi = mid;
+  }
+  const index = Math.min(lo, parsed.segments.length - 1), s = parsed.segments[index];
+  const fraction = Math.max(0, Math.min(1, (time - times[index]) / Math.max(times[index + 1] - times[index], 1e-9)));
+  return { index, fraction, point: s.from.map((v, k) => v + (s.to[k] - v) * fraction) };
+}
+var COLORS = { rapid: [242, 92, 92], feed: [77, 159, 255], arc: [88, 211, 235], cycle: [240, 180, 60] };
+function buildScene(programs, visible, activeId, rapid, cutting) {
+  const ordered = [...programs.filter((p) => p.id !== activeId), ...programs.filter((p) => p.id === activeId)].filter((p) => visible.includes(p.id));
+  const chosen = ordered.map((p) => ({ p, indices: p.parsed.segments.flatMap((s, i) => (s.kind === "rapid" ? rapid : cutting) ? [i] : []) }));
+  const count = chosen.reduce((n, row) => n + row.indices.length, 0);
+  if (count > 1e6) throw new Error("\u53EF\u89C1\u5200\u8DEF\u5408\u8BA1\u8D85\u8FC7100\u4E07\u6BB5");
+  const positions = new Float32Array(count * 6), colors = new Uint8Array(count * 8), lines = [], locals = new Uint32Array(count);
+  const ranges = [];
+  let index = 0, activeStart = count, activeEnd = count;
+  for (const { p, indices } of chosen) {
+    const start = index;
+    for (const local of indices) {
+      const s = p.parsed.segments[local], color = COLORS[s.kind];
+      for (const [vertex, point] of [s.from, s.to].entries()) {
+        const v = p.toPackage.apply(v3(...point));
+        positions.set([v.x, v.y, v.z], index * 6 + vertex * 3);
+        colors.set([...color.map((value, k) => p.id === activeId ? value : Math.round([27, 30, 36][k] + (value - [27, 30, 36][k]) * 0.3)), 255], index * 8 + vertex * 4);
+      }
+      lines.push(s.line);
+      locals[index] = local;
+      index++;
+    }
+    ranges.push({ id: p.id, start, end: index });
+    if (p.id === activeId) {
+      activeStart = start;
+      activeEnd = index;
+    }
+  }
+  return { geometry: { positions, colors, lines }, locals, ranges, activeStart, activeEnd };
+}
+function programBounds(program) {
+  const b = program.parsed.bounds;
+  if (!b) return;
+  const points = Array.from({ length: 8 }, (_, i) => program.toPackage.apply(v3(...b.min.map((v, k) => i & 1 << k ? b.max[k] : v))));
+  return { min: v3(...[0, 1, 2].map((k) => Math.min(...points.map((v) => [v.x, v.y, v.z][k])))), max: v3(...[0, 1, 2].map((k) => Math.max(...points.map((v) => [v.x, v.y, v.z][k])))) };
+}
+
+// ui-model-viewer/src/styles.ts
+var viewerCss = `
+[data-phase]:has(.cmv) [data-composer-seat]{display:none}
+.cmv{container-type:inline-size;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:13px}
+.cmv *{box-sizing:border-box}.cmv-expanded{position:fixed;inset:0;width:100%;height:100%;z-index:1000}
+.cmv-tools,.cmv-footer,.cmv-playbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.cmv-tools label{display:flex;align-items:center;gap:4px}.cmv-tools select,.cmv-playbar select{max-width:240px;font:inherit;color:inherit;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px}
+.cmv select:focus-visible,.cmv input:focus-visible,.cmv button:focus-visible,.cmv summary:focus-visible,.cmv canvas:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}
+.cmv-body{display:flex;flex:1;min-height:0;min-width:0}.cmv-stage{position:relative;flex:1;min-width:0;min-height:240px;background:#1b1e24;overflow:hidden}.cmv-stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.cmv-message{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#eee;text-align:center;font-size:13px;background:#1b1e24}
+.cmv-hud{position:absolute;left:12px;bottom:12px;max-width:calc(100% - 24px);color:#eee;background:#1b1e24d9;border-radius:8px;padding:6px 10px;pointer-events:none;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap}
+.cmv-marker{position:absolute;width:12px;height:12px;border:2px solid white;border-radius:50%;background:#f0b43c;transform:translate(-50%,-50%);pointer-events:none;display:none}
+.cmv-ops{width:180px;flex:none;border-right:1px solid var(--dsw-alias-border-l2);overflow:auto;padding:8px}.cmv-ops strong{display:block;font-size:12px;color:var(--dsw-alias-label-secondary);padding:8px 4px}.cmv-op{display:flex;align-items:center;gap:4px}.cmv-op button{flex:1;min-width:0;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;padding:8px;overflow-wrap:anywhere;cursor:pointer}.cmv-op button[aria-current=true]{background:var(--dsw-alias-bg-layer-3);font-weight:600}.cmv-op button:hover{background:var(--dsw-alias-bg-layer-2)}
+.cmv-footer{font-size:12px;color:var(--dsw-alias-label-secondary);border-top:1px solid var(--dsw-alias-border-l2);border-bottom:0;overflow-wrap:anywhere}.cmv-footer>span:first-child{flex:1;min-width:0}.cmv-playbar{border-top:1px solid var(--dsw-alias-border-l2);border-bottom:0}.cmv-playbar input[type=range]{flex:1;min-width:120px}.cmv-note{padding:8px 12px;color:var(--dsw-alias-state-warn-label);font-size:12px;overflow-wrap:anywhere}.cmv-alerts{display:flex;gap:6px;flex-wrap:wrap;padding:4px 12px}.cmv-alerts button{border:0;background:transparent;color:var(--dsw-alias-state-warn-label);cursor:pointer;text-align:left;font:inherit}
+.cmv-selection,.cmv-source,.cmv-details{width:310px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);min-height:0;overflow:auto;padding:10px}.cmv-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace}.cmv-axes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}.cmv-selection-body{display:flex;flex-direction:column;gap:8px;padding-top:8px;overflow-wrap:anywhere}.cmv-face-form{display:flex;gap:6px;flex-wrap:wrap}.cmv-face-form input{width:100%}.cmv-selection fieldset{display:flex;gap:8px;flex-wrap:wrap;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-selected{max-height:180px;overflow:auto}
+.cmv-source{display:flex;flex-direction:column;overflow:hidden;padding:0}.cmv-source-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-source-head strong{flex:1;min-width:0;overflow-wrap:anywhere}.cmv-source-head input{width:90px}.cmv-source-lines{flex:1;min-height:100px;overflow:auto;font:12px/20px ui-monospace,monospace;background:var(--dsw-alias-markdown-code-block)}.cmv-source-line{display:block;border:0;background:transparent;color:inherit;text-align:left;white-space:pre;height:20px;line-height:20px;padding:0 8px;min-width:100%;cursor:pointer;font:inherit}.cmv-source-line[aria-current=true]{background:var(--dsw-alias-bg-layer-3)}
+.cmv-layers{position:absolute;right:12px;top:12px;z-index:2;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-layers label{display:block;padding:4px 0}
+@container(max-width:736px){.cmv-body{flex-wrap:wrap;overflow:auto}.cmv-ops{width:132px}.cmv-source,.cmv-selection,.cmv-details{width:100%;height:220px;border-left:0;border-top:1px solid var(--dsw-alias-border-l2)}.cmv-stage{min-height:200px}.cmv-tools{gap:6px;padding:6px}.cmv-tools select{max-width:160px}.cmv-hud{font-size:11px}}
+`;
+
+// ui-model-viewer/src/client.ts
+var h2 = import_react2.default.createElement;
 var MAX = 128 * 1024 * 1024;
+function base(sessionId) {
+  return `/camind/api/models/sessions/${encodeURIComponent(sessionId)}`;
+}
 function endpoint(sessionId, path) {
-  return `/camind/api/models/sessions/${encodeURIComponent(sessionId)}/model?path=${encodeURIComponent(path)}`;
+  return `${base(sessionId)}/model?path=${encodeURIComponent(path)}`;
 }
 async function json(url, init) {
-  const response = await fetch(url, init);
-  const body = await response.json();
+  const response = await fetch(url, init), body = await response.json();
   if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
   return body;
 }
@@ -2557,9 +3206,9 @@ async function bounded(stream) {
   }
   return bytes;
 }
-async function loadEntry(base, entry, signal) {
-  const split = base.indexOf("?");
-  const response = await fetch(`${base.slice(0, split)}/${encodeURIComponent(entry.name)}${base.slice(split)}`, { signal });
+async function loadEntry(url, entry, signal) {
+  const split = url.indexOf("?");
+  const response = await fetch(`${url.slice(0, split)}/${encodeURIComponent(entry.name)}${url.slice(split)}`, { signal });
   if (!response.ok || !response.body) throw new Error(`\u7F51\u683C\u4E0B\u8F7D\u5931\u8D25\uFF1AHTTP ${response.status}`);
   const raw = await bounded(response.body);
   if (raw.length !== entry.bytes) throw new Error("\u7F51\u683C\u957F\u5EA6\u4E0E\u6E05\u5355\u4E0D\u7B26");
@@ -2567,61 +3216,244 @@ async function loadEntry(base, entry, signal) {
   if (digest !== entry.sha256) throw new Error("\u7F51\u683C SHA256 \u6821\u9A8C\u5931\u8D25");
   return entry.encoding === "gzip" ? bounded(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))) : raw;
 }
-function ModelViewer({ sessionId, path }) {
-  const canvas = (0, import_react.useRef)(null), view = (0, import_react.useRef)(null);
-  const [state, setState] = (0, import_react.useState)({ state: "loading" });
-  const [error, setError] = (0, import_react.useState)(""), [face, setFace] = (0, import_react.useState)("");
-  const [revision, setRevision] = (0, import_react.useState)(0);
-  (0, import_react.useEffect)(() => {
-    const controller = new AbortController();
-    let timer, observer;
-    setError("");
-    setFace("");
-    setState({ state: "loading" });
-    const base = endpoint(sessionId, path);
-    async function poll() {
-      try {
-        const next = await json(base, { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        setState(next);
-        if (next.state === "running") {
-          timer = setTimeout(poll, 1500);
-          return;
+function SourceDrawer({ program, line, follow, onFollow, onSeek, onClose }) {
+  const rows = (0, import_react2.useMemo)(() => program.content.split("\n"), [program]);
+  const scroll = (0, import_react2.useRef)(null);
+  const [top, setTop] = (0, import_react2.useState)(0), [requested, setRequested] = (0, import_react2.useState)("");
+  (0, import_react2.useEffect)(() => {
+    setTop(0);
+    if (scroll.current) scroll.current.scrollTop = 0;
+  }, [program]);
+  (0, import_react2.useEffect)(() => {
+    if (follow && scroll.current) scroll.current.scrollTop = Math.max(0, (line - 5) * 20);
+  }, [line, follow, program]);
+  const start = Math.max(0, Math.floor(top / 20) - 10), end = Math.min(rows.length, start + 100);
+  return h2(
+    "aside",
+    { className: "cmv-source", "aria-label": "NC\u6E90\u7801" },
+    h2(
+      "div",
+      { className: "cmv-source-head" },
+      h2("strong", null, program.file),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => onFollow(!follow), "aria-pressed": follow }, "\u8DDF\u968F\u5200\u4F4D"),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: onClose }, "\u5173\u95ED\u6E90\u7801"),
+      h2("form", { onSubmit: (e) => {
+        e.preventDefault();
+        const n = Number(requested);
+        if (Number.isInteger(n) && n >= 1 && n <= rows.length) {
+          onSeek(n);
+          if (scroll.current) scroll.current.scrollTop = Math.max(0, (n - 5) * 20);
         }
-        if (next.state === "error") throw new Error(next.message);
-        if (next.state !== "ready") return;
-        const manifest = parseManifest(JSON.stringify(next.manifest));
-        const meshEntry = manifest.files.find((f) => f.role === "mesh" && f.lod === "fine");
-        const edgeEntry = manifest.files.find((f) => f.role === "edges");
-        const mesh = Mesh.parse(await loadEntry(base, meshEntry, controller.signal), meshEntry.name);
-        const edges = Edges.parse(await loadEntry(base, edgeEntry, controller.signal), manifest.faceCount, edgeEntry.name);
-        if (mesh.faceCount() !== manifest.faceCount || mesh.lod() !== 1 || edges.edgeCount() !== manifest.edgeCount) throw new Error("\u6A21\u578B\u8BA1\u6570\u4E0E\u6E05\u5355\u4E0D\u7B26");
+      } }, h2(import_dsh_client_ui_primitives2.Input, { type: "number", min: 1, max: rows.length, "aria-label": "\u6E90\u7801\u884C\u53F7", placeholder: "\u884C\u53F7", value: requested, onChange: (e) => setRequested(e.target.value) }), h2(import_dsh_client_ui_primitives2.Button, { type: "submit" }, "\u5B9A\u4F4D"))
+    ),
+    h2(
+      "div",
+      { ref: scroll, className: "cmv-source-lines", tabIndex: 0, onScroll: (e) => setTop(e.currentTarget.scrollTop), onWheel: () => onFollow(false), onPointerDown: () => onFollow(false), onKeyDown: (e) => {
+        if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(e.key)) onFollow(false);
+      } },
+      h2("div", { style: { height: rows.length * 20, position: "relative", minWidth: "max-content" } }, h2("div", { style: { position: "absolute", top: start * 20, minWidth: "100%" } }, rows.slice(start, end).map((text, i) => h2("button", { key: start + i, type: "button", className: "cmv-source-line", "aria-current": start + i + 1 === line, onClick: () => onSeek(start + i + 1) }, `${String(start + i + 1).padStart(5)}  ${text}`))))
+    )
+  );
+}
+function SceneView({ sessionId, path, programs, expectedSha, notice, contextTools }) {
+  const canvas = (0, import_react2.useRef)(null), marker = (0, import_react2.useRef)(null), axes = (0, import_react2.useRef)(null);
+  const [view, setView] = (0, import_react2.useState)(null), [state, setState] = (0, import_react2.useState)({ state: "loading" }), [error, setError] = (0, import_react2.useState)(""), [revision, setRevision] = (0, import_react2.useState)(0);
+  const [activeId, setActive] = (0, import_react2.useState)(""), [visible, setVisible] = (0, import_react2.useState)([]), [time, setTime] = (0, import_react2.useState)(0), [playing, setPlaying] = (0, import_react2.useState)(false), [speed, setSpeed] = (0, import_react2.useState)(1);
+  const [selecting, setSelecting] = (0, import_react2.useState)(false), [source, setSource] = (0, import_react2.useState)(false), [details, setDetails] = (0, import_react2.useState)(false), [follow, setFollow] = (0, import_react2.useState)(true), [layers, setLayers] = (0, import_react2.useState)(false), [expanded, setExpanded] = (0, import_react2.useState)(false);
+  const [projection, setProjection] = (0, import_react2.useState)(Projection.Orthographic);
+  const [display, setDisplay] = (0, import_react2.useState)({ model: true, edges: true, rapid: true, cutting: true, future: true, through: false, axes: false });
+  const active = programs.find((p) => p.id === activeId);
+  const position = active ? atTime(active, time) : null;
+  const scene = (0, import_react2.useMemo)(() => buildScene(programs, visible, activeId, display.rapid, display.cutting), [programs, visible, activeId, display.rapid, display.cutting]);
+  const markerPoint = (0, import_react2.useRef)(null);
+  markerPoint.current = active && visible.includes(active.id) && position?.point ? (() => {
+    const p = active.toPackage.apply(v3(...position.point));
+    return [p.x, p.y, p.z];
+  })() : null;
+  (0, import_react2.useEffect)(() => {
+    setActive(programs[0]?.id ?? "");
+    setVisible(programs.map((p) => p.id));
+    setTime(programs[0]?.duration ?? 0);
+    setPlaying(false);
+    setSource(false);
+  }, [programs]);
+  (0, import_react2.useEffect)(() => {
+    const controller = new AbortController();
+    let renderer = null, observer, timer;
+    setView(null);
+    setError("");
+    setState({ state: "loading" });
+    async function load() {
+      try {
+        let next = { state: "ready" }, mesh, edges, manifest;
+        if (path && sessionId) {
+          const url = endpoint(sessionId, path);
+          next = await json(url, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          if (next.state !== "ready") {
+            setState(next);
+            if (next.state === "running") timer = setTimeout(load, 1500);
+            return;
+          }
+          manifest = parseManifest(JSON.stringify(next.manifest));
+          const m = manifest.files.find((f) => f.role === "mesh" && f.lod === "fine"), e = manifest.files.find((f) => f.role === "edges");
+          mesh = Mesh.parse(await loadEntry(url, m, controller.signal), m.name);
+          edges = Edges.parse(await loadEntry(url, e, controller.signal), manifest.faceCount, e.name);
+          if (mesh.faceCount() !== manifest.faceCount || mesh.lod() !== 1 || edges.edgeCount() !== manifest.edgeCount) throw new Error("\u6A21\u578B\u8BA1\u6570\u4E0E\u6E05\u5355\u4E0D\u7B26");
+        }
         if (controller.signal.aborted || !canvas.current) return;
-        const renderer = GeomView.create(canvas.current);
-        if (!renderer) throw new Error("\u5F53\u524D\u8BBE\u5907\u4E0D\u652F\u6301 WebGL2");
-        view.current = renderer;
+        renderer = GeomView.create(canvas.current);
+        if (!renderer) throw new Error("\u5F53\u524D\u8BBE\u5907\u4E0D\u652F\u6301 WebGL2\uFF1B\u53EF\u4ECE\u6587\u4EF6\u5165\u53E3\u67E5\u770B\u539F\u59CB NC \u6587\u672C");
         renderer.callbacks.renderingFailed = setError;
-        renderer.callbacks.faceClicked = (subject) => setFace(`${subject.fid} \xB7 ${subject.surfaceType} \xB7 ${subject.areaMm2.toFixed(2)} mm\xB2`);
-        renderer.setPart(manifest.partRef, next.faces, manifest.bodies ?? []);
-        renderer.setOriginOffset(manifest.originOffset);
-        renderer.setMesh(mesh);
-        renderer.setEdges(edges);
-        observer = new ResizeObserver(() => renderer.requestRender());
+        if (manifest && mesh && edges) {
+          renderer.setPart(manifest.partRef, next.faces, manifest.bodies ?? []);
+          renderer.setOriginOffset(manifest.originOffset);
+          renderer.setMesh(mesh);
+          renderer.setEdges(edges);
+        }
+        observer = new ResizeObserver(() => renderer?.requestRender());
         observer.observe(canvas.current);
+        setState(next);
+        setView(renderer);
+        setProjection(Projection.Orthographic);
       } catch (e) {
         if (!controller.signal.aborted) setError(e.message);
       }
     }
-    void poll();
+    void load();
     return () => {
       controller.abort();
       clearTimeout(timer);
       observer?.disconnect();
-      view.current?.dispose();
-      view.current = null;
+      renderer?.dispose();
     };
   }, [sessionId, path, revision]);
+  (0, import_react2.useEffect)(() => {
+    if (!view) return;
+    if (expectedSha && state.sha !== expectedSha) {
+      view.clearToolpath();
+      setError("\u52A0\u5DE5\u6279\u6B21\u4E0E\u753B\u5E03\u4E2D\u7684\u6E90\u6A21\u578B\u7248\u672C\u4E0D\u5339\u914D");
+      return;
+    }
+    const camera = view.getCamera(), target = { ...camera.target() }, distance = camera.distance(), yaw = camera.yaw(), pitch = camera.pitch();
+    view.setStationTransform(new RigidTransform());
+    view.setToolpath(scene.geometry);
+    view.setPlaybackRange(scene.activeStart, scene.activeEnd);
+    if (view.hasRendered()) {
+      camera.setTarget(target);
+      camera.setDistance(distance);
+      camera.setAngles(yaw, pitch);
+    }
+    view.callbacks.segmentClicked = (index) => {
+      const range = scene.ranges.find((r) => index >= r.start && index < r.end), p = programs.find((p2) => p2.id === range?.id);
+      if (!p) return;
+      setActive(p.id);
+      setTime(p.times[scene.locals[index]]);
+      setPlaying(false);
+      setSource(true);
+      setDetails(false);
+      setFollow(true);
+    };
+    return () => {
+      delete view.callbacks.segmentClicked;
+    };
+  }, [view, scene, programs, expectedSha, state.sha]);
+  (0, import_react2.useEffect)(() => {
+    if (!view) return;
+    view.setPickMode(selecting ? "face" : "path");
+    view.setModelVisible(display.model);
+    view.setEdgesVisible(display.model && display.edges);
+    view.setToolpathOnTop(display.through);
+    view.setFutureSegmentsVisible(display.future);
+  }, [view, selecting, display]);
+  (0, import_react2.useEffect)(() => {
+    if (!view) return;
+    let lo = scene.activeStart, hi = scene.activeEnd;
+    while (lo < hi) {
+      const mid = lo + hi >>> 1;
+      if (scene.locals[mid] < (position?.index ?? 0)) lo = mid + 1;
+      else hi = mid;
+    }
+    view.setPlayheadSegment(active && time >= active.duration ? scene.activeEnd : lo);
+    view.requestRender();
+  }, [view, scene, time, active]);
+  (0, import_react2.useEffect)(() => {
+    if (!view) return;
+    const drawMarker = () => {
+      const element = marker.current, point = markerPoint.current;
+      if (!element || !point) {
+        if (element) element.style.display = "none";
+        return;
+      }
+      const w = view.canvas.clientWidth, height = view.canvas.clientHeight, matrix = view.getCamera().viewProjection(w / Math.max(1, height));
+      const values = [point[0], point[1], point[2], 1], clip = [0, 1, 2, 3].map((row) => values.reduce((sum, v, k) => sum + matrix.at(row, k) * v, 0));
+      const x = clip[0] / clip[3], y = clip[1] / clip[3], z = clip[2] / clip[3];
+      element.style.display = clip[3] > 0 && Math.abs(x) <= 1 && Math.abs(y) <= 1 && Math.abs(z) <= 1 ? "block" : "none";
+      element.style.left = `${(x + 1) * w / 2}px`;
+      element.style.top = `${(1 - y) * height / 2}px`;
+      if (axes.current && active) {
+        axes.current.style.display = display.axes ? "block" : "none";
+        const length2 = view.getCamera().halfHeightAtTarget() * 0.18;
+        const project = (point2) => {
+          const p = active.toPackage.apply(v3(...point2)), values2 = [p.x, p.y, p.z, 1];
+          const clip2 = [0, 1, 2, 3].map((row) => values2.reduce((sum, v, k) => sum + matrix.at(row, k) * v, 0));
+          return [(clip2[0] / clip2[3] + 1) * w / 2, (1 - clip2[1] / clip2[3]) * height / 2];
+        };
+        const origin = project([0, 0, 0]);
+        axes.current.querySelectorAll("g").forEach((group, i) => {
+          const end = project([0, 1, 2].map((k) => k === i ? length2 : 0)), line2 = group.querySelector("line"), label = group.querySelector("text");
+          for (const [name2, value] of Object.entries({ x1: origin[0], y1: origin[1], x2: end[0], y2: end[1] })) line2.setAttribute(name2, String(value));
+          label.setAttribute("x", String(end[0] + 4));
+          label.setAttribute("y", String(end[1]));
+        });
+      }
+    };
+    view.callbacks.frameRendered = drawMarker;
+    view.requestRender();
+    return () => {
+      delete view.callbacks.frameRendered;
+    };
+  }, [view, active, display.axes]);
+  (0, import_react2.useEffect)(() => {
+    if (!playing || !active) return;
+    let frame, previous = performance.now();
+    const tick = (now) => {
+      const delta = Math.min((now - previous) / 1e3, 0.25) * speed;
+      previous = now;
+      setTime((t) => Math.min(active.duration, t + delta));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, active, speed]);
+  (0, import_react2.useEffect)(() => {
+    if (active && time >= active.duration) setPlaying(false);
+  }, [time, active]);
+  const changeActive = (p) => {
+    setActive(p.id);
+    setVisible((ids) => ids.includes(p.id) ? ids : [...ids, p.id]);
+    setPlaying(false);
+    setTime(p.duration);
+  };
+  const togglePlay = () => {
+    if (!active || !visible.includes(active.id) || !active.parsed.segments.length) return;
+    if (time >= active.duration) setTime(0);
+    setPlaying((value) => !value);
+  };
+  const step = (direction) => {
+    if (!active) return;
+    setPlaying(false);
+    const next = Math.max(0, Math.min(active.parsed.segments.length, (position?.index ?? 0) + direction));
+    setTime(active.times[next]);
+  };
+  const seekLine = (line2) => {
+    if (!active) return;
+    const index = active.parsed.segments.findIndex((s) => s.line >= line2);
+    setPlaying(false);
+    if (index >= 0) setTime(active.times[index]);
+  };
   const prepare = async () => {
+    if (!sessionId || !path) return;
     setError("");
     setState({ state: "running", stage: "\u68C0\u67E5 NX \u72B6\u6001" });
     try {
@@ -2631,51 +3463,201 @@ function ModelViewer({ sessionId, path }) {
       setError(e.message);
     }
   };
-  const ready = state.state === "ready" && !error;
-  return h(
+  const ready = !!view && state.state === "ready" && !error, line = active?.parsed.segments[position?.index ?? 0]?.line ?? 0;
+  const playingEnabled = ready && !!active?.parsed.segments.length && visible.includes(activeId);
+  const alerts = active ? [...active.parsed.meta.warnings.map((text) => ({ text, line: Number(text.match(/第\s*(\d+)\s*行/)?.[1] ?? 1) })), ...active.parsed.meta.skipped.slice(0, 20).map((s) => ({ text: `\u7B2C${s.line}\u884C\u8DF3\u8FC7\uFF1A${s.reason}`, line: s.line }))] : [];
+  const keydown = (e) => {
+    if (e.key === "Escape") {
+      setSelecting(false);
+      setLayers(false);
+      setSource(false);
+      setDetails(false);
+      setExpanded(false);
+      return;
+    }
+    if (e.target.tagName !== "CANVAS") return;
+    if (e.code === "Space") {
+      e.preventDefault();
+      togglePlay();
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      step(e.key === "ArrowLeft" ? -1 : 1);
+    }
+  };
+  return h2(
     "div",
-    { className: "cmv" },
-    h(
+    { className: `cmv${expanded ? " cmv-expanded" : ""}`, onKeyDown: keydown },
+    h2(
       "div",
       { className: "cmv-tools" },
-      h(import_dsh_client_ui_primitives.Button, { onClick: () => view.current?.fitView(), disabled: !ready }, "\u9002\u914D"),
-      h(import_dsh_client_ui_primitives.Button, { onClick: () => view.current?.setStandardView(StandardView.Iso), disabled: !ready }, "\u7B49\u8F74"),
-      h(import_dsh_client_ui_primitives.Button, { onClick: () => view.current?.setStandardView(StandardView.Top), disabled: !ready }, "\u4FEF\u89C6"),
-      h(import_dsh_client_ui_primitives.Button, { onClick: () => {
-        const v = view.current;
-        if (v) v.setEdgesVisible(!v.edgesVisible());
-      }, disabled: !ready }, "\u8FB9\u7EBF"),
-      ready ? h("span", null, `${state.faces.length} \u9762 \xB7 ${state.triangles.toLocaleString()} \u4E09\u89D2\u7247 \xB7 mm`) : null
+      contextTools,
+      h2("select", { "aria-label": "\u6807\u51C6\u89C6\u56FE", disabled: !ready, defaultValue: "", onChange: (e) => {
+        if (e.target.value !== "") view?.setStandardView(Number(e.target.value));
+        e.target.value = "";
+      } }, h2("option", { value: "" }, "\u6807\u51C6\u89C6\u56FE"), ...Object.entries(StandardView).map(([name2, value], i) => h2("option", { key: name2, value }, ["\u7B49\u8F74", "\u4FEF\u89C6", "\u4EF0\u89C6", "\u524D\u89C6", "\u540E\u89C6", "\u53F3\u89C6", "\u5DE6\u89C6"][i]))),
+      h2("select", { "aria-label": "\u6295\u5F71\u65B9\u5F0F", disabled: !ready, value: projection, onChange: (e) => {
+        view?.setProjection(Number(e.target.value));
+        setProjection(Number(e.target.value));
+      } }, h2("option", { value: Projection.Orthographic }, "\u6B63\u4EA4"), h2("option", { value: Projection.Perspective }, "\u900F\u89C6")),
+      h2("select", { "aria-label": "\u9002\u914D\u8303\u56F4", disabled: !ready, defaultValue: "", onChange: (e) => {
+        let bounds = e.target.value === "model" && view?.meshOf() ? meshBounds(view.meshOf()) : e.target.value === "active" && active ? programBounds(active) : void 0;
+        if (e.target.value === "all" && display.axes && active && view) {
+          const original = view.getCamera().sceneBounds(), origin = active.toPackage.apply(v3(0, 0, 0));
+          bounds = { min: v3(Math.min(original.min.x, origin.x), Math.min(original.min.y, origin.y), Math.min(original.min.z, origin.z)), max: v3(Math.max(original.max.x, origin.x), Math.max(original.max.y, origin.y), Math.max(original.max.z, origin.z)) };
+        }
+        view?.fitView(bounds);
+        e.target.value = "";
+      } }, h2("option", { value: "" }, "\u9002\u914D"), h2("option", { value: "all" }, "\u5168\u90E8"), path ? h2("option", { value: "model" }, "\u6A21\u578B") : null, active ? h2("option", { value: "active" }, "\u5F53\u524D\u5DE5\u5E8F") : null),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setLayers((v) => !v), disabled: !ready, "aria-expanded": layers }, "\u663E\u793A"),
+      path ? h2(import_dsh_client_ui_primitives2.Button, { onClick: () => {
+        setSelecting((v) => !v);
+        setSource(false);
+        setDetails(false);
+        setPlaying(false);
+      }, disabled: !ready, "aria-pressed": selecting }, "\u9009\u62E9\u9762") : null,
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setExpanded((value) => !value), disabled: !ready, "aria-pressed": expanded }, expanded ? "\u9000\u51FA\u6269\u5927" : "\u6269\u5927\u89C6\u533A")
     ),
-    h(
+    notice ? h2("div", { className: "cmv-note", role: "status" }, notice) : null,
+    h2(
       "div",
-      { className: "cmv-stage" },
-      h("canvas", { ref: canvas, onContextMenu: (e) => e.preventDefault(), "aria-label": "PRT \u4E09\u7EF4\u6A21\u578B\uFF1A\u5DE6\u952E\u65CB\u8F6C\uFF0C\u53F3\u952E\u5E73\u79FB\uFF0C\u6EDA\u8F6E\u7F29\u653E\uFF0C\u5355\u51FB\u9009\u9762" }),
-      error ? h("div", { className: "cmv-message", role: "alert" }, error) : null,
-      !error && !ready ? h(
+      { className: "cmv-body" },
+      programs.length > 1 || path && programs.length ? h2(
+        "nav",
+        { className: "cmv-ops", "aria-label": "\u5DE5\u5E8F\u5BFC\u822A" },
+        h2(import_dsh_client_ui_primitives2.Button, { disabled: !active, onClick: () => {
+          setVisible(active ? [active.id] : []);
+          setPlaying(false);
+        } }, "\u4EC5\u5F53\u524D"),
+        h2(import_dsh_client_ui_primitives2.Button, { disabled: !active, onClick: () => setVisible(programs.filter((p) => p.station === active?.station).map((p) => p.id)) }, "\u672C\u5DE5\u4F4D\u5168\u90E8"),
+        ...[...new Set(programs.map((p) => p.station))].map((station) => h2("section", { key: station }, h2("strong", null, `\u5DE5\u4F4D ${station}`), ...programs.filter((p) => p.station === station).map((p) => h2("div", { key: p.id, className: "cmv-op" }, h2("input", { type: "checkbox", "aria-label": `\u663E\u793A ${p.name}`, checked: visible.includes(p.id), onChange: (e) => {
+          if (!e.target.checked && p.id === activeId) setPlaying(false);
+          setVisible((ids) => e.target.checked ? [...ids, p.id] : ids.filter((id) => id !== p.id));
+        } }), h2("button", { type: "button", "aria-current": p.id === activeId, onClick: () => changeActive(p), title: p.file }, p.name)))))
+      ) : null,
+      h2(
         "div",
-        { className: "cmv-message" },
-        state.state === "missing" ? h(
-          import_react.default.Fragment,
-          null,
-          h("p", null, "\u5C1A\u672A\u751F\u6210\u4E09\u7EF4\u9884\u89C8\u3002\u5BFC\u51FA\u4F1A\u5728 NX \u6253\u5F00\u72EC\u7ACB\u526F\u672C\u5E76\u5199\u5165\u9762\u6807\u8BC6\uFF0C\u6E90\u6587\u4EF6\u4E0D\u53D8\uFF1B\u6807\u8BB0\u526F\u672C\u53EF\u80FD\u7559\u5728 NX \u4F1A\u8BDD\u4E2D\u3002"),
-          h(import_dsh_client_ui_primitives.Button, { onClick: prepare }, "\u786E\u8BA4\u5E76\u751F\u6210\u4E09\u7EF4\u9884\u89C8")
-        ) : state.stage || "\u6B63\u5728\u52A0\u8F7D\u4E09\u7EF4\u6A21\u578B\u2026"
-      ) : null
+        { className: "cmv-stage" },
+        h2("canvas", { ref: canvas, tabIndex: 0, onContextMenu: (e) => e.preventDefault(), "aria-label": "\u52A0\u5DE5\u4E09\u7EF4\u89C6\u533A\uFF1A\u5DE6\u952E\u65CB\u8F6C\uFF0C\u53F3\u952E\u6216Shift\u5E73\u79FB\uFF0C\u6EDA\u8F6E\u7F29\u653E\uFF0C\u53CC\u51FB\u9002\u914D\uFF1B\u7A7A\u683C\u64AD\u653E\uFF0C\u5DE6\u53F3\u952E\u5355\u6B65" }),
+        h2("div", { ref: marker, className: "cmv-marker", title: "\u7A0B\u5E8F\u5200\u4F4D\u6807\u8BB0\uFF08\u4E0D\u662F\u5200\u5177\u5B9E\u4F53\uFF09" }),
+        active ? h2("svg", { ref: axes, className: "cmv-axes", "aria-label": `${active.station} \u5DE5\u4F4D\u5750\u6807\u8F74`, style: { display: "none" } }, ...["#f25c5c", "#70cf8e", "#4d9fff"].map((color, i) => h2("g", { key: i }, h2("line", { stroke: color, strokeWidth: 2 }), h2("text", { fill: color, fontSize: 12 }, `${active.station} ${["X", "Y", "Z"][i]}`)))) : null,
+        ready && active ? h2("div", { className: "cmv-hud" }, `${active.file} \xB7 \u7B2C${line}\u884C
+${active.station} \xB7 ${active.parsed.meta.units}
+${position?.point ? position.point.map((v, i) => `${["X", "Y", "Z"][i]} ${v.toFixed(3)}`).join("  ") : "\u65E0\u8FD0\u52A8\u6BB5"}
+F ${active.parsed.segments[position?.index ?? 0]?.feed ?? "\u2014"}`) : null,
+        layers ? h2("div", { className: "cmv-layers", "aria-label": "\u663E\u793A\u56FE\u5C42" }, ...Object.entries(display).filter(([key]) => path || !["model", "edges"].includes(key)).map(([key, checked]) => h2("label", { key }, h2("input", { type: "checkbox", checked, onChange: (e) => setDisplay((d) => ({ ...d, [key]: e.target.checked })) }), ` ${{ model: "\u5DE5\u4EF6", edges: "\u8FB9\u7EBF", rapid: "\u5FEB\u79FB\uFF08\u7EA2\uFF09", cutting: "\u5207\u524A\uFF08\u84DD/\u9752/\u7425\u73C0\uFF09", future: "\u6DE1\u663E\u672A\u8D70\u8F68\u8FF9", through: "\u5200\u8DEF\u7A7F\u900F\u663E\u793A", axes: "\u5DE5\u4F4D\u5750\u6807\u8F74" }[key]}`)), h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setLayers(false) }, "\u5173\u95ED\u663E\u793A\u8BBE\u7F6E")) : null,
+        error ? h2("div", { className: "cmv-message", role: "alert" }, error) : null,
+        !error && !ready ? h2("div", { className: "cmv-message" }, state.state === "missing" ? h2(import_react2.default.Fragment, null, h2("p", null, "\u5C1A\u672A\u751F\u6210\u4E09\u7EF4\u9884\u89C8\u3002NX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\uFF1B\u526F\u672C\u53EF\u80FD\u7559\u5728 NX \u4F1A\u8BDD\u4E2D\u3002"), h2(import_dsh_client_ui_primitives2.Button, { onClick: prepare }, "\u786E\u8BA4\u5E76\u751F\u6210\u4E09\u7EF4\u9884\u89C8")) : state.message || state.stage || "\u6B63\u5728\u52A0\u8F7D\u2026") : null
+      ),
+      ready && selecting && view ? h2(ModelControls, { view }) : null,
+      source && active ? h2(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine, onClose: () => setSource(false) }) : null,
+      ready && details ? h2("aside", { className: "cmv-details", "aria-label": "\u9884\u89C8\u8BE6\u60C5" }, h2("strong", null, "\u9884\u89C8\u8BE6\u60C5"), h2("pre", null, JSON.stringify({ source_sha256: state.sha ?? null, model_faces: state.faces?.length ?? null, model_triangles: state.triangles ?? null, operation: active?.name, nc_file: active?.file, nc_units: active?.parsed.meta.units, segments: active?.parsed.segments.length, estimate_seconds: active?.duration, coordinate_frame: path ? "package_to_nc" : "NC\u539F\u59CB\u5750\u6807", station: active?.station, part_to_nc: path ? active?.toPackage.inverse() : null, source_face: active?.fid ?? null }, null, 2)), h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setDetails(false) }, "\u5173\u95ED\u8BE6\u60C5")) : null
     ),
-    h("div", { className: "cmv-foot" }, face || "\u5DE6\u952E\u65CB\u8F6C \xB7 \u53F3\u952E / Shift \u5E73\u79FB \xB7 \u6EDA\u8F6E\u7F29\u653E \xB7 \u5355\u51FB\u9009\u9762 \xB7 \u53CC\u51FB\u9002\u914D"),
-    state.manifest?.warnings?.length ? h("div", { className: "cmv-foot" }, `\u5BFC\u51FA\u544A\u8B66\uFF1A${JSON.stringify(state.manifest.warnings)}`) : null
+    h2(
+      "div",
+      { className: "cmv-footer" },
+      h2("span", null, active ? `${active.name} \xB7 ${active.station} \xB7 ${path ? "\u6765\u6E90\u4E0E\u5BF9\u9F50\u4FE1\u606F\u5DF2\u6821\u9A8C" : "NC\u539F\u59CB\u5750\u6807"}${display.through ? " \xB7 \u7A7F\u900F\u663E\u793A" : ""}` : state.faces ? `${state.faces.length} \u9762 \xB7 ${state.triangles.toLocaleString()} \u4E09\u89D2\u7247 \xB7 mm` : "NC \u8F68\u8FF9\u9884\u89C8"),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => {
+        setDetails((v) => !v);
+        setSource(false);
+        setSelecting(false);
+      }, disabled: !ready, "aria-expanded": details }, "\u8BE6\u60C5"),
+      active ? h2(import_dsh_client_ui_primitives2.Button, { onClick: () => {
+        setSource((v) => !v);
+        setSelecting(false);
+        setDetails(false);
+      }, disabled: !ready, "aria-expanded": source }, "\u6E90\u7801") : null
+    ),
+    active ? h2(
+      "div",
+      { className: "cmv-playbar" },
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => step(-1), disabled: !playingEnabled }, "\u4E0A\u4E00\u6B65"),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: togglePlay, disabled: !playingEnabled }, playing ? "\u6682\u505C" : "\u64AD\u653E"),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => step(1), disabled: !playingEnabled }, "\u4E0B\u4E00\u6B65"),
+      h2("input", { type: "range", "aria-label": "\u5F53\u524D\u5DE5\u5E8F\u64AD\u653E\u8FDB\u5EA6", min: 0, max: active.duration || 1, step: "any", value: time, disabled: !playingEnabled, onChange: (e) => {
+        setPlaying(false);
+        setTime(Number(e.target.value));
+      } }),
+      h2("select", { "aria-label": "\u64AD\u653E\u901F\u5EA6", value: speed, onChange: (e) => setSpeed(Number(e.target.value)) }, ...[0.25, 0.5, 1, 2, 4, 8].map((v) => h2("option", { key: v, value: v }, `${v}\xD7`))),
+      h2("span", { title: "\u6309\u7A0B\u5E8FF\u4F30\u7B97\uFF1B\u5FEB\u79FB\u5047\u5B9A8000\u3001\u7F3AF\u5047\u5B9A500\u5355\u4F4D/\u5206\u949F\uFF0C\u4E0D\u542B\u6362\u5200/\u52A0\u51CF\u901F/\u505C\u7559" }, `${Math.round(active.duration ? time / active.duration * 100 : 0)}% \xB7 \u4F30\u7B97\u8F68\u8FF9\u56DE\u653E`)
+    ) : null,
+    alerts.length ? h2("div", { className: "cmv-alerts" }, ...alerts.slice(0, 30).map((a, i) => h2("button", { key: i, type: "button", onClick: () => {
+      setSource(true);
+      setSelecting(false);
+      setFollow(true);
+      seekLine(a.line);
+    } }, a.text))) : null,
+    state.manifest?.warnings?.length ? h2("div", { className: "cmv-note" }, `\u6A21\u578B\u5BFC\u51FA\u544A\u8B66\uFF1A${JSON.stringify(state.manifest.warnings)}`) : null,
+    active ? h2("div", { className: "cmv-footer" }, "\u7A0B\u5E8F\u8F68\u8FF9\u8FD1\u4F3C\u9884\u89C8\uFF1B\u5200\u4F4D\u6807\u8BB0\u53EF\u7A7F\u8FC7\u906E\u6321\u3002\u4E0D\u662F\u6750\u6599\u53BB\u9664\u3001\u78B0\u649E\u68C0\u67E5\u6216\u673A\u5E8A\u4EFF\u771F\u3002") : null
   );
+}
+function ModelViewer({ sessionId, path, runId }) {
+  const [selectedRun, setRun] = (0, import_react2.useState)(runId ?? ""), [runs, setRuns] = (0, import_react2.useState)([]), [joint, setJoint] = (0, import_react2.useState)(null), [notice, setNotice] = (0, import_react2.useState)("");
+  (0, import_react2.useEffect)(() => {
+    setRun(runId ?? "");
+    setJoint(null);
+    setNotice("");
+  }, [sessionId, path, runId]);
+  (0, import_react2.useEffect)(() => {
+    const controller = new AbortController();
+    const requested = path ?? joint?.model_path;
+    if (requested) void json(`${base(sessionId)}/runs?path=${encodeURIComponent(requested)}`, { signal: controller.signal }).then((data) => setRuns(data.runs), (e) => {
+      if (!controller.signal.aborted) setNotice(e.message);
+    });
+    return () => controller.abort();
+  }, [sessionId, path, joint?.model_path]);
+  (0, import_react2.useEffect)(() => {
+    const controller = new AbortController();
+    setJoint(null);
+    setNotice("");
+    if (selectedRun) void json(`${base(sessionId)}/runs/${encodeURIComponent(selectedRun)}`, { signal: controller.signal }).then((data) => {
+      if (data.state !== "ready") {
+        setNotice(data.message);
+        return;
+      }
+      ;
+      setJoint(data);
+    }, (e) => {
+      if (!controller.signal.aborted) setNotice(e.message);
+    });
+    return () => controller.abort();
+  }, [sessionId, selectedRun]);
+  const prepared = (0, import_react2.useMemo)(() => {
+    try {
+      const programs = joint ? joint.operations.map((op) => makeProgram(op, joint.stations.find((s) => s.name === op.station))) : [];
+      if (programs.reduce((n, p) => n + p.parsed.segments.length, 0) > 1e6) throw new Error("\u6279\u6B21\u5200\u8DEF\u5408\u8BA1\u8D85\u8FC7100\u4E07\u6BB5");
+      return { programs, error: "" };
+    } catch (e) {
+      return { programs: [], error: e.message };
+    }
+  }, [joint]);
+  const modelPath = path ?? joint?.model_path;
+  const choices = runs.some((r) => r.run_id === selectedRun) || !selectedRun ? runs : [{ run_id: selectedRun, available: true }, ...runs];
+  if (!modelPath) return h2("div", { className: "cmv" }, h2("div", { className: "cmv-note", role: "status" }, notice || "\u6B63\u5728\u8BFB\u53D6\u52A0\u5DE5\u6279\u6B21\u2026"));
+  return h2(SceneView, {
+    key: `${sessionId}/${modelPath}`,
+    sessionId,
+    path: modelPath,
+    programs: prepared.programs,
+    expectedSha: joint?.source_sha256,
+    notice: prepared.error || notice,
+    contextTools: h2("select", { "aria-label": "\u52A0\u5DE5\u6279\u6B21", value: selectedRun, onChange: (e) => setRun(e.target.value) }, h2("option", { value: "" }, "\u4EC5\u6A21\u578B"), ...choices.map((r) => h2("option", { key: r.run_id, value: r.run_id }, `${r.run_id}${r.available ? "" : "\uFF08\u7F3A\u5BF9\u9F50\u4FE1\u606F\uFF09"}`)))
+  });
+}
+function ToolpathViewer({ content, fileName }) {
+  const programs = (0, import_react2.useMemo)(() => [makeProgram({ id: "0", name: fileName, file: fileName, content })], [content, fileName]);
+  return h2(SceneView, { key: fileName, programs });
 }
 var name = "camind-ui-model-viewer";
 var inject = ["slots"];
 function apply(ctx) {
   ctx.effect(() => {
     const style = document.createElement("style");
-    style.textContent = "[data-phase]:has(.cmv) [data-composer-seat]{display:none}.cmv{flex:1;min-height:0;display:flex;flex-direction:column}.cmv-tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-tools span,.cmv-foot{font-size:12px;color:var(--dsw-alias-label-secondary)}.cmv-stage{position:relative;flex:1;min-height:240px;background:#1b1e24}.cmv-stage canvas{position:absolute;width:100%;height:100%;touch-action:none}.cmv-message{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#eee;text-align:center;font-size:13px}.cmv-foot{padding:6px 12px}";
+    style.textContent = viewerCss;
     document.head.append(style);
     return () => style.remove();
   });
   ctx.slots.inject("cam.model.preview", () => ctx.slots.register({ name: "cam.model.preview", key: "model-viewer" }, ModelViewer));
+  ctx.slots.inject("cam.nc.preview", () => ctx.slots.register({ name: "cam.nc.preview", key: "toolpath-viewer" }, ToolpathViewer));
 }
 return module.exports; } });

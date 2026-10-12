@@ -68,6 +68,7 @@ export function viewParamsFromCamera(camera: OrbitCamera, aspect: number): ViewP
 
 export interface RenderOptions {
     showMesh: boolean;
+    pickMode?: 'face' | 'path';
     showEdges: boolean;
     showToolpath: boolean;
     // 刀路不被零件遮挡(透视显示)。成品模型是实心的,切进材料里的走刀本来会被面挡住;
@@ -145,6 +146,8 @@ export class SceneRenderer {
     private pathDirty = false;
     private pathModel = new Mat4(); // 工位变换的逆
     private playhead = 1e30;
+    private playbackStart = 0;
+    private playbackEnd = 1e30;
     private futureKeep = 0.25;
 
     // 显卡资源
@@ -298,6 +301,7 @@ export class SceneRenderer {
     /** 播放头:正在走第几段(从 0 起)。大于等于段数 = 全部走完。 */
     setPlayhead(segment: number): void { this.playhead = segment; }
     playheadPos(): number { return this.playhead; }
+    setPlaybackRange(start: number, end: number): void { this.playbackStart = start; this.playbackEnd = end; }
 
     /** 还没走到的线段保留多少本色:0 = 完全不显示,1 = 与走过的一样。 */
     setFutureVisibility(keep: number): void { this.futureKeep = keep; }
@@ -324,6 +328,8 @@ export class SceneRenderer {
         depthBiasMatrix(PATH_DEPTH_BIAS).mul(view.viewProj).mul(this.pathModel).toFloat32().forEach((v, i) => pu[i] = v);
         pu[16] = Math.min(this.playhead, 1.0e9);
         pu[17] = this.futureKeep;
+        pu[18] = this.playbackStart;
+        pu[19] = Math.min(this.playbackEnd, 1.0e9);
         pu[20] = options.background[0]; pu[21] = options.background[1]; pu[22] = options.background[2]; pu[23] = 1;
         gl.bindBuffer(gl.UNIFORM_BUFFER, this.pathUbo);
         gl.bufferData(gl.UNIFORM_BUFFER, pu, gl.DYNAMIC_DRAW);
@@ -396,6 +402,7 @@ export class SceneRenderer {
             gl.enable(gl.DEPTH_TEST);
             gl.depthFunc(gl.LEQUAL);
             gl.disable(gl.BLEND);
+            gl.depthMask(true);
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             if (options.showMesh && this.posBuf && this.idBuf && this.indexBuf) {
                 this.applyPipeline({ program: this.idProg.program, uboBlockIndex: this.idProg.uboBlockIndex,
@@ -403,7 +410,7 @@ export class SceneRenderer {
                 gl.bindVertexArray(this.idMeshVao);
                 this.drawIndexed(gl.TRIANGLES, this.mesh!.indexCount());
             }
-            if (options.showToolpath && this.pathPosBuf && this.pathIdBuf) {
+            if (options.pickMode !== 'face' && options.showToolpath && this.pathPosBuf && this.pathIdBuf) {
                 const segments = this.visibleSegmentCount();
                 if (segments > 0) {
                     this.applyPipeline({ program: this.idProg.program, uboBlockIndex: this.idProg.uboBlockIndex,

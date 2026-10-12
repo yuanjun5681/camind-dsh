@@ -135,10 +135,12 @@ void main()
 {
     float seg = float(gl_VertexID / 2);
     vec3 c = aColor.rgb;
-    if (seg > ub.params.x)
-        c = mix(ub.background.rgb, c, ub.params.y);      // 还没走到
-    else if (seg > ub.params.x - 1.0)
-        c = mix(c, vec3(1.0), 0.65);                     // 正在走的这一段
+    if (seg >= ub.params.z && seg < ub.params.w) {
+        if (seg > ub.params.x)
+            c = mix(ub.background.rgb, c, ub.params.y);
+        else if (seg > ub.params.x - 1.0)
+            c = mix(c, vec3(1.0), 0.65);
+    }
     vColor = vec4(c, 1.0);
     gl_Position = ub.mvp * vec4(aPos, 1.0);
 }`;

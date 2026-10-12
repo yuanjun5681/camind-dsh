@@ -173,6 +173,7 @@ function runSummary(sessionDir, runId) {
     overall: base.overall,
     ops,
     ops_counts: { ...counts, total: ops.length },
+    preview_available: existsSync(path.join(base.runDir, 'preview.json')),
     delivered,
     delivery,
     ...(base.read_error !== null ? { read_error: `run 目录部分文件无法解析：${base.read_error}` } : {}),
@@ -213,6 +214,7 @@ function runDetail(sessionDir, runId) {
       })),
     },
     runstate: base.state,
+    preview_available: existsSync(path.join(base.runDir, 'preview.json')),
     ...(base.read_error !== null ? { read_error: `run 目录部分文件无法解析：${base.read_error}` } : {}),
   }
 }

@@ -413,6 +413,7 @@ export interface CamRunSummary {
   overall: CamRunOverall
   ops: CamRunOpBrief[]
   ops_counts: { ok: number; generated: number; empty: number; error: number; total: number }
+  preview_available?: boolean
   delivered: boolean
   delivery: CamRunDeliveryFile[]
   read_error?: string
@@ -494,6 +495,7 @@ export interface CamRunDetail {
   overall: CamRunOverall
   delivered: boolean
   delivery: CamRunDeliveryFile[]
+  preview_available?: boolean
   /** nc_batch.zip 开包实数 NC 条目名（未交付为空数组）。 */
   nc_files: string[]
   nc_error?: string

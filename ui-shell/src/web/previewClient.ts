@@ -9,6 +9,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 interface FilePreviewService {
   preview(sessionId: string, path: string): void
   previewContent(sessionId: string, name: string, content: string): void
+  previewRun(sessionId: string, runId: string): void
 }
 
 let ctxRef: ClientContext | null = null
@@ -29,4 +30,8 @@ export function previewFile(sessionId: string, path: string): void {
 /** 内容模式预览：调用方已持有文本（如 delivery 路由开包取出的 NC），「预览」标签页直接渲染。 */
 export function previewContent(sessionId: string, name: string, content: string): void {
   service()?.previewContent(sessionId, name, content)
+}
+
+export function previewRun(sessionId: string, runId: string): void {
+  service()?.previewRun(sessionId, runId)
 }

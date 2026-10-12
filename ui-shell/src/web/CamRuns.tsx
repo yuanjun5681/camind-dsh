@@ -24,7 +24,8 @@ import type {
 } from '@shared/protocol'
 import { api } from './api'
 import { bytesLabel } from './format'
-import { previewContent, previewFile } from './previewClient'
+import { previewContent, previewFile, previewRun } from './previewClient'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'
 
 const OVERALL_VIEW: Record<CamRunOverall, { label: string; modifier: string }> = {
@@ -348,6 +349,7 @@ function CamRunCard({
       <div className="camrun-head">
         <span className={`camrun-badge camrun-badge-${overallView.modifier}`}>{overallView.label}</span>
         <span className="camrun-title" title={run.run_id}>{run.run_id}</span>
+        <Button disabled={!run.preview_available} title={run.preview_available ? '按工序检查模型与NC轨迹' : '此批次缺少源模型版本与完整工位变换，仍可单独查看NC'} onClick={() => previewRun(sessionId, run.run_id)}>加工检查</Button>
       </div>
       <dl className="camrun-facts">
         {run.part_id !== null && <div><dt>件号</dt><dd>{run.part_id}</dd></div>}

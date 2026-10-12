@@ -11,6 +11,8 @@ import { Package } from './lib/host-core.js'
 import { validatePackage, createModelService, FILES } from './lib/models.js'
 import { apply } from './index.js'
 import { apply as applyPreview } from '../ui-preview/index.js'
+import './selfcheck-controls.mjs'
+import './selfcheck-joint.mjs'
 const fixture = fileURLToPath(new URL('./fixtures/box/', import.meta.url))
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cam-model-check-'))
 try {
@@ -103,6 +105,6 @@ try {
   })
   const seats = []
   client.apply({ effect() {}, slots: { inject: (name, register) => { seats.push(name); register() }, register() {} } })
-  assert.deepEqual(seats, ['cam.model.preview'], '3D renderer must only extend the existing preview, not add another tab')
+  assert.deepEqual(seats, ['cam.model.preview', 'cam.nc.preview'], 'Unified renderer must extend both existing preview seats, not add another tab')
   console.log(`model-viewer selfcheck passed: ${FILES.length} package files, corruption/version/symlink checks, dirty NX guard, auth`)
 } finally { await fs.rm(tmp, { recursive: true, force: true }) }
