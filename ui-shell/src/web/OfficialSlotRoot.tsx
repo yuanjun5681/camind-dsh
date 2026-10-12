@@ -1,23 +1,18 @@
 /**
  * ui-shell 的路由感知 frame（顶替官方 AppFrame 的 root occupant）。
  * 0.2.0 布局：sidebar 列 + 中央 keyed `main`（conversation 或全局面板）
- * + Workbench 列 + rightbar 列（官方右侧栏，0.1.1 的 details 已并入）。
- * 全局 Shell 只拥有 sidebar / page / overlay；会话详情三列属于子布局。
+ * + rightbar 列（官方右侧栏）。工作台已迁入一级 conversation.view，壳不再挂重复列。
+ * 全局 Shell 只拥有 sidebar / page / overlay；会话布局复用官方会话。
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getLayoutSnapshot, layoutActions, subscribeLayout } from './officialLayout'
 import { getOfficialClient } from './officialClient'
-import { Workbench, type WorkbenchSession } from './Workbench'
-import { DeliverablesSync } from './DeliverablesSync'
-import { getWorkbenchSnapshot, subscribeWorkbench, workbenchActions } from './workbenchStore'
+import type { WorkbenchSession } from './Workbench'
 
 const SIDEBAR_DEFAULT = 280
 const SIDEBAR_COLLAPSED = 56
 const SIDEBAR_AUTO_COLLAPSE = 1024
-const WORKBENCH_DEFAULT = 360
-const WORKBENCH_MIN = 300
-const WORKBENCH_MAX = 560
 const RIGHTBAR_WIDTH = 380
 
 type SessionListState = {
@@ -59,68 +54,18 @@ function isPluginPagePath(pathname: string): boolean {
 }
 
 function SessionDetailLayout({ current, rightbarOpen, renderSlot, viewport }: SessionDetailLayoutProps) {
-  const workbench = useSyncExternalStore(subscribeWorkbench, getWorkbenchSnapshot)
-  const [workbenchWidth, setWorkbenchWidth] = useState(WORKBENCH_DEFAULT)
-  const resize = useRef<{ x: number; width: number }>()
   const rightbarWidth = current && rightbarOpen ? RIGHTBAR_WIDTH : 0
-  const workbenchVisible = Boolean(current) && workbench.open && !rightbarOpen
-  const workbenchOverlay = viewport < 1100
-  const resolvedWorkbenchWidth = workbenchVisible && !workbenchOverlay
-    ? Math.min(workbenchWidth, Math.max(WORKBENCH_MIN, viewport * 0.4))
-    : 0
-
-  function beginWorkbenchResize(event: PointerEvent<HTMLDivElement>) {
-    if (!workbenchVisible) return
-    resize.current = { x: event.clientX, width: workbenchWidth }
-    const move = (next: globalThis.PointerEvent) => {
-      const start = resize.current
-      if (!start) return
-      setWorkbenchWidth(Math.min(WORKBENCH_MAX, Math.max(WORKBENCH_MIN, start.width + start.x - next.clientX)))
-    }
-    const stop = () => {
-      resize.current = undefined
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-    event.preventDefault()
-  }
-
   return (
-    <section
-      className="official-session-page"
-      style={{ gridTemplateColumns: `minmax(0, 1fr) ${resolvedWorkbenchWidth}px ${rightbarWidth}px` }}
-      data-workbench-collapsed={!workbenchVisible || undefined}
-      data-workbench-overlay={workbenchOverlay || undefined}
-      data-details-collapsed={!rightbarOpen || undefined}
-    >
+    <section className="official-session-page"
+      style={{ gridTemplateColumns: `minmax(0, 1fr) 0px ${rightbarWidth}px` }}
+      data-workbench-collapsed data-details-collapsed={!rightbarOpen || undefined}>
       <main className="official-conversation">
         {renderSlot('main', {}, { entryKey: 'conversation' })}
       </main>
-      {current && <DeliverablesSync sessionId={current.id} />}
-      <div className="official-workbench-column">
-        {workbenchVisible && (
-          <>
-            <div className="workbench-resizer" role="separator" aria-orientation="vertical" onPointerDown={beginWorkbenchResize} />
-            <Workbench session={current} />
-          </>
-        )}
-      </div>
+      <div className="official-workbench-column" />
       <div className="official-details-column">
-        {renderSlot('rightbar', {
-          width: rightbarWidth,
-          viewportWidth: viewport,
-          // 是否放得下由视口宽度决定，不拿当前开合状态当闸门——seat 要能用
-          // syncPresentation 把 layout 打开（openTab 等主动入口）。
-          canShow: viewport >= 900,
-        })}
+        {renderSlot('rightbar', { width: rightbarWidth, viewportWidth: viewport, canShow: viewport >= 900 })}
       </div>
-      {current && !workbenchVisible && !rightbarOpen && (
-        <button type="button" className="workbench-open" onClick={() => workbenchActions.open()}>
-          工作台
-        </button>
-      )}
     </section>
   )
 }

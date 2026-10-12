@@ -3002,10 +3002,11 @@ function toolpathGeometryBounds(path) {
 var import_react = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 var h = import_react.default.createElement;
-function ModelControls({ view }) {
+function ModelControls({ view, onReference }) {
   const [selected, setSelected] = (0, import_react.useState)([]);
   const [input, setInput] = (0, import_react.useState)(""), [message, setMessage] = (0, import_react.useState)("");
   const [filter, setFilter] = (0, import_react.useState)([]);
+  const [adding, setAdding] = (0, import_react.useState)(false);
   const types = view.availableSurfaceTypes();
   (0, import_react.useEffect)(() => {
     const sync = () => setSelected(view.selectedFids());
@@ -3052,7 +3053,19 @@ function ModelControls({ view }) {
           setMessage("");
         } }, "\u6E05\u7A7A")
       ),
-      message ? h("div", { role: "alert" }, message) : null,
+      onReference ? h(import_dsh_client_ui_primitives.Button, { disabled: !selected.length || adding, onClick: async () => {
+        setAdding(true);
+        setMessage("");
+        try {
+          await onReference([...selected]);
+          setMessage("\u5DF2\u6DFB\u52A0\u5230\u63D0\u95EE\u8349\u7A3F\uFF0C\u5C1A\u672A\u53D1\u9001\u3002");
+        } catch (error) {
+          setMessage(error.message);
+        } finally {
+          setAdding(false);
+        }
+      } }, adding ? "\u6838\u5BF9\u5F15\u7528\u2026" : "\u6DFB\u52A0\u5230\u63D0\u95EE") : null,
+      message ? h("div", { role: message === "\u5DF2\u6DFB\u52A0\u5230\u63D0\u95EE\u8349\u7A3F\uFF0C\u5C1A\u672A\u53D1\u9001\u3002" ? "status" : "alert" }, message) : null,
       h(
         "fieldset",
         null,
@@ -3151,7 +3164,7 @@ function programBounds(program) {
 
 // ui-model-viewer/src/styles.ts
 var viewerCss = `
-[data-phase]:has(.cmv) [data-composer-seat]{display:none}
+[data-phase]:has(.cmv):not(:has(.campv-embedded)) [data-composer-seat]{display:none}
 .cmv{container-type:inline-size;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:13px}
 .cmv *{box-sizing:border-box}.cmv-expanded{position:fixed;inset:0;width:100%;height:100%;z-index:1000}
 .cmv-tools,.cmv-footer,.cmv-playbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l2)}
@@ -3166,6 +3179,8 @@ var viewerCss = `
 .cmv-selection,.cmv-source,.cmv-details{width:310px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);min-height:0;overflow:auto;padding:10px}.cmv-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace}.cmv-axes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}.cmv-selection-body{display:flex;flex-direction:column;gap:8px;padding-top:8px;overflow-wrap:anywhere}.cmv-face-form{display:flex;gap:6px;flex-wrap:wrap}.cmv-face-form input{width:100%}.cmv-selection fieldset{display:flex;gap:8px;flex-wrap:wrap;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-selected{max-height:180px;overflow:auto}
 .cmv-source{display:flex;flex-direction:column;overflow:hidden;padding:0}.cmv-source-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-source-head strong{flex:1;min-width:0;overflow-wrap:anywhere}.cmv-source-head input{width:90px}.cmv-source-lines{flex:1;min-height:100px;overflow:auto;font:12px/20px ui-monospace,monospace;background:var(--dsw-alias-markdown-code-block)}.cmv-source-line{display:block;border:0;background:transparent;color:inherit;text-align:left;white-space:pre;height:20px;line-height:20px;padding:0 8px;min-width:100%;cursor:pointer;font:inherit}.cmv-source-line[aria-current=true]{background:var(--dsw-alias-bg-layer-3)}
 .cmv-layers{position:absolute;right:12px;top:12px;z-index:2;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-layers label{display:block;padding:4px 0}
+/* The embedded composer reduces available height; never crop the canvas to a standalone minimum. */
+.campv-embedded .cmv-stage{min-height:min(120px,100%)}
 @container(max-width:736px){.cmv-body{flex-wrap:wrap;overflow:auto}.cmv-ops{width:132px}.cmv-source,.cmv-selection,.cmv-details{width:100%;height:220px;border-left:0;border-top:1px solid var(--dsw-alias-border-l2)}.cmv-stage{min-height:200px}.cmv-tools{gap:6px;padding:6px}.cmv-tools select{max-width:160px}.cmv-hud{font-size:11px}}
 `;
 
@@ -3255,7 +3270,7 @@ function SourceDrawer({ program, line, follow, onFollow, onSeek, onClose }) {
     )
   );
 }
-function SceneView({ sessionId, path, programs, expectedSha, notice, contextTools }) {
+function SceneView({ sessionId, path, programs, expectedSha, notice, contextTools, onReference }) {
   const canvas = (0, import_react2.useRef)(null), marker = (0, import_react2.useRef)(null), axes = (0, import_react2.useRef)(null);
   const [view, setView] = (0, import_react2.useState)(null), [state, setState] = (0, import_react2.useState)({ state: "loading" }), [error, setError] = (0, import_react2.useState)(""), [revision, setRevision] = (0, import_react2.useState)(0);
   const [activeId, setActive] = (0, import_react2.useState)(""), [visible, setVisible] = (0, import_react2.useState)([]), [time, setTime] = (0, import_react2.useState)(0), [playing, setPlaying] = (0, import_react2.useState)(false), [speed, setSpeed] = (0, import_react2.useState)(1);
@@ -3549,7 +3564,11 @@ F ${active.parsed.segments[position?.index ?? 0]?.feed ?? "\u2014"}`) : null,
         error ? h2("div", { className: "cmv-message", role: "alert" }, error) : null,
         !error && !ready ? h2("div", { className: "cmv-message" }, state.state === "missing" ? h2(import_react2.default.Fragment, null, h2("p", null, "\u5C1A\u672A\u751F\u6210\u4E09\u7EF4\u9884\u89C8\u3002NX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\uFF1B\u526F\u672C\u53EF\u80FD\u7559\u5728 NX \u4F1A\u8BDD\u4E2D\u3002"), h2(import_dsh_client_ui_primitives2.Button, { onClick: prepare }, "\u786E\u8BA4\u5E76\u751F\u6210\u4E09\u7EF4\u9884\u89C8")) : state.message || state.stage || "\u6B63\u5728\u52A0\u8F7D\u2026") : null
       ),
-      ready && selecting && view ? h2(ModelControls, { view }) : null,
+      ready && selecting && view ? h2(ModelControls, { view, onReference: onReference && sessionId && path ? async (fids) => {
+        const query = new URLSearchParams({ path, sha: state.sha, geometry: state.geometry_sha256, fids: fids.join(",") });
+        const reference = await json(`${base(sessionId)}/selection?${query}`);
+        await onReference(reference);
+      } : void 0 }) : null,
       source && active ? h2(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine, onClose: () => setSource(false) }) : null,
       ready && details ? h2("aside", { className: "cmv-details", "aria-label": "\u9884\u89C8\u8BE6\u60C5" }, h2("strong", null, "\u9884\u89C8\u8BE6\u60C5"), h2("pre", null, JSON.stringify({ source_sha256: state.sha ?? null, model_faces: state.faces?.length ?? null, model_triangles: state.triangles ?? null, operation: active?.name, nc_file: active?.file, nc_units: active?.parsed.meta.units, segments: active?.parsed.segments.length, estimate_seconds: active?.duration, coordinate_frame: path ? "package_to_nc" : "NC\u539F\u59CB\u5750\u6807", station: active?.station, part_to_nc: path ? active?.toPackage.inverse() : null, source_face: active?.fid ?? null }, null, 2)), h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setDetails(false) }, "\u5173\u95ED\u8BE6\u60C5")) : null
     ),
@@ -3591,7 +3610,7 @@ F ${active.parsed.segments[position?.index ?? 0]?.feed ?? "\u2014"}`) : null,
     active ? h2("div", { className: "cmv-footer" }, "\u7A0B\u5E8F\u8F68\u8FF9\u8FD1\u4F3C\u9884\u89C8\uFF1B\u5200\u4F4D\u6807\u8BB0\u53EF\u7A7F\u8FC7\u906E\u6321\u3002\u4E0D\u662F\u6750\u6599\u53BB\u9664\u3001\u78B0\u649E\u68C0\u67E5\u6216\u673A\u5E8A\u4EFF\u771F\u3002") : null
   );
 }
-function ModelViewer({ sessionId, path, runId }) {
+function ModelViewer({ sessionId, path, runId, onReference }) {
   const [selectedRun, setRun] = (0, import_react2.useState)(runId ?? ""), [runs, setRuns] = (0, import_react2.useState)([]), [joint, setJoint] = (0, import_react2.useState)(null), [notice, setNotice] = (0, import_react2.useState)("");
   (0, import_react2.useEffect)(() => {
     setRun(runId ?? "");
@@ -3641,6 +3660,7 @@ function ModelViewer({ sessionId, path, runId }) {
     programs: prepared.programs,
     expectedSha: joint?.source_sha256,
     notice: prepared.error || notice,
+    onReference,
     contextTools: h2("select", { "aria-label": "\u52A0\u5DE5\u6279\u6B21", value: selectedRun, onChange: (e) => setRun(e.target.value) }, h2("option", { value: "" }, "\u4EC5\u6A21\u578B"), ...choices.map((r) => h2("option", { key: r.run_id, value: r.run_id }, `${r.run_id}${r.available ? "" : "\uFF08\u7F3A\u5BF9\u9F50\u4FE1\u606F\uFF09"}`)))
   });
 }

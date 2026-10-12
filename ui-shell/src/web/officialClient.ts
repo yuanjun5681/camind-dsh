@@ -98,14 +98,6 @@ export type OfficialClient = ClientContext & {
     openSession(target: string): void
   }
   conversation: ConversationRootService
-  uiConversation: {
-    binding(source: string): {
-      snapshot: {
-        getSnapshot(): { nodes?: readonly unknown[] }
-        subscribe(fn: () => void): () => void
-      }
-    }
-  }
 }
 
 let client: OfficialClient | null = null

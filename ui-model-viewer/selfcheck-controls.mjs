@@ -32,8 +32,8 @@ view.setPart('fixture', [
   { fid: 'F000002', surfaceType: 'cylinder', areaMm2: 20 },
   { fid: 'F000003', surfaceType: 'plane', areaMm2: 10 },
 ])
-let tree
-function render() { cursor = 0; tree = ModelControls({ view }) }
+let tree, onReference
+function render() { cursor = 0; tree = ModelControls({ view, onReference }) }
 function nodes(node = tree) { return node && typeof node === 'object' ? [node, ...node.children.flatMap(nodes)] : [] }
 function text(node) { return node && typeof node === 'object' ? node.children.map(text).join('') : String(node ?? '') }
 function button(label) { return nodes().find(node => node.type === 'Button' && text(node) === label) }
@@ -75,6 +75,18 @@ click('全不选'); assert.deepEqual(selected(), [])
 click('全部'); submit('F000001'); click('清空'); assert.deepEqual(selected(), [])
 assert.equal(nodes().find(node => node.type === 'Input').props.value, '')
 submit(''); assert.deepEqual(selected(), [])
+assert.equal(button('添加到提问'), undefined, 'Standalone viewer must not pretend a composer is connected')
+let added = []
+onReference = async fids => { added = Array.from(fids) }
+render(); assert.equal(button('添加到提问').props.disabled, true)
+submit('F000001 F000003'); assert.deepEqual(added, [], 'Selecting faces must not write a draft')
+await button('添加到提问').props.onClick(); render()
+assert.deepEqual(added, ['F000001', 'F000003'])
+assert.match(text(tree), /尚未发送/)
+onReference = async () => { throw new Error('源模型已变更') }
+render(); await button('添加到提问').props.onClick(); render()
+assert.match(text(tree), /源模型已变更/)
+assert.equal(button('添加到提问').props.disabled, false)
 for (const cleanup of effects) cleanup?.()
 assert.equal(view.callbacks.selectionChanged, undefined)
 view.dispose()

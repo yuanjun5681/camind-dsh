@@ -1,6 +1,6 @@
 // One scoped machining viewport: theme chrome around a dark, content-specific GL scene.
 export const viewerCss = `
-[data-phase]:has(.cmv) [data-composer-seat]{display:none}
+[data-phase]:has(.cmv):not(:has(.campv-embedded)) [data-composer-seat]{display:none}
 .cmv{container-type:inline-size;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:13px}
 .cmv *{box-sizing:border-box}.cmv-expanded{position:fixed;inset:0;width:100%;height:100%;z-index:1000}
 .cmv-tools,.cmv-footer,.cmv-playbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l2)}
@@ -15,5 +15,7 @@ export const viewerCss = `
 .cmv-selection,.cmv-source,.cmv-details{width:310px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);min-height:0;overflow:auto;padding:10px}.cmv-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace}.cmv-axes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}.cmv-selection-body{display:flex;flex-direction:column;gap:8px;padding-top:8px;overflow-wrap:anywhere}.cmv-face-form{display:flex;gap:6px;flex-wrap:wrap}.cmv-face-form input{width:100%}.cmv-selection fieldset{display:flex;gap:8px;flex-wrap:wrap;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-selected{max-height:180px;overflow:auto}
 .cmv-source{display:flex;flex-direction:column;overflow:hidden;padding:0}.cmv-source-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-source-head strong{flex:1;min-width:0;overflow-wrap:anywhere}.cmv-source-head input{width:90px}.cmv-source-lines{flex:1;min-height:100px;overflow:auto;font:12px/20px ui-monospace,monospace;background:var(--dsw-alias-markdown-code-block)}.cmv-source-line{display:block;border:0;background:transparent;color:inherit;text-align:left;white-space:pre;height:20px;line-height:20px;padding:0 8px;min-width:100%;cursor:pointer;font:inherit}.cmv-source-line[aria-current=true]{background:var(--dsw-alias-bg-layer-3)}
 .cmv-layers{position:absolute;right:12px;top:12px;z-index:2;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-layers label{display:block;padding:4px 0}
+/* The embedded composer reduces available height; never crop the canvas to a standalone minimum. */
+.campv-embedded .cmv-stage{min-height:min(120px,100%)}
 @container(max-width:736px){.cmv-body{flex-wrap:wrap;overflow:auto}.cmv-ops{width:132px}.cmv-source,.cmv-selection,.cmv-details{width:100%;height:220px;border-left:0;border-top:1px solid var(--dsw-alias-border-l2)}.cmv-stage{min-height:200px}.cmv-tools{gap:6px;padding:6px}.cmv-tools select{max-width:160px}.cmv-hud{font-size:11px}}
 `

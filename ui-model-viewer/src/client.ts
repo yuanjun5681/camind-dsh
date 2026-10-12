@@ -9,6 +9,8 @@ import type { Program } from './scene.ts'
 import { viewerCss } from './styles.ts'
 const h = React.createElement
 const MAX = 128 * 1024 * 1024
+type SelectionReference = { kind: 'faces'; path: string; source_sha256: string; geometry_sha256: string; fids: string[] }
+type ReferenceHandler = (reference: SelectionReference) => Promise<void>
 function base(sessionId: string) { return `/camind/api/models/sessions/${encodeURIComponent(sessionId)}` }
 function endpoint(sessionId: string, path: string) { return `${base(sessionId)}/model?path=${encodeURIComponent(path)}` }
 async function json(url: string, init?: RequestInit) {
@@ -49,7 +51,7 @@ function SourceDrawer({ program, line, follow, onFollow, onSeek, onClose }: { pr
     h('div', { ref: scroll, className: 'cmv-source-lines', tabIndex: 0, onScroll: (e: any) => setTop(e.currentTarget.scrollTop), onWheel: () => onFollow(false), onPointerDown: () => onFollow(false), onKeyDown: (e: any) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) onFollow(false) } },
       h('div', { style: { height: rows.length * 20, position: 'relative', minWidth: 'max-content' } }, h('div', { style: { position: 'absolute', top: start * 20, minWidth: '100%' } }, rows.slice(start, end).map((text, i) => h('button', { key: start + i, type: 'button', className: 'cmv-source-line', 'aria-current': start + i + 1 === line, onClick: () => onSeek(start + i + 1) }, `${String(start + i + 1).padStart(5)}  ${text}`))))))
 }
-function SceneView({ sessionId, path, programs, expectedSha, notice, contextTools }: { sessionId?: string; path?: string; programs: Program[]; expectedSha?: string; notice?: string; contextTools?: React.ReactNode }) {
+function SceneView({ sessionId, path, programs, expectedSha, notice, contextTools, onReference }: { sessionId?: string; path?: string; programs: Program[]; expectedSha?: string; notice?: string; contextTools?: React.ReactNode; onReference?: ReferenceHandler }) {
   const canvas = useRef<HTMLCanvasElement>(null), marker = useRef<HTMLDivElement>(null), axes = useRef<SVGSVGElement>(null)
   const [view, setView] = useState<GeomView | null>(null), [state, setState] = useState<any>({ state: 'loading' }), [error, setError] = useState(''), [revision, setRevision] = useState(0)
   const [activeId, setActive] = useState(''), [visible, setVisible] = useState<string[]>([]), [time, setTime] = useState(0), [playing, setPlaying] = useState(false), [speed, setSpeed] = useState(1)
@@ -200,7 +202,11 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         layers ? h('div', { className: 'cmv-layers', 'aria-label': '显示图层' }, ...Object.entries(display).filter(([key]) => path || !['model', 'edges'].includes(key)).map(([key, checked]) => h('label', { key }, h('input', { type: 'checkbox', checked, onChange: (e: any) => setDisplay(d => ({ ...d, [key]: e.target.checked })) }), ` ${{ model: '工件', edges: '边线', rapid: '快移（红）', cutting: '切削（蓝/青/琥珀）', future: '淡显未走轨迹', through: '刀路穿透显示', axes: '工位坐标轴' }[key]}`)), h(Button, { onClick: () => setLayers(false) }, '关闭显示设置')) : null,
         error ? h('div', { className: 'cmv-message', role: 'alert' }, error) : null,
         !error && !ready ? h('div', { className: 'cmv-message' }, state.state === 'missing' ? h(React.Fragment, null, h('p', null, '尚未生成三维预览。NX 将打开独立标记副本，不覆盖原 PRT；副本可能留在 NX 会话中。'), h(Button, { onClick: prepare }, '确认并生成三维预览')) : state.message || state.stage || '正在加载…') : null),
-      ready && selecting && view ? h(ModelControls, { view }) : null,
+      ready && selecting && view ? h(ModelControls, { view, onReference: onReference && sessionId && path ? async fids => {
+        const query = new URLSearchParams({ path, sha: state.sha, geometry: state.geometry_sha256, fids: fids.join(',') })
+        const reference = await json(`${base(sessionId)}/selection?${query}`)
+        await onReference(reference)
+      } : undefined }) : null,
       source && active ? h(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine, onClose: () => setSource(false) }) : null,
       ready && details ? h('aside', { className: 'cmv-details', 'aria-label': '预览详情' }, h('strong', null, '预览详情'), h('pre', null, JSON.stringify({ source_sha256: state.sha ?? null, model_faces: state.faces?.length ?? null, model_triangles: state.triangles ?? null, operation: active?.name, nc_file: active?.file, nc_units: active?.parsed.meta.units, segments: active?.parsed.segments.length, estimate_seconds: active?.duration, coordinate_frame: path ? 'package_to_nc' : 'NC原始坐标', station: active?.station, part_to_nc: path ? active?.toPackage.inverse() : null, source_face: active?.fid ?? null }, null, 2)), h(Button, { onClick: () => setDetails(false) }, '关闭详情')) : null),
     h('div', { className: 'cmv-footer' }, h('span', null, active ? `${active.name} · ${active.station} · ${path ? '来源与对齐信息已校验' : 'NC原始坐标'}${display.through ? ' · 穿透显示' : ''}` : state.faces ? `${state.faces.length} 面 · ${state.triangles.toLocaleString()} 三角片 · mm` : 'NC 轨迹预览'),
@@ -213,7 +219,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
     state.manifest?.warnings?.length ? h('div', { className: 'cmv-note' }, `模型导出告警：${JSON.stringify(state.manifest.warnings)}`) : null,
     active ? h('div', { className: 'cmv-footer' }, '程序轨迹近似预览；刀位标记可穿过遮挡。不是材料去除、碰撞检查或机床仿真。') : null)
 }
-export function ModelViewer({ sessionId, path, runId }: { sessionId: string; path?: string; runId?: string }) {
+export function ModelViewer({ sessionId, path, runId, onReference }: { sessionId: string; path?: string; runId?: string; onReference?: ReferenceHandler }) {
   const [selectedRun, setRun] = useState(runId ?? ''), [runs, setRuns] = useState<any[]>([]), [joint, setJoint] = useState<any>(null), [notice, setNotice] = useState('')
   useEffect(() => { setRun(runId ?? ''); setJoint(null); setNotice('') }, [sessionId, path, runId])
   useEffect(() => {
@@ -238,7 +244,7 @@ export function ModelViewer({ sessionId, path, runId }: { sessionId: string; pat
   const modelPath = path ?? joint?.model_path
   const choices = runs.some(r => r.run_id === selectedRun) || !selectedRun ? runs : [{ run_id: selectedRun, available: true }, ...runs]
   if (!modelPath) return h('div', { className: 'cmv' }, h('div', { className: 'cmv-note', role: 'status' }, notice || '正在读取加工批次…'))
-  return h(SceneView, { key: `${sessionId}/${modelPath}`, sessionId, path: modelPath, programs: prepared.programs, expectedSha: joint?.source_sha256, notice: prepared.error || notice,
+  return h(SceneView, { key: `${sessionId}/${modelPath}`, sessionId, path: modelPath, programs: prepared.programs, expectedSha: joint?.source_sha256, notice: prepared.error || notice, onReference,
     contextTools: h('select', { 'aria-label': '加工批次', value: selectedRun, onChange: (e: any) => setRun(e.target.value) }, h('option', { value: '' }, '仅模型'), ...choices.map(r => h('option', { key: r.run_id, value: r.run_id }, `${r.run_id}${r.available ? '' : '（缺对齐信息）'}`))) })
 }
 export function ToolpathViewer({ content, fileName }: { content: string; fileName: string }) {

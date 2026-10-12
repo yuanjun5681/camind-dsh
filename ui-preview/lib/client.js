@@ -4,8 +4,8 @@
 //     description or raw bytes with raw=1), same discipline as the old
 //     ui-shell route it replaces.
 //  2. "预览" conversation view (id preview, order 20, after 对话/轨迹): the
-//     preview target lives in this bundle's store (single latest target per
-//     browser, tagged with sessionId; other sessions' tabs show an empty hint).
+//     Preview targets are isolated by session and can be embedded in the main
+//     workbench through filePreview.View; standalone preview remains available.
 //     Two target kinds: `path` (workspace/upload:// ref, fetched via the Host
 //     route) and `content` (caller already holds the text — e.g. an NC program
 //     extracted by tool-cam's delivery route; rendered straight from memory).
@@ -75,7 +75,7 @@ const previewCss = `
    [data-composer-seat] (hash-free anchors, same trick as ui-home's HeroShell
    hiding). :has() self-scopes the rule — switching tabs unmounts .campv-view
    and the composer returns. Upstream DOM changes need a recheck (upgrade SOP). */
-[data-phase]:has(.campv-view) [data-composer-seat] { display: none; }
+[data-phase]:has(.campv-view:not(.campv-embedded)) [data-composer-seat] { display: none; }
 /* Wide-table hover jitter fix: official MarkdownText swaps overflow-x hidden
    (resting, padding-bottom = scrollbar width) → auto (hover, padding 0). That
    assumes classic scrollbars consume layout height; on macOS overlay bars they
@@ -93,11 +93,12 @@ const previewCss = `
 `
 
 // --- preview target store ---------------------------------------------------------
-// target: { kind: 'path', sessionId, path } | { kind: 'content', sessionId, name, content }
-let snapshot = { target: undefined }
+// Per-session targets retain view state when navigating between conversations.
+let snapshot = { targets: {} }
 const listeners = new Set()
 function publish(next) {
-  snapshot = next
+  const target = next.target
+  snapshot = { targets: { ...snapshot.targets, [target.sessionId]: target } }
   for (const listener of listeners) listener()
 }
 function subscribe(listener) {
@@ -143,7 +144,8 @@ function activateConversationView(sessionId, viewId) {
     if (entry === undefined) return
     const binding = sessionsRef?.binding?.(sessionId)
     if (binding?.ctx === undefined) return
-    slots.hostFace().storeOf?.(entry, { key: sessionId, ctx: binding.ctx })?.actions?.setView?.(viewId)
+    const targetView = viewId === 'preview' && slots.entriesOfSlot('conversation.view').some(item => item.options?.id === 'workbench') ? 'workbench' : viewId
+    slots.hostFace().storeOf?.(entry, { key: sessionId, ctx: binding.ctx })?.actions?.setView?.(targetView)
   } catch {
     // Degradation path: stay on the current view; the preview tab still works.
   }
@@ -274,14 +276,19 @@ function NcRawBody({ sessionId, preview }) {
   return h(NcOrText, { name: preview.name, text })
 }
 
-function FilePreviewBody({ sessionId, preview, error }) {
+function FilePreviewBody({ sessionId, preview, error, onReference }) {
   const ModelViewer = useModelViewer()
   if (error) return h('div', { className: 'campv-error' }, error)
   if (!preview) return h('div', { className: 'campv-empty' }, '正在读取文件…')
   const raw = rawFileUrl(sessionId, preview.path)
   const ncName = isNcName(preview.name)
+  if (/\.dwg$/i.test(preview.name)) {
+    return h('div', { className: 'campv-binary' }, h('h3', null, 'CAD 图纸预览待接入'),
+      h('p', null, 'DWG 已列为输入文件，但尚不能读取图层、尺寸或公差；不能据此视为已审图。'),
+      h('a', { href: raw, target: '_blank', rel: 'noreferrer' }, '下载原始 DWG'))
+  }
   if (/\.prt$/i.test(preview.name) && ModelViewer) {
-    return h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId, path: preview.path }))
+    return h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId, path: preview.path, onReference }))
   }
   return h('div', { className: 'campv-pane' },
     preview.kind === 'text' && isMarkdownPreview(preview)
@@ -309,16 +316,17 @@ function FilePreviewBody({ sessionId, preview, error }) {
 
 // --- the view -------------------------------------------------------------------------
 
-function FilePreviewView({ sessionId }) {
+function FilePreviewView({ sessionId, embedded = false, onReference }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot)
-  const target = snap.target?.sessionId === sessionId ? snap.target : undefined
+  const target = snap.targets[sessionId]
+  const viewClass = embedded ? 'campv-view campv-embedded' : 'campv-view'
   const ModelViewer = useModelViewer()
   const isPath = target?.kind === 'path'
   const { preview, error } = useFilePreview(isPath ? target.sessionId : undefined, isPath ? target.path : undefined)
   const blobUrl = useBlobUrl(target?.kind === 'content' ? target.content : undefined)
 
   if (target === undefined) {
-    return h('div', { className: 'campv-view' },
+    return h('div', { className: viewClass },
       h('div', { className: 'campv-empty' }, '尚未预览文件——在「交付物」「加工」页签或输入区文件列表点「预览」，内容显示在这里。'))
   }
 
@@ -333,7 +341,7 @@ function FilePreviewView({ sessionId }) {
       : target.path
   const openUrl = runMode ? null : contentMode ? blobUrl : rawFileUrl(target.sessionId, preview?.path ?? target.path)
 
-  return h('div', { className: 'campv-view' },
+  return h('div', { className: viewClass },
     h('div', { className: 'campv-chrome' },
       h('header', { className: 'campv-head' },
         h('div', { className: 'campv-head-text' },
@@ -344,9 +352,9 @@ function FilePreviewView({ sessionId }) {
             ? h('a', { href: openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')
             : null)),
       h('div', { className: 'campv-stage' },
-        runMode ? ModelViewer ? h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId: target.sessionId, runId: target.runId })) : h('div', { className: 'campv-error' }, '加工查看器未加载') : contentMode
+        runMode ? ModelViewer ? h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId: target.sessionId, runId: target.runId, onReference })) : h('div', { className: 'campv-error' }, '加工查看器未加载') : contentMode
           ? h(NcOrText, { name: target.name, text: target.content })
-          : h(FilePreviewBody, { sessionId: target.sessionId, preview, error }))))
+          : h(FilePreviewBody, { sessionId: target.sessionId, preview, error, onReference }))))
 }
 
 // --- registration ------------------------------------------------------------------------
@@ -366,6 +374,14 @@ function apply(ctx) {
   sessionsRef = ctx.get('sessions') ?? null
 
   ctx.provide('filePreview', {
+    View: FilePreviewView,
+    subscribe(sessionId, listener) {
+      let previous = snapshot.targets[sessionId]
+      return subscribe(() => {
+        const next = snapshot.targets[sessionId]
+        if (next !== previous) { previous = next; listener() }
+      })
+    },
     // 路径模式：预览会话工作区 / upload:// 引用（经 Host 路由取数）。
     preview(sessionId, path) {
       const id = String(sessionId ?? '')

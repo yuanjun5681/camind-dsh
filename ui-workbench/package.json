@@ -1,7 +1,7 @@
 {
   "name": "camind-ui-workbench",
   "version": "0.1.0",
-  "description": "Camind workbench as an official right-Sidebar tab (输入/交付物/加工 subtabs); runs in /camind, official /web, and the desktop shell.",
+  "description": "Camind canvas-first conversation workbench with inputs, deliverables, CAM runs and current public Agent response; shared by web and desktop.",
   "type": "module",
   "main": "./index.js",
   "exports": {

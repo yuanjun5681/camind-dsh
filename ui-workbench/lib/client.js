@@ -1,10 +1,9 @@
 // camind-ui-workbench browser bundle — hand-written, no build step.
-// 「工作台」右侧栏页签：输入 / 交付物 / 加工 三个子页签，0.2.0 官方
-// sidebar.right.pane.tab 席位——/camind 定制壳、官方 /web、桌面端（dsh-app://）
-// 同一份注册都可用（ui-shell 的会话工作台列只在 /camind SPA 里）。
+// 一级 conversation.view 工作台：输入 / 交付物 / 加工 + 中央预览与 Agent 面板。
+// /camind、官方 /web 与桌面端共享注册，缺失的正式规划能力用明确占位呈现。
 // 数据源：ui-preview 的 /camind/api/preview/sessions/:id/files（上传/附件/桌面引用）+ tool-cam 的
 // /camind/api/cam/runs（加工时间线）+ 官方 uiConversation 投影（交付物）。
-// 预览按钮经 ui-preview 的 filePreview 服务进「预览」标签页。
+// 预览按钮经 ui-preview 的 filePreview 服务留在工作台画布。
 // 样式自含，token 走 --dsw-alias-*（不依赖 ui-shell/foundation）。
 window.__ModuleLoader__.load({ id: "camind-ui-workbench", factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
@@ -13,14 +12,35 @@ const React = require('react')
 const { createElement: h, useEffect, useState } = React
 const { Button, IconGaugeOutlineRegular, Tooltip } = require('@deepseek-ai/dsh-client-ui-primitives')
 
-const TAB_ID = 'camind-ui-workbench/bench'
-const TAB_KIND = 'cam-workbench'
+const VIEW_ID = 'workbench'
 const INPUTS_API = '/camind/api/preview/sessions'
 const RUNS_API = '/camind/api/cam/runs'
 
 // --- stylesheet ------------------------------------------------------------------
 
 const benchCss = `
+[data-conversation-scroll]:has(.wb-main) { overflow:hidden; }
+[data-slot="conversation.session"] > :has(> [data-slot="conversation.view"] > .wb-main) { flex:1 1 0; min-height:0; overflow:auto; }
+.wb-main { display:flex; flex:1; flex-direction:column; height:100%; min-height:0; color:var(--dsw-alias-label-primary); container-type:inline-size; }
+.wb-main * { box-sizing:border-box; }
+.wb-main-head, .wb-agent header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-main-head > span, .wb-hint { font-size:12px; color:var(--dsw-alias-label-tertiary); }
+.wb-scene { display:flex; flex:1; min-height:0; position:relative; }
+.wb-left { width:260px; flex:none; border-right:1px solid var(--dsw-alias-border-l2); overflow:auto; }
+.wb-inspector { width:240px; flex:none; border-left:1px solid var(--dsw-alias-border-l2); overflow:auto; }
+.wb-canvas { display:flex; flex:1; min-width:0; min-height:0; overflow:auto; background:var(--dsw-alias-bg-layer-2); }
+.wb-preview-stage { display:flex; flex:1; min-width:0; min-height:0; }
+.wb-preview-stage[hidden] { display:none; }
+.wb-placeholder { padding:24px; margin:auto; max-width:560px; line-height:1.7; }
+.wb-placeholder h3 { margin:0 0 12px; font-size:16px; }
+.wb-placeholder small { color:var(--dsw-alias-label-tertiary); }
+.wb-agent { flex:none; border-top:1px solid var(--dsw-alias-border-l2); }
+.wb-agent details, .wb-hint { margin:8px 12px; }
+.wb-response { max-height:100px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.6; padding:8px 0; }
+.wb-agent header span { flex:1; font-size:12px; }
+.wb-main .campv-view { min-height:0; }
+@container (max-width:800px) { .wb-left { width:210px; } .wb-inspector { position:absolute; right:0; top:0; bottom:0; z-index:5; background:var(--dsw-alias-bg-base); box-shadow:0 2px 8px #0003; } }
+@container (max-width:560px) { .wb-left { position:absolute; left:0; top:0; bottom:0; z-index:4; background:var(--dsw-alias-bg-base); } }
 .wb { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--dsw-alias-label-primary); }
 .wb *, .wb *::before, .wb *::after { box-sizing: border-box; }
 .wb-tabs { flex: none; display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
@@ -199,45 +219,53 @@ function InputTab({ sessionId }) {
 
 // --- 交付物 tab --------------------------------------------------------------------------
 
-// 与官方 deliverables 投影同口径：tool-result 节点的 callView 里 generic/edit 或
-// diff 卡片的 locations 即产出文件。
-function producedPathsOf(callView) {
-  if (!callView || (callView.card !== 'diff' && !(callView.card === 'generic' && callView.kind === 'edit'))) return []
-  return (callView.locations ?? []).map((loc) => loc?.path).filter((p) => typeof p === 'string')
-}
-
-function deliverablesOfNodes(nodes) {
-  const paths = []
-  const seen = new Set()
-  for (const node of nodes) {
-    if (node?.kind !== 'tool-result' || node.isError === true) continue
-    for (const p of producedPathsOf(node.callView ?? null)) {
-      if (seen.has(p)) continue
-      seen.add(p)
-      paths.push(p)
+// DSH 0.2 records produced/presented files in turn data, not legacy tool call cards.
+function deliverablesOfChat(chat) {
+  const paths = new Set()
+  for (const id of chat?.timeline.turnOrder ?? []) {
+    const data = chat.timeline.turns.get(id)?.data.get('deliverables')
+    for (const file of [...data?.produced ?? [], ...data?.presented ?? []]) {
+      if (typeof file.path === 'string') paths.add(file.path)
     }
   }
-  return paths
+  return [...paths]
 }
 
 function DeliverablesTab({ sessionId }) {
   const [paths, setPaths] = useState([])
+  const [cam, setCam] = useState({ files: [], error: '' })
+  useEffect(() => {
+    let cancelled = false, timer
+    const refresh = async () => {
+      try {
+        const result = await runsApi(sessionId)
+        if (!cancelled) setCam({ files: (result.runs ?? []).flatMap(run => run.delivery.map(file => ({ ...file, runId: run.run_id }))), error: '' })
+      } catch (error) { if (!cancelled) setCam({ files: [], error: error.message }) }
+      finally { if (!cancelled) timer = setTimeout(refresh, 5000) }
+    }
+    void refresh()
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [sessionId])
   useEffect(() => {
     let dispose
     try {
       const binding = applyCtx?.get('uiConversation')?.binding(sessionId)
       if (!binding) return
-      const sync = () => setPaths(deliverablesOfNodes(binding.snapshot.getSnapshot().nodes ?? []))
+      const source = binding.target('chat')
+      const sync = () => setPaths(deliverablesOfChat(source.getSnapshot()))
+      dispose = source.subscribe(sync)
       sync()
-      dispose = binding.snapshot.subscribe(sync)
     } catch { /* 会话绑定未就绪时保持空列表 */ }
     return dispose
   }, [sessionId])
 
   return h('div', { className: 'wb-section' },
-    paths.length === 0
+    cam.error && h('p', { role: 'alert' }, `CAM 文件列表读取失败：${cam.error}`),
+    cam.files.length > 0 && h(React.Fragment, null, h('h3', { className: 'wb-h3' }, 'CAM 输出文件（不是放行结论）'),
+      cam.files.map(file => h(DeliveryFileRow, { key: `${file.runId}/${file.name}`, sessionId, runId: file.runId, file }))),
+    paths.length === 0 && cam.files.length === 0
       ? h('div', { className: 'wb-empty' }, '当前已加载的会话轮次还没有产出文件。')
-      : h('div', { className: 'wb-file-list' }, paths.map((p) => h('button', {
+      : h('div', { className: 'wb-file-list' }, paths.filter(p => !cam.files.some(file => p === `delivery/${file.runId}/${file.name}`)).map((p) => h('button', {
           type: 'button',
           key: p,
           className: 'wb-deliverable',
@@ -374,7 +402,7 @@ function NcToolpathButton({ sessionId, runId, name }) {
     h('button', {
       type: 'button',
       disabled: busy,
-      title: '在「预览」标签页查看刀路',
+      title: '在工作台画布查看刀路',
       onClick: () => {
         setBusy(true)
         setError(undefined)
@@ -564,14 +592,123 @@ function WorkbenchTab({ sessionId, useTabInfo }) {
       sessionId && tab === 'cam' && h(CamRunsTab, { sessionId })))
 }
 
-function BenchHeaderButton() {
-  return h(Tooltip, { label: '在右侧栏打开「工作台」', delayMs: 500 },
+// shortcut: use the upstream internal store bridge until DSH exposes public view navigation.
+function conversationStore(sessionId) {
+  const slots = applyCtx?.slots
+  const entry = slots?.entriesOfSlot('conversation.session')[0]
+  const binding = applyCtx?.get('sessions')?.binding(sessionId)
+  return entry && binding?.ctx ? slots.hostFace().storeOf(entry, { key: sessionId, ctx: binding.ctx }) : undefined
+}
+
+function openView(sessionId, view) {
+  conversationStore(sessionId)?.actions?.setView(view)
+  if (view === VIEW_ID) collapseLegacySidebar()
+}
+
+function collapseLegacySidebar() {
+  const sidebar = applyCtx?.get('sidebarRight')
+  const active = sidebar?.active()
+  if (active?.kind === 'cam-workbench') sidebar.close(active.id)
+  if (sidebar?.isExpanded()) sidebar.toggleExpanded()
+}
+
+function BenchHeaderButton({ sessionId }) {
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer
+    const check = async () => {
+      try {
+        const store = conversationStore(sessionId)
+        if (!store || store.getSnapshot().view !== null) return
+        const response = await fetch(`${INPUTS_API}/${encodeURIComponent(sessionId)}/files`, { signal: controller.signal })
+        if (!response.ok) return
+        const body = await response.json()
+        if (!controller.signal.aborted && store.getSnapshot().view === null && body.files?.some(file => file.available !== false && /\.prt$/i.test(file.name))) openView(sessionId, VIEW_ID)
+      } catch { /* Keep manual navigation available if input discovery is unavailable. */ }
+      finally { if (!controller.signal.aborted) timer = setTimeout(check, 3000) }
+    }
+    void check()
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [sessionId])
+  return h(Tooltip, { label: '打开加工工作台', delayMs: 500 },
     h(Button, {
-      variant: 'ghost',
-      size: 'sm',
-      icon: h(IconGaugeOutlineRegular, { size: 14 }),
-      onClick: () => { applyCtx?.get('sidebarRight')?.openTab(TAB_KIND) },
+      variant: 'ghost', size: 'sm', icon: h(IconGaugeOutlineRegular, { size: 14 }),
+      onClick: () => openView(sessionId, VIEW_ID),
     }, '工作台'))
+}
+
+function sessionInput(sessionId) {
+  const scope = applyCtx?.get('sessions')?.scope(sessionId)
+  return scope?.get('conversation')?.input.for(scope)
+}
+
+function selectionClipboard(ref) {
+  return `[CAM_SELECTION]\n${ref}\n[/CAM_SELECTION]`
+}
+
+async function addSelectionToDraft(sessionId, reference) {
+  const input = sessionInput(sessionId)
+  if (!input) throw new Error('原生输入框未就绪，请稍后重试')
+  const state = input.state.getSnapshot()
+  if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
+  const ref = JSON.stringify({ session_id: sessionId, kind: reference.kind, path: reference.path,
+    source_sha256: reference.source_sha256, geometry_sha256: reference.geometry_sha256, fids: reference.fids })
+  if (state.occurrences.some(item => item.source === 'cam-selection' && item.ref === ref)) { input.focus(); return }
+  // The native editor counts each chip as one detect character, not its clipboard expansion.
+  const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
+  const label = `${reference.fids.slice(0, 3).join('、')}${reference.fids.length > 3 ? ` 等 ${reference.fids.length} 面` : ''} · ${reference.source_sha256.slice(0, 8)}`
+  if (!input.insertReference({ source: 'cam-selection', ref, label, appearance: 'file', clipboardText: selectionClipboard(ref) }, { start: end, end, draftRev: state.draftRev })) throw new Error('草稿已变更，请重新添加引用')
+  input.focus()
+}
+
+function CapabilityPlaceholder({ title, children }) {
+  return h('section', { className: 'wb-placeholder' }, h('h3', null, title), h('p', null, children), h('small', null, '功能待接入 · 不参与加工放行'))
+}
+
+function AgentPanel({ sessionId }) {
+  const [state, setState] = useState({ running: false, streaming: false, text: '' })
+  useEffect(() => {
+    const sessions = applyCtx?.get('sessions')
+    const source = applyCtx?.get('uiConversation')?.binding(sessionId).target('chat')
+    const sync = () => {
+      const chat = source?.getSnapshot()?.legacy
+      const latest = chat?.partial ?? [...(chat?.nodes ?? [])].reverse().find(node => node.kind === 'assistant')
+      setState({ running: sessions?.list.getSnapshot().byId[sessionId]?.running === true, streaming: Boolean(chat?.partial),
+        text: (latest?.blocks ?? []).filter(block => block.kind === 'text').map(block => block.text).join('\n') })
+    }
+    const disposeConversation = source?.subscribe(sync)
+    sync()
+    const disposeSessions = sessions?.list.subscribe(sync)
+    return () => { disposeConversation?.(); disposeSessions?.() }
+  }, [sessionId])
+  return h('section', { className: 'wb-agent', 'aria-label': 'Agent 当前响应' },
+    h('header', null, h('strong', null, 'Agent'), h('span', { role: 'status' }, state.running ? '会话执行中 · 详细进度见加工记录' : '等待指令'),
+      h(Button, { onClick: () => openView(sessionId, 'chat') }, '查看对话')),
+    h('details', { open: state.streaming }, h('summary', null, state.streaming ? '公开回复生成中' : '最新公开回复'), h('div', { className: 'wb-response' }, state.text || (state.streaming ? '正在等待公开回复…' : '暂无公开回复。'))),
+    h('p', { className: 'wb-hint' }, '使用下方原生输入框提问。选面可添加为版本化引用，发送时重新核对；引用不是加工授权。'))
+}
+
+function WorkbenchView({ sessionId }) {
+  useEffect(() => { collapseLegacySidebar() }, [sessionId])
+  const [left, setLeft] = useState(true), [right, setRight] = useState(false), [stage, setStage] = useState('view')
+  const Preview = previewService()?.View
+  useEffect(() => previewService()?.subscribe(sessionId, () => setStage('view')), [sessionId])
+  return h('div', { className: 'wb-main' },
+    h('header', { className: 'wb-main-head' }, h('strong', null, '加工工作台'), h('span', null, '首期界面 · 沿用现有执行审批'),
+      h(Button, { onClick: () => setLeft(!left), 'aria-pressed': left }, '输入与加工'),
+      h(Button, { onClick: () => setRight(!right), 'aria-pressed': right }, '检视面板')),
+    h('nav', { className: 'wb-tabs', 'aria-label': '工作台内容' },
+      [['view', '模型 / 图纸 / 文档'], ['confirm', '确认向导'], ['operations', '工序表']].map(([id, label]) => h('button', {
+        type: 'button', key: id, className: stage === id ? 'wb-tab active' : 'wb-tab', 'aria-pressed': stage === id, onClick: () => setStage(id),
+      }, label))),
+    h('div', { className: 'wb-scene' },
+      left && h('aside', { className: 'wb-left', 'aria-label': '输入与加工记录' }, h(WorkbenchTab, { sessionId })),
+      h('main', { className: 'wb-canvas' },
+        h('div', { className: 'wb-preview-stage', hidden: stage !== 'view' }, Preview ? h(Preview, { sessionId, embedded: true, onReference: reference => addSelectionToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        stage === 'confirm' && h(CapabilityPlaceholder, { title: '动态确认向导' }, '将从 PRT、DWG 和加工要求生成缺项、冲突及有依据的推荐。目前请在下方输入框补充要求，仍使用现有审批。'),
+        stage === 'operations' && h(CapabilityPlaceholder, { title: '结构化工序表' }, '正式工序草案、依赖和版本编辑待接入。现有执行工序与真实结果可在左侧“加工”查看。')),
+      right && h('aside', { className: 'wb-inspector', 'aria-label': '对象检视' }, h(CapabilityPlaceholder, { title: '对象与加工中心' }, '版本化面引用、工序参数编辑与加工中心摘要待接入。模型属性与临时选面仍可使用查看器已有工具。'))),
+    h(AgentPanel, { sessionId }))
 }
 
 function apply(ctx) {
@@ -584,25 +721,44 @@ function apply(ctx) {
     return () => { style.remove() }
   }, 'ui-workbench: stylesheet')
 
-  ctx.sidebarRightTabs.register({
-    id: TAB_ID,
-    kind: TAB_KIND,
-    priority: 'builtin',
-    title: () => '工作台',
-  })
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-    name: 'sidebar.right.pane.tab',
-    key: TAB_ID,
-  }, WorkbenchTab))
+  ctx.effect(() => ctx.get('inputTriggers').registerSource({
+    trigger: '@', name: 'cam-selection', candidates: async () => [], onPick: () => undefined,
+    codec: {
+      clipboardText: selectionClipboard,
+      async serialize(ref, signal) {
+        const reference = JSON.parse(ref)
+        const checkSession = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session_id) throw new Error('选面引用不属于当前会话，请重新选面') }
+        checkSession()
+        const query = new URLSearchParams({ path: reference.path, sha: reference.source_sha256, geometry: reference.geometry_sha256, fids: reference.fids.join(',') })
+        const response = await fetch(`/camind/api/models/sessions/${encodeURIComponent(reference.session_id)}/selection?${query}`, { signal })
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.message || `引用核对失败：HTTP ${response.status}`)
+        checkSession()
+        return `${selectionClipboard(JSON.stringify({ ...body, session_id: reference.session_id }))}\n请用 read_model_selection 核对引用，再结合问题回答；精确量测需 NX。`
+      },
+    },
+    openReference({ sessionId }, { ref }) {
+      const reference = JSON.parse(ref)
+      if (reference.session_id !== sessionId) return false
+      previewService()?.preview(sessionId, reference.path)
+      return true
+    },
+  }), 'ui-workbench: native selection references')
+
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view', id: VIEW_ID, order: -10, label: () => '工作台',
+    inject: sessionId => ({ sessionId }),
+  }, WorkbenchView))
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
     name: 'conversation.session.header.utilities',
     id: 'workbench',
     order: 29,
+    inject: sessionId => ({ sessionId }),
   }, BenchHeaderButton))
 }
 
 exports.name = 'ui-workbench-client'
-exports.inject = ['slots', 'sidebarRight', 'sidebarRightTabs']
+exports.inject = ['slots', 'sessions', 'uiConversation', 'filePreview', 'sidebarRight', 'conversation', 'inputTriggers']
 exports.apply = apply
 
 return module.exports; } });

@@ -3,10 +3,11 @@ import React, { useEffect, useState } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GeomView } from './viewer/geom_view.ts'
 const h = React.createElement
-export function ModelControls({ view }: { view: GeomView }) {
+export function ModelControls({ view, onReference }: { view: GeomView; onReference?: (fids: string[]) => Promise<void> }) {
   const [selected, setSelected] = useState<string[]>([])
   const [input, setInput] = useState(''), [message, setMessage] = useState('')
   const [filter, setFilter] = useState<string[]>([])
+  const [adding, setAdding] = useState(false)
   const types = view.availableSurfaceTypes()
   useEffect(() => {
     const sync = () => setSelected(view.selectedFids())
@@ -39,7 +40,13 @@ export function ModelControls({ view }: { view: GeomView }) {
           h(Input, { 'aria-label': '面编号', placeholder: 'F000001，多个编号用空格或逗号分隔', value: input, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value) }),
           h(Button, { type: 'submit' }, '选择'),
           h(Button, { type: 'button', onClick: () => { view.clearSelection(); setInput(''); setMessage('') } }, '清空')),
-        message ? h('div', { role: 'alert' }, message) : null,
+        onReference ? h(Button, { disabled: !selected.length || adding, onClick: async () => {
+          setAdding(true); setMessage('')
+          try { await onReference([...selected]); setMessage('已添加到提问草稿，尚未发送。') }
+          catch (error: any) { setMessage(error.message) }
+          finally { setAdding(false) }
+        } }, adding ? '核对引用…' : '添加到提问') : null,
+        message ? h('div', { role: message === '已添加到提问草稿，尚未发送。' ? 'status' : 'alert' }, message) : null,
         h('fieldset', null, h('legend', null, '可选曲面类型（其余面压暗）'),
           ...types.map(type => h('label', { key: type }, h('input', { type: 'checkbox', checked: filter.length === 0 || filter.includes(type), onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
             const allowed = filter.length === 0 ? types : filter.filter(t => t !== '<none>')

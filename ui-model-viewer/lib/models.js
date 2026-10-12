@@ -18,7 +18,8 @@ export async function validatePackage(dir, sha) {
     const actual = await realpath(path.join(dir, name))
     if (path.dirname(actual) !== await realpath(dir)) throw new Error('几何包文件越界')
   }
-  const raw = JSON.parse(await readFile(path.join(dir, 'manifest.json'), 'utf8'))
+  const manifestBytes = await readFile(path.join(dir, 'manifest.json'))
+  const raw = JSON.parse(manifestBytes.toString('utf8'))
   const manifest = parseManifest(JSON.stringify(raw))
   if (manifest.partSha256 !== sha) throw new Error('几何包与 PRT 源文件版本不符')
   // The stamped PRT stays on NX; only the four display files are recovered.
@@ -29,7 +30,7 @@ export async function validatePackage(dir, sha) {
   const coarse = pkg.loadMesh(0), mesh = pkg.loadMesh(1), edges = pkg.loadEdges()
   if (!mesh.vertexCount() || mesh.indexCount() / 3 > 2_000_000 || coarse.indexCount() / 3 > 2_000_000) throw new Error('网格为空或超过 200 万三角片')
   for (let i = 0; i < mesh.faceCount(); i++) if (!mesh.faceRange(i).indexCount) throw new Error('部分面没有网格，拒绝显示不完整模型')
-  return { state: 'ready', sha, manifest: raw, faces: pkg.faces, triangles: mesh.indexCount() / 3, vertices: mesh.vertexCount(), edges: edges.edgeCount() }
+  return { state: 'ready', sha, geometry_sha256: createHash('sha256').update(manifestBytes).digest('hex'), manifest: raw, faces: pkg.faces, triangles: mesh.indexCount() / 3, vertices: mesh.vertexCount(), edges: edges.edgeCount() }
 }
 
 export function createModelService({ home, resolve, pipeline }) {
@@ -98,6 +99,24 @@ export function createModelService({ home, resolve, pipeline }) {
   }
   return {
     target, status,
+    async selection(session, requested, sourceSha, geometrySha, fids) {
+      if (typeof requested !== 'string' || !requested || requested.length > 4096) throw new Error('需要有效模型引用')
+      if (!/^[a-f0-9]{64}$/.test(sourceSha) || !/^[a-f0-9]{64}$/.test(geometrySha)) throw new Error('缺少有效源模型或几何版本')
+      if (!Array.isArray(fids) || !fids.length || fids.length > 100 || fids.some(fid => typeof fid !== 'string' || !/^F\d{6}$/.test(fid))) throw new Error('需选择 1 至 100 个有效面编号')
+      const t = await target(session, requested)
+      if (t.sha !== sourceSha) throw new Error('源模型已变更，请重新打开模型并选面')
+      const current = await status(t)
+      if (current.state !== 'ready') throw new Error('几何包尚未就绪，不能引用面')
+      if (current.geometry_sha256 !== geometrySha) throw new Error('几何包已变更，请重新选面')
+      const selected = [...new Set(fids)].map(fid => {
+        const face = current.faces.find(face => face.fid === fid)
+        if (!face) throw new Error(`面编号不存在：${fid}`)
+        return { fid, surface_type: face.surfaceType, area_mm2: face.areaMm2 }
+      })
+      if ((await target(session, requested)).sha !== sourceSha) throw new Error('核对期间源模型发生变化，请重新选面')
+      return { kind: 'faces', path: requested, source_sha256: sourceSha, geometry_sha256: geometrySha, fids: selected.map(face => face.fid), faces: selected,
+        note: '显示几何包属性；不是实时 NX 精确量测，也不构成加工区域授权。' }
+    },
     async prepare(t) {
       const current = await status(t)
       if (current.state !== 'missing') return current

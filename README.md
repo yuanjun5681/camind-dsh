@@ -28,6 +28,10 @@ docs/             项目专题文档（UI 架构、记忆库设计、dsh 升级�
 docs/dsh-topology.svg  dsh 架构拓扑图
 ```
 
+## 当前加工工作台
+
+加工工作台已提升为“对话”“轨迹”同级的第一个会话标签，桌面与 Web 共享中央预览、输入/交付/加工列表及当前 Agent 流式公开回复。模型选面可加入原生提问草稿，引用会核验文件和几何版本，点选不执行加工。原右栏工作台和 `/camind` 重复列已退下；下文较早的右栏布局说明不再代表当前入口。DWG 阅读、确认向导和工序编辑暂为明确占位，现有审批不变。实现与验收见 [ui-workbench/README.md](ui-workbench/README.md)，完整目标见 [交互设计](docs/cam-workbench-interaction-design.md)。
+
 ## 前置要求
 
 - Node.js `^22.19` 或 `>=24`
@@ -124,7 +128,7 @@ curl -LO https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg
 scripts/desktop.sh   # 以本项目 .dsh 为 DSH_HOME 启动官方桌面应用
 ```
 
-原理：官方桌面宿主读 `DSH_HOME` 环境变量，其受管 desktop profile 只在缺失时创建、不覆写已有内容；`npm run init` 在 `.dsh/profiles/desktop/` 预置与 web 完全一致的 bundle 组合。注意桌面窗口渲染的是烘焙进 App 的官方前端（`dsh-app://` 协议直出，不经 Host 路由），`/camind` 定制 SPA 属于浏览器路径；Camind 内容经官方席位呈现——记忆库（全局面板行）、工作台（右侧栏页签：输入/交付物/加工）、NX 工作台（设置面板一节）、CAM 加工模式在桌面与 Web 官方壳均可用；`/camind` 壳的定制 SPA 页面只在浏览器 /camind 可用。
+原理：官方桌面宿主读 `DSH_HOME` 环境变量，其受管 desktop profile 只在缺失时创建、不覆写已有内容；`npm run init` 在 `.dsh/profiles/desktop/` 预置与 web 完全一致的 bundle 组合。注意桌面窗口渲染的是烘焙进 App 的官方前端（`dsh-app://` 协议直出，不经 Host 路由），`/camind` 定制 SPA 属于浏览器路径；Camind 内容经官方席位呈现——记忆库（全局面板行）、工作台（一级画布标签：输入/交付物/加工及公开回复）、NX 工作台（设置面板一节）、CAM 加工模式在桌面与 Web 官方壳均可用；`/camind` 壳的定制 SPA 页面只在浏览器 /camind 可用。
 
 品牌化（桌面图标用 Camind mascot）：官方包是已签名/公证 bundle，macOS 对其施加 MACL 写保护，图标只能走「拷贝 + ad-hoc 重签」——`scripts/brand-desktop-app.sh` 一键完成（iconutil 全尺寸 .icns + icon.png + `CFBundleDisplayName`，重签并刷新注册），产出 `/Applications/Camind.app`，`scripts/desktop.sh` 优先启动它。官方桌面自动更新会整体替换官方 App，更新后重跑该脚本即可。图标规范：macOS `.icns` 带 16~1024 全尺寸（圆角蒙版由系统施加，源图满幅方形）；Windows 若做同等品牌化，需同名多尺寸 `.ico`（16/24/32/48/64/128/256 px，NSIS 安装包与任务栏读取）。
 
