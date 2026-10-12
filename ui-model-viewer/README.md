@@ -30,7 +30,7 @@
 
 ## 工序驱动联合检查
 
-`cam.model.preview` 与 `cam.nc.preview` 现在由同一个 WebGL2 GeomView 渲染。`ui-toolpath-viewer` 保留兼容 bundle 和旧解析器回归基线，不再注册席位或维护 WebGL1 场景。纯 PRT 和纯 NC 都可以独立使用；纯 NC 不调用 NX。
+`cam.model.preview` 与 `cam.nc.preview` 现在由同一个 WebGL2 GeomView 渲染。旧 `ui-toolpath-viewer` 插件已删除（2026-10-12 并入本插件；NC 解析器已直译为 `src/core/nc/parser.ts`）。纯 PRT 和纯 NC 都可以独立使用；纯 NC 不调用 NX。
 
 从工作台「加工」的「加工检查」打开有对齐证据的批次，或在 PRT 顶部选择同源加工批次。工序按工位分组：勾选控制显示、点击行切换当前工序、播放只推进当前工序；切换不重置相机。当前轨迹完整着色，参照工序压暗。「仅当前」「本工位全部」快速切换显隐。默认拾取刀路，临时选面时不抢拾取。提供快移/切削/未走轨迹/模型/边线/刀路穿透/工位坐标轴开关与扩大视区。
 

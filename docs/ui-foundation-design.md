@@ -19,7 +19,7 @@ Camind 的 Web UI 同时包含 Vite + React 的 `ui-shell` 和由 dsh client mod
 | 产品基础层 | `camind-ui-foundation` | `--camind-*`、Page、Tabs、Card、Badge、Field、State、Dialog |
 | Shell | `ui-shell` | AppFrame、会话布局、Workbench、Overlay、Host 桥 |
 | 品牌 | `ui-brand` | Mascot、BrandLockup、品牌图片路由 |
-| 领域插件 | `page-*`、`ui-preview`、`ui-toolpath-viewer`、`tool-cam` | 路由、数据、领域布局与可视化 |
+| 领域插件 | `page-*`、`ui-preview`、`ui-model-viewer`、`tool-cam` | 路由、数据、领域布局与可视化 |
 
 实现位置按以下顺序选择：
 

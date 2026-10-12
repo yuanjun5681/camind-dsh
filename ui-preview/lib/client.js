@@ -18,7 +18,7 @@
 //     switch, the tab itself keeps working).
 //  4. NC toolpath: this bundle declares the keyed slot `cam.nc.preview`
 //     (scope root, moved from ui-shell) on the view registration; .nc targets
-//     render through its `toolpath-viewer` entry (camind-ui-toolpath-viewer)
+//     render through its `toolpath-viewer` entry (camind-ui-model-viewer)
 //     when registered, falling back to plain text otherwise.
 // Markdown rides MarkdownText from the official primitives seed. Styles are
 // scoped and token-driven (--dsw-alias-*) so the view follows shell themes and
@@ -397,7 +397,7 @@ function apply(ctx) {
     order: 20,
     label: () => '预览',
     // NC 刀路查看器席位（原 ui-shell root entry，随「查看刀路」迁入预览插件）：
-    // camind-ui-toolpath-viewer 经 inject 注册 key toolpath-viewer，本插件
+    // camind-ui-model-viewer 经 inject 注册 key toolpath-viewer，本插件
     // 直读注册表渲染（owner props { content, fileName }）。
     children: {
       'cam.nc.preview': { kind: 'keyed', scope: 'root' },

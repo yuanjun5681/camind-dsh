@@ -26,7 +26,7 @@
 // 不写会话事件——dsh-session-persistence 拒绝重载含未知且未标 ignorable
 // 事件类型的会话（0.1.1-rc.2 无注册面），cam/delivered 已于 2026-08-26 实证
 // 事故后停发；交付事实以 run 目录 delivery/ 留档为准。
-// 刀路查看器本体不在本插件（P3 起独立插件 camind-ui-toolpath-viewer，经
+// 刀路查看器本体不在本插件（统一查看器 camind-ui-model-viewer，经
 // client bundle 的 keyed slot cam.nc.preview 弱耦合接入），报告备注里写明。
 //
 // 传输级失败（连不上/sha256 不符/zip 开不了包）一律 error 返回且不落盘任何
@@ -226,7 +226,7 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
     },
     advice: [],
     notes: [
-      '刀路查看器本体由独立插件提供（camind-ui-toolpath-viewer，经交付卡的 cam.nc.preview 席位接入）；未安装时 NC 查看/仿真请在车间侧工具进行。',
+      '刀路查看器本体由独立插件提供（camind-ui-model-viewer，经交付卡的 cam.nc.preview 席位接入）；未安装时 NC 查看/仿真请在车间侧工具进行。',
     ],
   }
 
