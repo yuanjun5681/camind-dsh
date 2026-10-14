@@ -68,16 +68,30 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-canvas .cmv-footer button { color:#d5d9df!important; }
 .wb-phase { margin-left:auto; white-space:nowrap; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; padding:3px 8px; }
 .wb-canvas { position:relative; overflow:hidden; }
-.wb-context { width:340px; max-width:45%; min-height:0; flex:none; display:flex; flex-direction:column; border-left:1px solid var(--dsw-alias-border-l2); overflow:auto; background:var(--dsw-alias-bg-base); }
+.wb-context { width:380px; max-width:45%; min-height:0; flex:none; display:flex; flex-direction:column; border-left:1px solid var(--dsw-alias-border-l2); overflow:auto; background:var(--dsw-alias-bg-base); }
 .wb-context-head { display:flex; flex:none; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--dsw-alias-border-l2); }
-.wb-context-body { padding:16px; overflow:auto; }
+.wb-context-body { padding:16px; min-height:0; overflow:auto; }
+.wb-confirmed-scheme { flex:1; overflow-wrap:anywhere; }
+.wb-confirmed-scheme > p { margin:0 0 16px; }
+.wb-confirmed-scheme dl { display:grid; grid-template-columns:72px minmax(0,1fr); gap:6px 12px; margin:10px 0; font-size:13px; }
+.wb-confirmed-scheme dt { color:var(--dsw-alias-label-tertiary); }
+.wb-confirmed-scheme dd { margin:0; min-width:0; }
+.wb-scheme-station { border-top:1px solid var(--dsw-alias-border-l2); margin-top:20px; padding-top:12px; }
+.wb-scheme-station h3 { margin:0 0 10px; }
+.wb-scheme-operations { list-style:none; padding:0; margin:16px 0 0; }
+.wb-scheme-operations li { border-top:1px solid var(--dsw-alias-border-l2); padding:14px 0; }
+.wb-scheme-operation-head { display:flex; align-items:baseline; gap:10px; }
+.wb-scheme-operation-head > span { color:var(--dsw-alias-label-tertiary); min-width:16px; }
+.wb-scheme-operations summary { cursor:pointer; font-size:12px; color:var(--dsw-alias-label-secondary); }
+.wb-workflow-compact { padding:0; flex:none; }
+.wb-workflow-compact button { margin:0; }
 .wb-context h3 { font-size:14px; }
 .wb-context .wb-placeholder { margin:0; padding:12px; }
 .wb-context .wb-body { padding:14px; }
 .wb-question textarea,.wb-context input:not([type="checkbox"]),.wb-context textarea,.wb-context select,.wb-drawing-annotations input { width:100%; min-height:34px; padding:7px 9px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; font:inherit; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
 .wb-main textarea { min-height:70px; resize:vertical; }
 .wb-main input[type="checkbox"] { width:16px; height:16px; flex:none; accent-color:var(--dsw-alias-state-business-primary); }
-.wb-main button:focus-visible,.wb-main input:focus-visible,.wb-main textarea:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:2px; }
+.wb-main summary:focus-visible,.wb-main button:focus-visible,.wb-main input:focus-visible,.wb-main textarea:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:2px; }
 .wb-review-scrim { position:absolute; inset:0; z-index:6; display:grid; place-items:center; padding:24px; background:#0005; }
 .wb-review { position:relative; width:min(800px,100%); height:min(640px,85%); max-height:100%; display:flex; flex-direction:column; min-height:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-base); box-shadow:0 6px 24px #0002; }
 .wb-review:focus { outline:none; }
@@ -1060,27 +1074,6 @@ async function addTaskObjectToDraft(sessionId, reference, label) {
   if (!input.insertReference({ source: 'cam-object', ref, label, appearance: 'file', clipboardText: `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]` }, { start: end, end, draftRev: state.draftRev })) throw new Error('草稿已经变更，请重新添加引用')
   input.focus()
 }
-function OperationEditor({ op, record, close }) {
-  const [draft, setDraft] = useState({ ...op }), [error, setError] = useState('')
-  const [version] = useState(record.task.version)
-  const field = (key, label, numeric = false) => h('label', { key, style: { display: 'grid', gap: 4 } }, label,
-    h('input', { 'aria-label': label, type: numeric ? 'number' : 'text', value: draft[key] ?? '', step: numeric ? 'any' : undefined,
-      onChange: e => { const value = e.target.value; setDraft(old => { const next = { ...old }; if (!value) delete next[key]; else next[key] = numeric ? Number(value) : value; return next }) } }))
-  return h('form', { className: 'wb-placeholder', onSubmit: async e => {
-    e.preventDefault(); setError('')
-    try { await record.act('operations', { version, operations: record.task.operations.map(item => item.id === op.id ? draft : item) }); close() }
-    catch (e) { setError(e.message) }
-  } }, h('h3', null, `编辑 ${op.id}`),
-    h('p', null, '修改会撤销方案授权。工位和参数是方案定义，不表示已经应用到 NX。'),
-    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 12 } },
-      field('new_name', 'NX 工序名称（保留 {suffix}）'), field('station', '工位'), field('template', '模板工序'), field('geometry', 'NX 几何组'), field('parent', 'NX 父坐标组'), field('tool', 'NX 刀具名'), field('tool_assembly_id', '冻结刀库引用'), field('spindle', '转速 rpm', true), field('feed', '进给 mm/min', true), field('depth_per_cut', '每刀深度 mm', true), field('stepover', '步距', true)),
-    h('label', { style: { display: 'block', marginTop: 12 } }, '前置工序', h('select', { multiple: true, 'aria-label': '前置工序', value: draft.depends_on,
-      onChange: e => setDraft(old => ({ ...old, depends_on: [...e.target.selectedOptions].map(option => option.value) })) },
-      record.task.operations.filter(item => item.id !== op.id).map(item => h('option', { key: item.id, value: item.id }, item.id)))),
-    h('label', { style: { display: 'grid', margin: '12px 0' } }, '检验与交接要求（一行一项）', h('textarea', { 'aria-label': '检验与交接要求', value: draft.inspection.join('\n'),
-      onChange: e => setDraft(old => ({ ...old, inspection: e.target.value.split('\n').filter(line => line.trim()) })) })),
-    h('button', { type: 'submit', disabled: record.busy }, '保存草案'), h('button', { type: 'button', onClick: close, disabled: record.busy }, '取消'), error && h('p', { role: 'alert' }, error))
-}
 function OperationTable({ task }) {
   const headers = ['顺序 / 工序', '工位', '刀具 / 刀位', '转速 rpm', '进给 mm/min', '前置工序']
   return h('div', { className: 'wb-table-scroll' }, h('table', { className: 'wb-operation-table' },
@@ -1105,14 +1098,14 @@ function submitWorkbenchRequest(sessionId, message) {
   if (state.draft.trim() || state.occurrences.length) throw new Error('输入框有未发送内容，请先发送或保留草稿后清空，再点击此操作')
   input.setDraft(message); input.submit(undefined, 'click')
 }
-function WorkbenchActions({ sessionId, record }) {
+function WorkbenchActions({ sessionId, record, compact = false }) {
   const [error, setError] = useState('')
   const task = record.task, latest = task.runs.filter(run => run.revision === task.revision).at(-1)
   const act = message => { setError(''); try { submitWorkbenchRequest(sessionId, message) } catch (e) { setError(e.message) } }
-  return h('section', { className: 'wb-workflow-actions' },
+  return h('section', { className: compact ? 'wb-workflow-actions wb-workflow-compact' : 'wb-workflow-actions' },
     task.authorization && !task.active_run && h(Button, { variant: 'primary', disabled: record.busy, onClick: () => act(`工作台请求生成NC：读取cam_task核对当前冻结授权 ${task.authorization.fingerprint}；保持所有冻结operations字段原样，用cam_plan绑定task-input://${task.revision}/prt，再cam_run并等待job_output终态。不更改要求/方案，不交付，不生产放行。只使用相关CAM、机床和job工具。`) }, '生成 NC'),
-    latest?.result && !task.active_run && !task.deliveries.some(d => d.run_id === latest.id) && h(Button, { disabled: record.busy, onClick: () => act(`工作台请求打包问题包：只对批次 ${latest.id} 调用cam_deliver，等待问题包打包确认卡批准；保留全部缺口，禁止生产放行。不改方案、不重复执行。`) }, '打包问题包'),
-    h('p', { className: 'wb-muted' }, '确认、审核与打包审批都在工作台完成。生成和打包由当前 Agent 执行，状态以加工记录为准。'),
+    !compact && latest?.result && !task.active_run && !task.deliveries.some(d => d.run_id === latest.id) && h(Button, { disabled: record.busy, onClick: () => act(`工作台请求打包问题包：只对批次 ${latest.id} 调用cam_deliver，等待问题包打包确认卡批准；保留全部缺口，禁止生产放行。不改方案、不重复执行。`) }, '打包问题包'),
+    !compact && h('p', { className: 'wb-muted' }, '确认、审核与打包审批都在工作台完成。生成和打包由当前 Agent 执行，状态以加工记录为准。'),
     error && h('p', { role: 'alert' }, error))
 }
 function PlanReview({ snapshot, record, close }) {
@@ -1169,35 +1162,66 @@ function TaskAnswer({ record, question }) {
     h(Button, { type: 'button', disabled, onClick: () => save('暂不确定', false) }, '暂不确定'),
     error && h('p', { role: 'alert' }, error))
 }
-function TaskOperations({ sessionId, record }) {
-  const [error, setError] = useState('')
-  const [editing, setEditing] = useState(null), [review, setReview] = useState(null)
-  const task = record.task
-  if (!task) return h('div', { className: 'wb-empty' }, record.error || '读取正式工序…')
-  if (review) return h(PlanReview, { snapshot: review, record, close: () => setReview(null) })
-  const edit = task.operations.find(op => op.id === editing)
-  if (edit) return h(OperationEditor, { key: `${task.revision}/${edit.id}`, op: edit, record, close: () => setEditing(null) })
-  const saveOrder = operations => { setError(''); void record.act('operations', { operations }).catch(e => setError(e.message)) }
-  return h('div', { className: 'wb-body', style: { overflow: 'auto' } }, h('h3', null, `正式工序草案 R${task.revision}`),
-    h(Button, { variant: 'primary', disabled: record.busy || Boolean(task.active_run) || task.blockers.length > 0, onClick: () => setReview(JSON.parse(JSON.stringify(task))) }, task.authorization ? '重新审核方案' : '审核并确认方案'),
-    task.blockers.length > 0 && h('details', null, h('summary', null, `编程前置条件未齐备（${task.blockers.length} 项）`), h('ul', null, task.blockers.map(text => h('li', { key: text }, text)))),
-    h(WorkbenchActions, { sessionId, record }),
-    task.operations.length > 0 && h('details', { open: task.blockers.length > 0 }, h('summary', null, '方案参数与确认'),
-      task.planning ? task.planning.fields.map(field => h(TaskAnswer, { key: `${task.revision}/${field.id}`, record, question: field })) : Object.entries({ material: '材料与状态', stock: '毛坯尺寸与已加工面', datum: '定位基准与工件坐标系', fixture: '夹具与避让限制' }).map(([id, prompt]) => h(TaskAnswer, { key: `${task.revision}/${id}`, record, question: { id, prompt } })),
-      (task.planning?.extra ?? task.questions.filter(q => q.scope === 'planning' && !['material', 'stock', 'datum', 'fixture'].includes(q.id))).map(q => h(TaskAnswer, { key: q.id, record, question: q }))),
-    record.error && h('p', { role: 'alert' }, record.error),
-    h('p', null, '工序记录与执行批次独立；定义存在不表示已经出 NC 或通过检查。依赖重排由服务核验。'),
-    task.operations.length ? task.operations.map(op => h('section', { className: 'wb-placeholder', key: op.id }, h('h3', null, `${op.sequence}. ${op.new_name} · ${op.station}`),
-      h('p', null, `${op.type} · ${op.execution === 'external' ? '外协/非NC环节' : 'NC'} · 依赖：${op.depends_on.join('、') || '无'}`), h(OperationTable, { task: { ...task, operations: [op] } }), h('p', { className: 'wb-muted' }, op.note || ''), h('ul', null, op.inspection.map(text => h('li', { key: text }, text))),
-      h('button', { disabled: record.busy || Boolean(task.active_run), onClick: () => setEditing(op.id) }, '编辑'),
-      ['上移', '下移'].map((label, offset) => h('button', { key: label, disabled: record.busy || Boolean(task.active_run) || (offset === 0 ? op.sequence === 1 : op.sequence === task.operations.length), onClick: () => {
-        const next = [...task.operations], index = next.findIndex(item => item.id === op.id), target = index + (offset === 0 ? -1 : 1)
-        ;[next[index], next[target]] = [next[target], next[index]]; saveOrder(next)
-      } }, label)),
-      h('button', { disabled: record.busy || Boolean(task.active_run), onClick: () => { if (window.confirm(`删除草案工序 ${op.id}？依赖它的工序需先修改。`)) saveOrder(task.operations.filter(item => item.id !== op.id)) } }, '删除'),
-      h('button', { onClick: () => void addTaskObjectToDraft(sessionId, { kind: 'operation', revision: task.revision, plan_sha256: task.operation_fingerprint, ids: [op.id] }, `工序 ${op.id} · R${task.revision}`).catch(e => setError(e.message)) }, '添加工序到提问'))) : h('p', null, '尚未形成正式工序。请在原生输入框让 Agent 读取正式任务、图纸与机床，整理带来源的方案。'),
-    error && h('p', { role: 'alert' }, error))
+// The inspector reads only user-authorized snapshots, never the mutable draft.
+function confirmedScheme(task) {
+  const snapshots = [task.authorization, task.last_authorization, ...(task.revisions ?? []).map(item => item.authorization)].filter(Boolean)
+  return snapshots.sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0) || String(b.at ?? '').localeCompare(String(a.at ?? '')))[0] ?? null
 }
+function TaskOperations({ record }) {
+  const task = record.task
+  if (!task) return h('div', { className: 'wb-context-body wb-empty', role: 'status' }, record.error || '读取工序单…')
+  const scheme = confirmedScheme(task)
+  if (!scheme) return h('div', { className: 'wb-context-body wb-empty', role: 'status' }, '工序方案确认后将在这里显示')
+  const current = scheme === task.authorization && scheme.fingerprint === task.fingerprint
+  const field = (label, value) => h(React.Fragment, { key: label }, h('dt', null, label), h('dd', null, value ?? '未记录'))
+  const groups = []
+  for (const op of scheme.operations) {
+    if (groups.at(-1)?.station !== op.station) groups.push({ station: op.station, operations: [] })
+    groups.at(-1).operations.push(op)
+  }
+  return h('div', { className: 'wb-context-body wb-confirmed-scheme' },
+    h('p', { className: current ? 'wb-muted' : 'wb-notice', role: 'status' }, current ? `已确认 · R${scheme.revision}` : `上次确认版本 R${scheme.revision}，当前待重新确认`),
+    h('dl', null, field('机床', scheme.machine_view?.name || scheme.machine_id), field('材料', scheme.setup?.material?.value), field('毛坯', scheme.setup?.stock?.value), field('定位基准', scheme.setup?.datum?.value), field('装夹', scheme.setup?.fixture?.value)),
+    groups.map(({ station, operations }, index) => h('section', { key: `${station}/${index}`, className: 'wb-scheme-station' },
+      h('h3', null, `工位 ${station}`),
+      h('ol', { className: 'wb-scheme-operations' }, operations.map(op => h('li', { key: op.id },
+        h('div', { className: 'wb-scheme-operation-head' }, h('span', null, op.sequence), h('strong', null, op.operation || '加工名称未记录')),
+        op.execution === 'external' && h('small', null, '外协 / 非 NC 环节'),
+        h('dl', null, field('加工对象', op.geometry || '未记录'), field('刀具', [scheme.machine_view?.tools?.[op.tool_assembly_id], scheme.machine_view?.tool_names?.[op.tool_assembly_id] || op.tool_assembly_id || op.tool].filter(Boolean).join(' · ') || '未记录')),
+        h('details', null, h('summary', null, '切削参数与备注'),
+          h('dl', null, field('转速', op.spindle != null ? `${op.spindle} rpm` : '未记录显式值'), field('进给', op.feed != null ? `${op.feed} mm/min` : '未记录显式值'),
+            op.depth_per_cut != null && field('每刀深度', `${op.depth_per_cut} mm`), op.stepover != null && field('步距', op.stepover)),
+          op.note && h('p', null, op.note))))))))
+}
+// Planning and authorization remain a temporary workflow, outside the read-only inspector.
+function SchemeWorkflow({ sessionId, record }) {
+  const [open, setOpen] = useState(false), [snapshot, setSnapshot] = useState(null)
+  const task = record.task, dialog = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const el = dialog.current, previous = document.activeElement
+    if (!el) return
+    el.showModal()
+    return () => { el.close(); if (previous?.isConnected) previous.focus() }
+  }, [open])
+  if (!task || task.active_run || !task.operations.length || task.review?.status !== 'complete' || task.requirement_summary?.status !== 'confirmed') return null
+  if (snapshot) return h(PlanReview, { snapshot, record, close: () => setSnapshot(null) })
+  if (task.authorization) {
+    const latest = task.runs.filter(run => run.revision === task.revision && run.authorization === task.authorization.fingerprint).at(-1)
+    return !latest?.result ? h(WorkbenchActions, { sessionId, record, compact: true }) : null
+  }
+  const fields = (task.planning?.fields ?? []).filter(field => !field.resolved)
+  const extra = (task.planning?.extra ?? []).filter(q => !task.answers[q.id]?.resolved)
+  return h(React.Fragment, null,
+    h(Button, { variant: 'primary', disabled: record.busy, onClick: () => task.blockers.length ? setOpen(true) : setSnapshot(JSON.parse(JSON.stringify(task))) }, task.blockers.length ? '补全方案' : '审核并确认方案'),
+    open && h('dialog', { ref: dialog, className: 'wb-plan-dialog', 'aria-label': '补全方案', onCancel: e => { e.preventDefault(); setOpen(false) } },
+      h('h3', null, '补全方案'),
+      task.blockers.length > 0 && h('ul', null, task.blockers.map(text => h('li', { key: text }, text))),
+      [...fields, ...extra].map(question => h(TaskAnswer, { key: `${task.revision}/${question.id}`, record, question })),
+      h(Button, { onClick: () => setOpen(false) }, '稍后继续'),
+      task.blockers.length === 0 && h(Button, { variant: 'primary', onClick: () => { setOpen(false); setSnapshot(JSON.parse(JSON.stringify(task))) } }, '审核并确认方案')))
+}
+
 function TaskInspector({ record, sessionId }) {
   const [feedback, setFeedback] = useState(''), [error, setError] = useState('')
   const task = record.task
@@ -1286,9 +1310,10 @@ function WorkbenchView({ sessionId }) {
       h('nav', { className: 'wb-view-controls', 'aria-label': '零件视图' }, ['prt', 'dwg'].map(role => h('button', { key: role, disabled: !task?.inputs[role], 'aria-pressed': mode === (role === 'prt' ? 'model' : 'drawing'), title: task?.inputs[role]?.name, onClick: () => {
         if (role === 'prt') { setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) } else setMode('drawing')
       } }, role === 'prt' ? '3D 模型' : 'CAD 图纸')),
-        h('button', { disabled: !task, 'aria-pressed': panel === 'operations', title: '查看工序、审核并确认方案', onClick: () => setPanel('operations') }, '工序方案')),
+        h('button', { disabled: !task, 'aria-pressed': panel === 'operations', title: '查看已确认工序单', onClick: () => setPanel('operations') }, '工序方案')),
       h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${task.phase}` : '读取任务'),
-      !wizard && !running && (task?.review?.status === 'pending' || task?.review?.status === 'complete' && task?.requirement_summary?.status !== 'confirmed') && h(Button, { variant: 'primary', onClick: () => setWizard(true) }, task?.review?.status === 'complete' ? '确认加工要求' : '继续处理')),
+      !wizard && !running && (task?.review?.status === 'pending' || task?.review?.status === 'complete' && task?.requirement_summary?.status !== 'confirmed') && h(Button, { variant: 'primary', onClick: () => setWizard(true) }, task?.review?.status === 'complete' ? '确认加工要求' : '继续处理'),
+      !wizard && !running && h(SchemeWorkflow, { key: sessionId, sessionId, record })),
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addSelectionToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),

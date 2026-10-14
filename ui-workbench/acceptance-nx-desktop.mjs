@@ -89,11 +89,11 @@ try {
     assert.equal(task.operations.length, 1); assert.equal(task.blockers.length, 0, task.blockers.join('；'))
     console.log('full acceptance: draft ready for native review')
     const postpone = page.getByRole('button', { name: '保存并稍后继续', exact: true }); if (await postpone.count()) await postpone.click()
-    await page.getByRole('button', { name: '工序方案', exact: true }).click()
+    await page.locator('.wb-main-head').getByRole('button', { name: '工序方案', exact: true }).click()
     await page.getByRole('button', { name: '审核并确认方案', exact: true }).click()
     await page.getByText('我已核对当前冻结版本和上述范围', { exact: true }).click()
     await page.getByRole('button', { name: '确认方案', exact: true }).click()
-    await page.getByRole('heading', { name: /正式工序草案/ }).waitFor()
+    await page.locator('.wb-confirmed-scheme').waitFor()
     await submit(`界面已签字验收方案。cam_task read，完整原样operations包括sequence/parent/inspection，cam_plan part=task-input://1/prt part_id=ZM26030_704_FULL_TEST，然后cam_run并用job_output等待终态；尚不交付。`)
     task = (await api('')).body.data
     const run = task.runs.at(-1); assert.equal(run.result.overall, 'ok', JSON.stringify(run.result))

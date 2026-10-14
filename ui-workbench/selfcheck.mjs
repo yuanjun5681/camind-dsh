@@ -50,7 +50,7 @@ services.set('inputTriggers', { registerSource: definition => { codec = definiti
 async function load(file) {
   let plugin
   let code = await fs.readFile(new URL(file, import.meta.url), 'utf8')
-  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { submitWorkbenchRequest, composerViewportRect, TaskOperations, TaskAnswer, OperationEditor, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
+  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { submitWorkbenchRequest, composerViewportRect, confirmedScheme, SchemeWorkflow, TaskOperations, TaskAnswer, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
   vm.runInNewContext(code, {
     window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : { Button: 'button', Tooltip: 'tooltip', MarkdownText: 'markdown', IconGaugeOutlineRegular: 'icon' }) } } },
     Blob, URL, URLSearchParams, AbortController, document: { body: {} },
@@ -72,16 +72,39 @@ assert.equal(taskComponents.composerViewportRect(canvasRect, { ...canvasRect, wi
 const edits = [], originalVersion = 3
 const draftOp = { id: 'op-a', new_name: 'OP_{suffix}', station: 'station-a', type: 'from_scratch_workpiece_op', depends_on: [], inspection: ['check'], feed: 100 }
 const editRecord = { task: { version: originalVersion, operations: [draftOp] }, act: async (action, args) => edits.push({ action, args }) }
+// Drafts must never appear as confirmed machining instructions.
 values.length = 0; cursor = 0
-const editorTree = taskComponents.OperationEditor({ op: draftOp, record: editRecord, close: () => {} })
-editRecord.task.version = 9
-await editorTree.props.onSubmit({ preventDefault() {} })
-assert.equal(edits[0].action, 'operations'); assert.equal(edits[0].args.version, originalVersion, 'Editor pins reviewed version rather than silently overwriting a background update')
-// Existing operations must render their planning confirmations, including after restart.
+const operationsRecord = { ...editRecord, task: { ...editRecord.task, revision: 1, fingerprint: 'current', blockers: [], questions: [], answers: {} } }
+let operationsTree = taskComponents.TaskOperations({ record: operationsRecord })
+assert.ok(JSON.stringify(operationsTree).includes('工序方案确认后将在这里显示'))
+assert.ok(!JSON.stringify(operationsTree).includes('OP_{suffix}'))
+const frozen = { revision: 1, fingerprint: 'current', machine_id: 'M1', machine_view: { name: '冻结机床', tools: { 'endmill': 'T3' }, tool_names: { 'endmill': 'Φ10 粗加工立铣刀' } }, setup: { fixture: { value: '冻结装夹' } }, operations: [{ ...draftOp, sequence: 1, operation: '外形粗铣', geometry: '外轮廓', tool_assembly_id: 'endmill', feed: 100 }] }
+operationsRecord.task.authorization = frozen
+operationsTree = taskComponents.TaskOperations({ record: operationsRecord })
+assert.ok(JSON.stringify(operationsTree).includes('已确认 · R1'))
+const confirmedText = JSON.stringify(operationsTree)
+assert.ok(confirmedText.includes('T3 · Φ10 粗加工立铣刀')); assert.ok(confirmedText.includes('外形粗铣')); assert.ok(confirmedText.includes('冻结机床'))
+assert.ok(!confirmedText.includes('OP_{suffix}'))
+function types(node) { if (!node || typeof node !== 'object') return []; if (Array.isArray(node)) return node.flatMap(types); return [node.type, ...types(node.children)] }
+assert.ok(!types(operationsTree).some(type => ['button', 'input', 'textarea', 'table', 'form'].includes(type)), 'Confirmed inspector is read-only and has no wide table')
+operationsRecord.task.last_authorization = frozen; operationsRecord.task.authorization = null
+operationsRecord.task.operations = [{ ...draftOp, operation: '未确认修改', feed: 900 }]
+operationsTree = taskComponents.TaskOperations({ record: operationsRecord })
+assert.ok(JSON.stringify(operationsTree).includes('当前待重新确认'))
+assert.ok(JSON.stringify(operationsTree).includes('100 mm/min'))
+assert.ok(!JSON.stringify(operationsTree).includes('未确认修改'))
+const repeatedStation = { ...frozen, operations: [{ ...frozen.operations[0], sequence: 1, station: 'A' }, { ...frozen.operations[0], id: 'op-b', sequence: 2, station: 'B' }, { ...frozen.operations[0], id: 'op-c', sequence: 3, station: 'A' }] }
+const repeatedTree = taskComponents.TaskOperations({ record: { task: { authorization: repeatedStation, fingerprint: 'current' } } })
+const numbers = []
+function collectNumbers(node) { if (!node || typeof node !== 'object') return; if (Array.isArray(node)) return node.forEach(collectNumbers); if (node.type === 'span' && typeof node.children?.[0] === 'number') numbers.push(node.children[0]); collectNumbers(node.children) }
+collectNumbers(repeatedTree); assert.deepEqual(numbers, [1, 2, 3], 'Grouping must preserve A/B/A machining order')
+assert.equal(taskComponents.confirmedScheme({ revisions: [{ authorization: frozen }] }).revision, 1)
+const newer = { ...frozen, revision: 2 }
+assert.equal(taskComponents.confirmedScheme({ last_authorization: frozen, revisions: [{ authorization: newer }] }).revision, 2)
 values.length = 0; cursor = 0
-const operationsRecord = { ...editRecord, task: { ...editRecord.task, revision: 1, blockers: [], questions: [{ id: 'post', scope: 'planning', prompt: '核对后处理' }], answers: {} } }
-const operationsTree = taskComponents.TaskOperations({ sessionId: 's1', record: operationsRecord })
-assert.ok(JSON.stringify(operationsTree).includes('方案参数与确认'))
+const workflowTask = { ...operationsRecord.task, review: { status: 'complete' }, requirement_summary: { status: 'confirmed' }, active_run: null, runs: [] }
+const workflow = taskComponents.SchemeWorkflow({ sessionId: 's1', record: { ...operationsRecord, task: workflowTask } })
+assert.ok(JSON.stringify(workflow).includes('审核并确认方案'), 'Authorization remains reachable outside the read-only inspector')
 const snapshot = { version: 4, revision: 1, fingerprint: 'a'.repeat(64), inputs: {}, operations: [draftOp] }
 values.length = 0; cursor = 0
 const review = taskComponents.PlanReview({ snapshot, record: editRecord, close: () => {} })

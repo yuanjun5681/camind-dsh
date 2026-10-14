@@ -167,7 +167,7 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
       const task = await read(sid)
       if (!task.geometry && task.facts.prt && geometry) {
         const result = await geometry(sid, task.inputs.prt.uri)
-        if (result?.state === 'ready' && result.manifest?.units === 'mm') return transact(sid, task.version, 'geometry', 'geometry_verified', async value => { value.geometry = { source_sha256: value.inputs.prt.sha256, geometry_sha256: result.geometry_sha256, units: 'mm' }; value.authorization = null })
+        if (result?.state === 'ready' && result.manifest?.units === 'mm') return transact(sid, task.version, 'geometry', 'geometry_verified', async value => { value.geometry = { source_sha256: value.inputs.prt.sha256, geometry_sha256: result.geometry_sha256, units: 'mm' }; if (value.authorization) value.last_authorization = copy(value.authorization); value.authorization = null })
       }
       return project(task)
     }, inputFile,
@@ -205,6 +205,7 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
           }
         }
         if (oldPartSha !== task.inputs.prt?.sha256) { task.facts = {}; task.geometry = null }
+        if (task.authorization) task.last_authorization = copy(task.authorization)
         task.answers = {}; task.authorization = null
         task.requirements = task.requirements.map(r => ({ ...r, stale: true }))
         task.setup = {}; task.operations = []
@@ -325,7 +326,7 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
           const floor = field === 'spindle' ? machine.spindle?.rpm_min : 0
           if (!Number.isFinite(cap) || max > cap || min < (floor ?? 0)) fail('自主调整区间超出机床约束或机床上限未知')
         }
-        task.authorization = { at: new Date().toISOString(), fingerprint, inputs: copy(task.inputs), operations: copy(task.operations), setup: copy(task.setup), requirements: copy(task.requirements), prepare: copy(task.prepare), machine_id: task.machine_id, post_name: task.post_name, machine_sha256: digest(machine), bounds: copy(bounds), revision: task.revision }
+        task.authorization = { at: new Date().toISOString(), fingerprint, inputs: copy(task.inputs), operations: copy(task.operations), setup: copy(task.setup), requirements: copy(task.requirements), prepare: copy(task.prepare), machine_id: task.machine_id, post_name: task.post_name, machine_sha256: digest(machine), machine_view: { name: machine.display_name || task.machine_id, tools: Object.fromEntries((machine.magazine?.pockets ?? []).filter(p => p.tool?.tool_assembly_id).map(p => [p.tool.tool_assembly_id, p.control_tool_id])), tool_names: Object.fromEntries((machine.magazine?.pockets ?? []).filter(p => p.tool?.tool_assembly_id && p.tool.name).map(p => [p.tool.tool_assembly_id, p.tool.name])) }, bounds: copy(bounds), revision: task.revision }
         task.stop_requested = false
       })
     },
@@ -423,6 +424,7 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
         idle(task)
         if (typeof feedback !== 'string' || !feedback.trim() || feedback.length > 10000) fail('请输入反馈与实测证据，不直接推断原因')
         task.revisions.push({ revision: task.revision, inputs: copy(task.inputs), requirements: copy(task.requirements), setup: copy(task.setup), operations: copy(task.operations), authorization: copy(task.authorization), feedback, at: new Date().toISOString() })
+        if (task.authorization) task.last_authorization = copy(task.authorization)
         task.revision++; task.authorization = null; task.answers = {}; task.setup = {}; task.operations = []
         task.requirements = task.requirements.map(r => ({ ...r, stale: true }))
         for (const [role, input] of Object.entries(task.inputs)) input.uri = `task-input://${task.revision}/${role}`
