@@ -253,6 +253,9 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       ...(result.retryable !== undefined ? { retryable: result.retryable } : {}),
     }
     summary.advice.push(extraAdvice ?? adviceOf(result))
+    if (state?.work_copy) {
+      state.cleanup = summary.cleanup = { status: 'pending', work_copy: state.work_copy, reason: '加工未正常完成，保留工作副本供核对；未自动保存或关闭。' }
+    }
     // 失败也进时间线（过程视图要知道死在哪一步）；state 尚未建立的读盘期
     // 失败没有 run 可记，跳过。
     if (state && Array.isArray(state.history)) {
@@ -608,6 +611,28 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   state.execution_overall = overall
   state.production_overall = summary.production_check
   if (reason) summary.reason = reason
+  if (job.formal_task) {
+    state.cleanup = summary.cleanup = { status: 'pending', work_copy: workPrt, reason: '待保存并关闭本批次工作副本' }
+    persist(state)
+    if (overall === 'ok' && !isCancelled()) {
+      mark({ stage: 'finalize', status: 'running', msg: '保存并核验本批次工作副本，再单件关闭' })
+      let finalized
+      try { finalized = await camPipeline.run('/cam_finalize_work_copy', { prt: workPrt, out_dir: job.out_dir }, { deadlineSeconds: 180 }) }
+      catch (error) { finalized = { status: 'error', errorType: error.name || 'finalization_error', msg: error.message || '工作副本收尾调用异常' } }
+      const data = finalized.data
+      const complete = finalized.status === 'ok' && data?.ok === true && data.saved === true && data.save_verified === true && data.modified_after_save === false && data.closed === true
+      state.cleanup = summary.cleanup = { status: complete ? 'complete' : 'pending', work_copy: workPrt,
+        reason: complete ? '本批次工作副本已保存、状态核验并关闭' : finalized.msg || data?.error || '工作副本保存或关闭未得到完整回读，请人工核对；未关闭其他模型',
+        result: finalized }
+      persist(state)
+      mark({ stage: 'finalize', status: complete ? 'ok' : 'pending', msg: state.cleanup.reason })
+    } else {
+      state.cleanup.reason = '加工未正常完成或已停止，保留工作副本供核对；未自动保存或关闭。'
+      persist(state)
+      mark({ stage: 'finalize', status: 'pending', msg: state.cleanup.reason })
+    }
+    if (state.cleanup.status !== 'complete') summary.advice.push(`工作副本待处理：${state.cleanup.reason}。NC 生成结果保留，下一件预览可能仍被未保存模型护栏阻断。`)
+  }
   if (overall === 'ok') {
     summary.advice.push('全部工序 NC 在盘且对账一致。下一步可 cam_deliver 交付打包（/fs_zip 回收 NC + 生成交付报告与加工设定单，调用时过签字闸门）。')
   } else if (overall === 'incomplete') {
@@ -698,7 +723,7 @@ export function registerCamRun(ctx, camPipeline) {
         } } : camPipeline
         try {
           const summary = await executeCamRun({ camPipeline: pipeline, runDir, runId, resume, dshHome, isCancelled })
-          if (formal) await tasks.finishRun(sessionId, runId, summary, /Timeout|connection/i.test(summary.error?.error_type ?? '') || summary.ops.some(op => /Timeout|connection/i.test(op.error_type ?? '')))
+          if (formal) await tasks.finishRun(sessionId, runId, summary, /Timeout|connection/i.test(summary.error?.error_type ?? '') || summary.ops.some(op => /Timeout|connection/i.test(op.error_type ?? '')) || /Timeout|connection/i.test(summary.cleanup?.result?.errorType ?? ''))
           return summary
         } catch (error) {
           if (formal) await tasks.finishRun(sessionId, runId, { overall: 'error', reason: error.message }, inFlight)

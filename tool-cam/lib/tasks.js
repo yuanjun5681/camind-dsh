@@ -381,7 +381,7 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
         if (unknown) task.active_run.state = 'unknown'
         else { task.active_run = null; task.stop_requested = false }
         const run = task.runs.find(run => run.id === runId)
-        if (run) run.result = { overall: result.overall ?? 'error', reason: result.reason ?? result.error?.msg ?? '', at: new Date().toISOString() }
+        if (run) run.result = { overall: result.overall ?? 'error', cleanup: result.cleanup ? { status: result.cleanup.status, reason: result.cleanup.reason, work_copy: result.cleanup.work_copy } : undefined, reason: result.reason ?? result.error?.msg ?? '', at: new Date().toISOString() }
       })
     },
     async recordDelivery(sid, runId, manifest) {

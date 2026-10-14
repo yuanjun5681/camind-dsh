@@ -24,7 +24,7 @@ try {
   task = await tasks.finishReview('s1', task.version, task.review.fingerprint, task.requirement_summary.draft.map(item => item.id))
   task = await tasks.authorize('s1', task.version, task.fingerprint, { op1: { feed: [80, 120] } })
   const tools = new Map(), services = new Map([['camTasks', tasks]])
-  let done, ncName, calls = [], stopBeforeNext = false, invalidToolReadback = false
+  let done, ncName, calls = [], stopBeforeNext = false, invalidToolReadback = false, failedFinalize = false, throwFinalize = false
   const ctx = { get: name => services.get(name), tools: { register: tool => tools.set(tool.name, tool) } }
   const exec = { agent: { id: 's1', session: { header: { cwd: home } } } }
   registerCamPlan(ctx, { machineRegistry: registry })
@@ -38,6 +38,8 @@ try {
         if (stopBeforeNext) { const now = await tasks.read('s1'); await tasks.stop('s1', now.version) }
         return { status: 'ok', data: { ok: true } }
       }
+      if (endpoint === '/cam_finalize_work_copy' && throwFinalize) throw Error('unexpected finalize failure')
+      if (endpoint === '/cam_finalize_work_copy') return { status: 'ok', data: { ok: !failedFinalize, saved: true, save_verified: true, modified_after_save: false, closed: !failedFinalize, error: failedFinalize ? 'close refused' : undefined } }
       if (endpoint === '/cam_set_tool_numbers') return { status: 'ok', data: { ok: true, saved: true, tools: { AP_MILL_D10: { after: { num: invalidToolReadback ? 1 : 3 } } } } }
       if (endpoint === '/cam_build_workpiece_op') return { status: 'ok', data: { created: true, path_exists: true, toolpath_length: 10 } }
       if (endpoint === '/postprocess') { ncName = params.operations[0] + '.nc'; return { status: 'ok', data: { files: { [params.operations[0]]: ncName } } } }
@@ -55,6 +57,9 @@ try {
   assert.deepEqual(calls.find(c => c.endpoint === '/cam_set_tool_numbers').params.numbers, { AP_MILL_D10: 3 })
   assert.ok(calls.findIndex(c => c.endpoint === '/cam_set_tool_numbers') < calls.findIndex(c => c.endpoint === '/cam_build_workpiece_op'))
   assert.match((await tasks.read('s1')).phase, /NC 已生成.*待打包/)
+  assert.equal(summary.cleanup.status, 'complete')
+  assert.ok(calls.findIndex(c => c.endpoint === '/cam_finalize_work_copy') > calls.findIndex(c => c.endpoint === '/cam_gouge_check'))
+  assert.equal(calls.some(c => c.endpoint === '/cam_close_part'), false)
   assert.match(await fs.readFile(path.join(dir, 'runstate.json'), 'utf8'), /production_overall/)
   assert.equal((await tasks.read('s1')).active_run, null)
   // Central-directory ZIP comes from standard Python zipfile, not hand-forged archive headers.
@@ -73,6 +78,22 @@ try {
   const frozen = await fs.readFile(path.join(dir, 'delivery/manifest.json'))
   assert.equal((await executeCamDeliver({ camPipeline: pipeline, runDir: dir, runId: planned.run_id, tasks, sessionId: 's1' })).stage, 'immutable')
   assert.deepEqual(await fs.readFile(path.join(dir, 'delivery/manifest.json')), frozen)
+  const pendingCopy = JSON.parse(await tools.get('cam_plan').execute(args, exec))
+  failedFinalize = true; calls = []
+  await tools.get('cam_run').execute({ run_id: pendingCopy.run_id }, exec)
+  const pendingSummary = JSON.parse((await done).result)
+  assert.equal(pendingSummary.overall, 'ok', 'NC generation survives finalization failure')
+  assert.equal(pendingSummary.cleanup.status, 'pending')
+  assert.match((await tasks.read('s1')).phase, /副本待处理/)
+  assert.equal(calls.some(c => c.endpoint === '/cam_close_part'), false)
+  failedFinalize = false
+  const thrownCopy = JSON.parse(await tools.get('cam_plan').execute(args, exec))
+  throwFinalize = true
+  await tools.get('cam_run').execute({ run_id: thrownCopy.run_id }, exec)
+  const thrownSummary = JSON.parse((await done).result)
+  assert.equal(thrownSummary.overall, 'ok')
+  assert.equal(thrownSummary.cleanup.status, 'pending')
+  throwFinalize = false
   // A mismatched NX tool number halts before any toolpath generation or posting.
   const badBinding = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   calls = []; invalidToolReadback = true

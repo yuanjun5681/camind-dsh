@@ -412,6 +412,7 @@ const STAGE_TEXT = {
   check: '收尾自检（NC 对账 + 空刀路）',
   production_check: '生产检查（部分覆盖，不能放行）',
   tool_numbers: '冻结刀号设置与回读',
+  finalize: '保存并关闭本批次工作副本',
 }
 const TERMINAL_STAGES = new Set(['done', 'failed', 'aborted'])
 
@@ -455,6 +456,8 @@ function foldTimeline(history) {
 
 function stageRowView(row) {
   switch (row.stage) {
+    case 'finalize':
+      return { icon: row.status === 'ok' ? '✓' : '!', text: row.msg || STAGE_TEXT.finalize, tone: row.status === 'ok' ? 'ok' : 'warn' }
     case 'production_check':
       return { icon: '!', text: STAGE_TEXT.production_check, tone: 'warn' }
     case 'ops':
@@ -630,6 +633,7 @@ function CamRunCard({ sessionId, run }) {
           + (runningElapsed !== null ? ` · 已运行 ${runningElapsed}` : '')
           + (typeof runningOpTimeout === 'number' ? ` · 限时约 ${Math.max(1, Math.round(runningOpTimeout / 60))} 分钟` : '')
         : `正在执行：${lastRow?.kind === 'stage' ? (STAGE_TEXT[lastRow.stage] ?? lastRow.stage) : ''}…`),
+    runstate?.cleanup?.status === 'pending' && h('p', { className: 'camrun-warn', role: 'status' }, `工作副本待处理：${runstate.cleanup.reason}。文件：${runstate.cleanup.work_copy}。NC 生成结果已保留。`),
     run.read_error !== undefined && h('p', { className: 'camrun-warn' }, run.read_error),
     !active && partialChecks && h('p', { className: 'camrun-warn', role: 'status' }, '生产检查仅部分覆盖，缺少完整夹具、真实刀柄、残料与工位回读等证据；仅可交付问题包，不能生产放行。'),
     run.overall === 'planned' && h('p', { className: 'camrun-note' }, '尚未执行——在会话中让 Agent 对该 run_id 调用 cam_run 首跑。'),

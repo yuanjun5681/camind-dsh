@@ -97,6 +97,7 @@ export function buildDeliveryReport({
     `- 交付 NC：${check?.found ?? 0} 个（期望 ${check?.expected ?? expected.length} 个）`,
     `- NC 文件对账：**${OVERALL_CN[overall] ?? overall}**${reason ? `——${reason}` : ''}`,
     '',
+    ...(state?.cleanup ? [`- 工作副本收尾：${state.cleanup.status === 'complete' ? '已保存、核验并关闭' : '待处理'}；${state.cleanup.reason ?? ''}`, ''] : []),
     '## 二、工序逐项结论',
     '',
     '| # | 工序 | 类型 | 终态 | 刀具 | 转速/进给 | NC |',

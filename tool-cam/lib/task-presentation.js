@@ -46,11 +46,12 @@ export function taskPhase(task, review, blockers) {
     if (task.active_run.state === 'unknown') return '执行状态未知'
     return task.stop_requested ? '停止确认中' : '执行中'
   }
+  const latest = task.runs.filter(run => run.revision === task.revision && run.result && run.authorization === task.authorization?.fingerprint).at(-1)
   const delivery = task.deliveries.at(-1)
-  if (delivery?.revision === task.revision) return delivery.status === 'released' ? '已放行' : '问题包已交付，未放行'
+  if (delivery?.revision === task.revision && (!latest || delivery.run_id === latest.id)) return delivery.status === 'released' ? '已放行' : '问题包已交付，未放行'
   if (!task.operations.length) return review.status === 'complete' ? '审图完成' : review.status === 'empty' ? '待接件' : '审图待确认'
   if (blockers.length) return '方案待补充'
-  const latest = task.runs.filter(run => run.revision === task.revision && run.result && run.authorization === task.authorization?.fingerprint).at(-1)
+  if (latest?.result.cleanup?.status === 'pending') return latest.result.overall === 'ok' ? 'NC 已生成，副本待处理' : '加工未完成，副本待处理'
   if (latest) return latest.result.overall === 'ok' ? 'NC 已生成，待打包' : 'NC 生成未完成，待处理'
   return task.authorization ? '已授权，待生成 NC' : '待授权'
 }
