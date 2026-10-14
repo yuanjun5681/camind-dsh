@@ -45,6 +45,11 @@ try {
   for (let i = 0; i < 100 && (await service.status(t)).state === 'running'; i++) await new Promise(r => setTimeout(r, 5))
   assert.match((await service.status(t)).message, /未保存/)
   assert.equal(uploads, 0)
+  assert.equal((await service.status(t)).retryable, true, 'Preflight failure must be retryable')
+  assert.equal((await service.prepare(t)).state, 'running', 'Retryable preflight failure re-runs on prepare')
+  for (let i = 0; i < 100 && (await service.status(t)).state === 'running'; i++) await new Promise(r => setTimeout(r, 5))
+  assert.match((await service.status(t)).message, /未保存/)
+  assert.equal(uploads, 0)
   await assert.rejects(service.target('../escape', 'test.prt'), /会话/)
   // Exercise the complete five-step export without a live NX or proprietary fixture.
   const { zipSync } = createRequire(new URL('../ui-shell/package.json', import.meta.url))('fflate')
@@ -99,6 +104,11 @@ try {
   for (let i = 0; i < 100 && (await failedClose.status(failedTarget)).state === 'running'; i++) await new Promise(r => setTimeout(r, 5))
   assert.match((await failedClose.status(failedTarget)).message, /副本关闭未确认/)
   await assert.rejects(fs.stat(failedTarget.dir), { code: 'ENOENT' })
+  assert.equal((await failedClose.status(failedTarget)).retryable, false, 'Mid-export failure stays fail-closed')
+  const callsBeforeRetry = calls.length
+  await failedClose.prepare(failedTarget)
+  assert.equal(calls.length, callsBeforeRetry, 'Sticky error must not re-run NX export')
+  assert.equal((await failedClose.status(failedTarget)).state, 'error')
   // The renderer shares the existing preview path boundary, including official attachments.
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = tmp

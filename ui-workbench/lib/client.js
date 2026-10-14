@@ -712,7 +712,8 @@ function BenchHeaderButton({ sessionId }) {
         const response = await fetch(`${INPUTS_API}/${encodeURIComponent(sessionId)}/files`, { signal: controller.signal })
         if (!response.ok) return
         const body = await response.json()
-        if (!controller.signal.aborted && store.getSnapshot().view === null && body.files?.some(file => file.available !== false && /\.prt$/i.test(file.name))) openView(sessionId, VIEW_ID)
+        const newest = body.files?.filter(file => file.available !== false && /\.prt$/i.test(file.name)).pop()
+        if (!controller.signal.aborted && store.getSnapshot().view === null && newest) { openView(sessionId, VIEW_ID); previewService()?.preview(sessionId, newest.path) }
       } catch { /* Keep manual navigation available if input discovery is unavailable. */ }
       finally { if (!controller.signal.aborted) timer = setTimeout(check, 3000) }
     }
@@ -1163,6 +1164,28 @@ function WorkbenchView({ sessionId }) {
     previewService()?.preview(sessionId, task.inputs.prt.uri)
   }, [sessionId, task?.inputs.prt?.sha256])
   useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model')), [sessionId])
+  // Auto-open the newest available PRT in the canvas: first detection switches,
+  // each newly appearing PRT switches again; re-polls of the same file do not.
+  const autoPrt = useRef('')
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer
+    const tick = async () => {
+      try {
+        const res = await fetch(`${INPUTS_API}/${encodeURIComponent(sessionId)}/files`, { headers: { Accept: 'application/json' }, signal: controller.signal })
+        const body = await res.json().catch(() => ({}))
+        const newest = (body.files ?? []).filter(file => file.available !== false && /\.prt$/i.test(file.name ?? '')).pop()
+        if (!controller.signal.aborted && newest?.path && newest.path !== autoPrt.current) {
+          autoPrt.current = newest.path
+          setMode('model')
+          previewService()?.preview(sessionId, newest.path)
+        }
+      } catch { /* Input discovery unavailable; manual file picking stays. */ }
+      finally { if (!controller.signal.aborted) timer = setTimeout(tick, 3000) }
+    }
+    void tick()
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [sessionId])
   useEffect(() => {
     if (task?.review?.status === 'complete') { if (task?.requirement_summary?.status === 'confirmed') setWizard(false); return }
     if (!running && task?.inputs.prt && task?.inputs.dwg && (task.requirements.length || task.questions.length) && preference.current.pausedReview !== reviewKey) setWizard(true)

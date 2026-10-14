@@ -166,6 +166,16 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
     setError(''); setState({ state: 'running', stage: '检查 NX 状态' })
     try { await json(`${endpoint(sessionId, path)}&confirm=1`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); setRevision(x => x + 1) } catch (e: any) { setError(e.message) }
   }
+  // Viewing a PRT without a geometry package auto-starts the NX export once per
+  // (session, source sha); the server-side preflight checks stay the real gate.
+  const autoPrepare = useRef('')
+  useEffect(() => {
+    if (!sessionId || !path || error || state?.state !== 'missing') return
+    const key = `${sessionId}/${state.sha}`
+    if (autoPrepare.current === key) return
+    autoPrepare.current = key
+    void prepare()
+  }, [state, sessionId, path, error])
   const ready = !!view && state.state === 'ready' && !error, line = active?.parsed.segments[position?.index ?? 0]?.line ?? 0
   const playingEnabled = ready && !!active?.parsed.segments.length && visible.includes(activeId)
   const alerts = active ? [...active.parsed.meta.warnings.map(text => ({ text, line: Number(text.match(/第\s*(\d+)\s*行/)?.[1] ?? 1) })), ...active.parsed.meta.skipped.slice(0, 20).map(s => ({ text: `第${s.line}行跳过：${s.reason}`, line: s.line }))] : []
@@ -201,7 +211,15 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         ready && active ? h('div', { className: 'cmv-hud' }, `${active.file} · 第${line}行\n${active.station} · ${active.parsed.meta.units}\n${position?.point ? position.point.map((v, i) => `${['X', 'Y', 'Z'][i]} ${v.toFixed(3)}`).join('  ') : '无运动段'}\nF ${active.parsed.segments[position?.index ?? 0]?.feed ?? '—'}`) : null,
         layers ? h('div', { className: 'cmv-layers', 'aria-label': '显示图层' }, ...Object.entries(display).filter(([key]) => path || !['model', 'edges'].includes(key)).map(([key, checked]) => h('label', { key }, h('input', { type: 'checkbox', checked, onChange: (e: any) => setDisplay(d => ({ ...d, [key]: e.target.checked })) }), ` ${{ model: '工件', edges: '边线', rapid: '快移（红）', cutting: '切削（蓝/青/琥珀）', future: '淡显未走轨迹', through: '刀路穿透显示', axes: '工位坐标轴' }[key]}`)), h(Button, { onClick: () => setLayers(false) }, '关闭显示设置')) : null,
         error ? h('div', { className: 'cmv-message', role: 'alert' }, error) : null,
-        !error && !ready ? h('div', { className: 'cmv-message' }, state.state === 'missing' ? h(React.Fragment, null, h('p', null, '尚未生成三维预览。NX 将打开独立标记副本，不覆盖原 PRT；成功后只关闭本次预览副本。'), h(Button, { variant: 'primary', onClick: prepare }, '确认并生成三维预览')) : state.message || state.stage || '正在加载…') : null),
+        !error && !ready ? h('div', { className: 'cmv-message' }, state.state === 'missing'
+          ? (autoPrepare.current === `${sessionId}/${state.sha}`
+            ? h('p', null, '正在自动准备三维预览：NX 将打开独立标记副本，不覆盖原 PRT…')
+            : h(React.Fragment, null, h('p', null, '尚未生成三维预览。NX 将打开独立标记副本，不覆盖原 PRT；成功后只关闭本次预览副本。'), h(Button, { variant: 'primary', onClick: prepare }, '确认并生成三维预览')))
+          : state.state === 'error'
+            ? h(React.Fragment, null, h('p', null, state.message), state.retryable
+              ? h(Button, { variant: 'primary', onClick: prepare }, '重试生成三维预览')
+              : h('p', null, '请核实 NX 执行状态、排除问题后重启服务再试。'))
+            : state.message || state.stage || '正在加载…') : null),
       ready && selecting && view ? h(ModelControls, { view, onReference: onReference && sessionId && path ? async fids => {
         const query = new URLSearchParams({ path, sha: state.sha, geometry: state.geometry_sha256, fids: fids.join(',') })
         const reference = await json(`${base(sessionId)}/selection?${query}`)

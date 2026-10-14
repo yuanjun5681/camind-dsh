@@ -3478,6 +3478,14 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
       setError(e.message);
     }
   };
+  const autoPrepare = (0, import_react2.useRef)("");
+  (0, import_react2.useEffect)(() => {
+    if (!sessionId || !path || error || state?.state !== "missing") return;
+    const key = `${sessionId}/${state.sha}`;
+    if (autoPrepare.current === key) return;
+    autoPrepare.current = key;
+    void prepare();
+  }, [state, sessionId, path, error]);
   const ready = !!view && state.state === "ready" && !error, line = active?.parsed.segments[position?.index ?? 0]?.line ?? 0;
   const playingEnabled = ready && !!active?.parsed.segments.length && visible.includes(activeId);
   const alerts = active ? [...active.parsed.meta.warnings.map((text) => ({ text, line: Number(text.match(/第\s*(\d+)\s*行/)?.[1] ?? 1) })), ...active.parsed.meta.skipped.slice(0, 20).map((s) => ({ text: `\u7B2C${s.line}\u884C\u8DF3\u8FC7\uFF1A${s.reason}`, line: s.line }))] : [];
@@ -3562,7 +3570,7 @@ ${position?.point ? position.point.map((v, i) => `${["X", "Y", "Z"][i]} ${v.toFi
 F ${active.parsed.segments[position?.index ?? 0]?.feed ?? "\u2014"}`) : null,
         layers ? h2("div", { className: "cmv-layers", "aria-label": "\u663E\u793A\u56FE\u5C42" }, ...Object.entries(display).filter(([key]) => path || !["model", "edges"].includes(key)).map(([key, checked]) => h2("label", { key }, h2("input", { type: "checkbox", checked, onChange: (e) => setDisplay((d) => ({ ...d, [key]: e.target.checked })) }), ` ${{ model: "\u5DE5\u4EF6", edges: "\u8FB9\u7EBF", rapid: "\u5FEB\u79FB\uFF08\u7EA2\uFF09", cutting: "\u5207\u524A\uFF08\u84DD/\u9752/\u7425\u73C0\uFF09", future: "\u6DE1\u663E\u672A\u8D70\u8F68\u8FF9", through: "\u5200\u8DEF\u7A7F\u900F\u663E\u793A", axes: "\u5DE5\u4F4D\u5750\u6807\u8F74" }[key]}`)), h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setLayers(false) }, "\u5173\u95ED\u663E\u793A\u8BBE\u7F6E")) : null,
         error ? h2("div", { className: "cmv-message", role: "alert" }, error) : null,
-        !error && !ready ? h2("div", { className: "cmv-message" }, state.state === "missing" ? h2(import_react2.default.Fragment, null, h2("p", null, "\u5C1A\u672A\u751F\u6210\u4E09\u7EF4\u9884\u89C8\u3002NX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\uFF1B\u6210\u529F\u540E\u53EA\u5173\u95ED\u672C\u6B21\u9884\u89C8\u526F\u672C\u3002"), h2(import_dsh_client_ui_primitives2.Button, { variant: "primary", onClick: prepare }, "\u786E\u8BA4\u5E76\u751F\u6210\u4E09\u7EF4\u9884\u89C8")) : state.message || state.stage || "\u6B63\u5728\u52A0\u8F7D\u2026") : null
+        !error && !ready ? h2("div", { className: "cmv-message" }, state.state === "missing" ? autoPrepare.current === `${sessionId}/${state.sha}` ? h2("p", null, "\u6B63\u5728\u81EA\u52A8\u51C6\u5907\u4E09\u7EF4\u9884\u89C8\uFF1ANX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\u2026") : h2(import_react2.default.Fragment, null, h2("p", null, "\u5C1A\u672A\u751F\u6210\u4E09\u7EF4\u9884\u89C8\u3002NX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\uFF1B\u6210\u529F\u540E\u53EA\u5173\u95ED\u672C\u6B21\u9884\u89C8\u526F\u672C\u3002"), h2(import_dsh_client_ui_primitives2.Button, { variant: "primary", onClick: prepare }, "\u786E\u8BA4\u5E76\u751F\u6210\u4E09\u7EF4\u9884\u89C8")) : state.state === "error" ? h2(import_react2.default.Fragment, null, h2("p", null, state.message), state.retryable ? h2(import_dsh_client_ui_primitives2.Button, { variant: "primary", onClick: prepare }, "\u91CD\u8BD5\u751F\u6210\u4E09\u7EF4\u9884\u89C8") : h2("p", null, "\u8BF7\u6838\u5B9E NX \u6267\u884C\u72B6\u6001\u3001\u6392\u9664\u95EE\u9898\u540E\u91CD\u542F\u670D\u52A1\u518D\u8BD5\u3002")) : state.message || state.stage || "\u6B63\u5728\u52A0\u8F7D\u2026") : null
       ),
       ready && selecting && view ? h2(ModelControls, { view, onReference: onReference && sessionId && path ? async (fids) => {
         const query = new URLSearchParams({ path, sha: state.sha, geometry: state.geometry_sha256, fids: fids.join(",") });

@@ -52,9 +52,12 @@ export function createModelService({ home, resolve, pipeline }) {
     }
   }
   async function exportPart(t, progress) {
-    if (busy) throw new Error('另一个模型正在导出，请稍后重试')
+    if (busy) { const error = new Error('另一个模型正在导出，请稍后重试'); error.retryable = true; throw error }
     busy = true
     const temp = `${t.dir}.${randomUUID()}.tmp`
+    // Preflight failures (before our stamped copy exists on NX) are safe to retry;
+    // once the copy is open, NX-side state is uncertain and stays fail-closed.
+    let openedOnNx = false
     try {
       const health = checked(await pipeline.ensureReady())
       if (health.queue_pending !== 0 || health.queue_processing !== 0) throw new Error('NX 正在处理其他任务，暂不切换模型')
@@ -66,6 +69,7 @@ export function createModelService({ home, resolve, pipeline }) {
       checked(await pipeline.uploadFile(t.file, prt))
       progress.stage = '生成面表'
       const opened = checked(await pipeline.run('/cam_geompack_open', { prt, out_dir: out, part_sha256: t.sha }))
+      openedOnNx = true
       const stampedName = opened?.stamped?.name
       if (typeof stampedName !== 'string' || !/^[A-Za-z0-9._-]+\.prt$/i.test(stampedName)) throw new Error('标记副本文件名非法')
       const stamped = `${out}/${stampedName}`
@@ -95,6 +99,9 @@ export function createModelService({ home, resolve, pipeline }) {
       await mkdir(path.dirname(t.dir), { recursive: true })
       await rename(temp, t.dir)
       return result
+    } catch (error) {
+      if (!openedOnNx) error.retryable = true
+      throw error
     } finally {
       busy = false
       await rm(temp, { recursive: true, force: true })
@@ -122,10 +129,10 @@ export function createModelService({ home, resolve, pipeline }) {
     },
     async prepare(t) {
       const current = await status(t)
-      if (current.state !== 'missing') return current
+      if (current.state !== 'missing' && !(current.state === 'error' && current.retryable)) return current
       const progress = { state: 'running', sha: t.sha, stage: '检查 NX 状态' }
       running.set(t.key, progress)
-      void exportPart(t, progress).then(() => running.delete(t.key), error => running.set(t.key, { state: 'error', sha: t.sha, message: error.message }))
+      void exportPart(t, progress).then(() => running.delete(t.key), error => running.set(t.key, { state: 'error', sha: t.sha, message: error.message, retryable: error.retryable === true }))
       return progress
     },
   }
