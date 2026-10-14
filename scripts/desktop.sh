@@ -25,4 +25,4 @@ if [ -z "$APP" ]; then
   exit 1
 fi
 
-exec "$APP/Contents/MacOS/DeepSeek Harness"
+exec "$APP/Contents/MacOS/DeepSeek Harness" "$@"

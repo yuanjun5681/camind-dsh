@@ -21,6 +21,8 @@
 
 审图完成与方案授权分别核验。机床、工序、NX 事实、几何、毛坯、基准和装夹仍由编程门禁验证；缺生产检查证据仍不可生产放行。DWG 展示是部分实体预览，适配渲染实体边界不代表精确量测。当前没有生产级碰撞仿真。
 
+工序方案里的规划确认独立于审图向导，支持保存确认、使用建议与暂不确定；失败保留草稿，执行期间禁止修改。工作台渲染失败显示重试入口，不再沿用上游空白错误节点。顶部阶段直接读取正式任务；NC 生成成功且生产检查仅部分覆盖时显示“NC 已生成 · 检查未齐”。审批卡定位使用稳定画布范围，模型视区折叠到零尺寸时输入区域也回退到画布。
+
 ## 验证
 
 ```sh
@@ -37,6 +39,7 @@ npm --prefix ui-shell run build
 
 ```sh
 # 调试桌面由操作者以项目 DSH_HOME 启动，端口 9236。
+sh ./scripts/desktop.sh --remote-debugging-port=9236
 CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-workbench/acceptance-desktop.mjs
 ```
 

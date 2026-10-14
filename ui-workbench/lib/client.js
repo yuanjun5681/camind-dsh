@@ -394,7 +394,7 @@ function DeliverablesTab({ sessionId }) {
 // --- 加工 tab（自 tool-cam 迁入合并） ---------------------------------------------------------
 
 const OVERALL_VIEW = {
-  ok: { label: '通过', modifier: 'ok' },
+  ok: { label: 'NC 生成完成', modifier: 'ok' },
   incomplete: { label: '含未决项', modifier: 'warn' },
   error: { label: '失败', modifier: 'err' },
   planned: { label: '未执行', modifier: 'muted' },
@@ -408,6 +408,7 @@ const STAGE_TEXT = {
   work_copy: '复制工作副本（主模型不被写）',
   prepare: '加工准备（建 CAM setup）',
   check: '收尾自检（NC 对账 + 空刀路）',
+  production_check: '生产检查（部分覆盖，不能放行）',
 }
 const TERMINAL_STAGES = new Set(['done', 'failed', 'aborted'])
 
@@ -451,6 +452,8 @@ function foldTimeline(history) {
 
 function stageRowView(row) {
   switch (row.stage) {
+    case 'production_check':
+      return { icon: '!', text: STAGE_TEXT.production_check, tone: 'warn' }
     case 'ops':
       return { icon: '✓', text: `开始逐序执行（共 ${row.total ?? '?'} 道）`, tone: 'ok' }
     case 'upload':
@@ -597,7 +600,9 @@ function CamRunCard({ sessionId, run }) {
   }
 
   const machine = run.machine.display_name ?? run.machine.id
-  const overallView = active ? RUNNING_VIEW : (OVERALL_VIEW[run.overall] ?? OVERALL_VIEW.planned)
+  const partialChecks = runstate?.production_checks?.release_ready === false
+  const overallView = active ? RUNNING_VIEW : partialChecks && run.overall === 'ok'
+    ? { label: 'NC 已生成 · 检查未齐', modifier: 'warn' } : (OVERALL_VIEW[run.overall] ?? OVERALL_VIEW.planned)
   const opsTotal = runstate?.ops?.length ?? run.ops.length
   const runningOpTimeout = runningOp !== undefined ? runstate?.ops?.[runningOp.index]?.timeout_seconds : undefined
   const runningElapsed = runningOp !== undefined ? durLabel(runningOp.ts, new Date(now).toISOString()) : null
@@ -623,6 +628,7 @@ function CamRunCard({ sessionId, run }) {
           + (typeof runningOpTimeout === 'number' ? ` · 限时约 ${Math.max(1, Math.round(runningOpTimeout / 60))} 分钟` : '')
         : `正在执行：${lastRow?.kind === 'stage' ? (STAGE_TEXT[lastRow.stage] ?? lastRow.stage) : ''}…`),
     run.read_error !== undefined && h('p', { className: 'camrun-warn' }, run.read_error),
+    !active && partialChecks && h('p', { className: 'camrun-warn', role: 'status' }, '生产检查仅部分覆盖，缺少完整夹具、真实刀柄、残料与工位回读等证据；仅可交付问题包，不能生产放行。'),
     run.overall === 'planned' && h('p', { className: 'camrun-note' }, '尚未执行——在会话中让 Agent 对该 run_id 调用 cam_run 首跑。'),
     !active && (run.overall === 'incomplete' || run.overall === 'error')
       && h('p', { className: 'camrun-note' }, '本 run 未全过——可让 Agent 以 cam_run（resume=true）续跑，run_id 不变。'),
@@ -755,6 +761,9 @@ function CapabilityPlaceholder({ title, children }) {
   return h('section', { className: 'wb-placeholder' }, h('h3', null, title), h('p', null, children), h('small', null, '功能待接入 · 不参与加工放行'))
 }
 
+function composerViewportRect(canvasRect, stageRect, pending) {
+  return !pending && stageRect?.width > 0 && stageRect?.height > 0 ? stageRect : canvasRect
+}
 function AgentPanel({ sessionId }) {
   const [state, setState] = useState({ running: false, streaming: false, text: '', pending: false })
   const [dock, setDock] = useState(null), [stopping, setStopping] = useState(false), [error, setError] = useState('')
@@ -791,7 +800,7 @@ function AgentPanel({ sessionId }) {
     const measure = () => {
       const canvas = main.querySelector('.wb-canvas')
       const stage = canvas?.querySelector('.wb-preview-stage:not([hidden]) .cmv-stage')
-      const rect = (stage || canvas || content).getBoundingClientRect()
+      const rect = composerViewportRect((canvas || content).getBoundingClientRect(), stage?.getBoundingClientRect(), state.pending)
       const side = main.querySelector('.wb-context')?.getBoundingClientRect()
       const right = side && side.left > rect.left && side.left < rect.right ? side.left : rect.right
       const available = right - rect.left, width = Math.max(0, Math.min(760, available - 32))
@@ -1086,6 +1095,35 @@ function PlanReview({ snapshot, record, close }) {
     } }, '确认方案'), h('button', { disabled: record.busy, onClick: close }, '返回草案')),
     error && h('p', { role: 'alert' }, error))
 }
+// Planning answers stay in the operation panel, independently of review completion.
+function TaskAnswer({ record, question }) {
+  const answer = record.task.answers[question.id]
+  const recommendation = typeof question.recommendation === 'string' ? question.recommendation : ''
+  const [draft, setDraft] = useState(answer?.value || '')
+  const [error, setError] = useState('')
+  const saving = useRef(false)
+  const disabled = record.busy || Boolean(record.task.active_run)
+  useEffect(() => { setDraft(answer?.value || '') }, [answer?.value])
+  const save = async (value, resolved) => {
+    if (disabled || saving.current) return
+    saving.current = true; setError('')
+    try { await record.act('answer', { id: question.id, value, resolved }) }
+    catch (e) { setError(e.message) }
+    finally { saving.current = false }
+  }
+  return h('form', { className: 'wb-placeholder', onSubmit: event => {
+    event.preventDefault()
+    if (draft.trim() && draft.trim() !== '暂不确定') void save(draft.trim(), true)
+  } }, h('h4', null, question.prompt),
+    question.reason && h('p', { className: 'wb-evidence' }, question.reason),
+    recommendation && h('p', { className: 'wb-evidence' }, `建议：${recommendation}`),
+    answer && h('p', { className: 'wb-muted' }, answer.resolved ? `已确认：${answer.value}` : `未决：${answer.value}`),
+    h('textarea', { 'aria-label': question.prompt, value: draft, disabled, onChange: e => setDraft(e.target.value) }),
+    h(Button, { type: 'submit', disabled: disabled || !draft.trim() || draft.trim() === '暂不确定' }, '保存确认'),
+    recommendation && h(Button, { type: 'button', disabled, onClick: () => save(recommendation, true) }, '使用建议'),
+    h(Button, { type: 'button', disabled, onClick: () => save('暂不确定', false) }, '暂不确定'),
+    error && h('p', { role: 'alert' }, error))
+}
 function TaskOperations({ sessionId, record }) {
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null), [review, setReview] = useState(null)
@@ -1201,7 +1239,7 @@ function WorkbenchView({ sessionId }) {
       h('nav', { className: 'wb-view-controls', 'aria-label': '零件视图' }, ['prt', 'dwg'].map(role => h('button', { key: role, disabled: !task?.inputs[role], 'aria-pressed': mode === (role === 'prt' ? 'model' : 'drawing'), title: task?.inputs[role]?.name, onClick: () => {
         if (role === 'prt') { setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) } else setMode('drawing')
       } }, role === 'prt' ? '3D 模型' : 'CAD 图纸'))),
-      h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${running ? '审图分析中' : task.phase}` : '读取任务'),
+      h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${task.phase}` : '读取任务'),
       !wizard && !running && (task?.review?.status === 'pending' || task?.review?.status === 'complete' && task?.requirement_summary?.status !== 'confirmed') && h(Button, { variant: 'primary', onClick: () => setWizard(true) }, task?.review?.status === 'complete' ? '确认加工要求' : '继续处理')),
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
@@ -1239,6 +1277,20 @@ function TaskRequirements({ record }) {
     h(RequirementList, { items: summary.confirmed.items }))
 }
 
+// The upstream slot boundary renders an empty node on errors. Keep failures actionable.
+class WorkbenchBoundary extends React.Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return h('div', { className: 'wb-main' }, h('section', { className: 'wb-placeholder', role: 'alert' },
+      h('h3', null, '工作台显示失败'), h('p', null, '任务记录仍已保存。请重试，或切到“对话”查看执行结果。'),
+      h(Button, { onClick: () => this.setState({ failed: false }) }, '重新加载工作台')))
+  }
+}
+function WorkbenchEntry({ sessionId }) {
+  return h(WorkbenchBoundary, { key: sessionId }, h(WorkbenchView, { sessionId }))
+}
 function apply(ctx) {
   applyCtx = ctx
   ctx.effect(() => {
@@ -1294,7 +1346,7 @@ function apply(ctx) {
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view', id: VIEW_ID, order: -10, label: () => '工作台',
     inject: sessionId => ({ sessionId }),
-  }, WorkbenchView))
+  }, WorkbenchEntry))
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
     name: 'conversation.session.header.utilities',
     id: 'workbench',

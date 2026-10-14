@@ -38,16 +38,57 @@ async function loadEntry(url: string, entry: any, signal: AbortSignal) {
   if (digest !== entry.sha256) throw new Error('网格 SHA256 校验失败')
   return entry.encoding === 'gzip' ? bounded(new Blob([raw as BlobPart]).stream().pipeThrough(new DecompressionStream('gzip'))) : raw
 }
-function SourceDrawer({ program, line, follow, onFollow, onSeek, onClose }: { program: Program; line: number; follow: boolean; onFollow: (v: boolean) => void; onSeek: (line: number) => void; onClose: () => void }) {
+// Native modal uses the top layer without taking width or height from the scene.
+function InspectionDialog({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const el = dialog.current!, previous = document.activeElement as HTMLElement | null
+    el.showModal()
+    return () => { el.close(); if (previous?.isConnected) previous.focus() }
+  }, [])
+  return h('dialog', { ref: dialog, className: 'cmv-inspection-dialog', 'aria-label': title,
+    onCancel: (e: any) => { e.preventDefault(); e.stopPropagation(); close() },
+    onKeyDown: (e: any) => e.stopPropagation() },
+    h('header', null, h('h2', null, title), h(Button, { onClick: close, autoFocus: true }, '关闭')),
+    children)
+}
+function PreviewInformation({ state, active, aligned }: { state: any; active?: Program; aligned: boolean }) {
+  const rows = [
+    ['预览内容', active ? 'NC 程序轨迹' : '零件模型'],
+    ...(active ? [['程序文件', active.file], ['工序', active.name], ['坐标与对齐', aligned ? '已校验模型与工序坐标变换' : 'NC 原始坐标，未与零件模型对齐'],
+      ['单位', active.parsed.meta.units], ['程序换刀号', active.parsed.meta.tools.length ? active.parsed.meta.tools.map(t => `T${t}`).join('、') : '未读到换刀指令'],
+      ['程序最后设定转速', active.parsed.meta.spindle == null ? '未读到转速指令' : `${active.parsed.meta.spindle} rpm`],
+      ['程序最后设定进给', active.parsed.meta.feed == null ? '未读到进给指令' : `${active.parsed.meta.feed}（单位与进给模式需核对程序）`],
+      ['轨迹段数', active.parsed.segments.length.toLocaleString()], ['估算回放时长', `${Math.round(active.duration / 60)} 分钟`]] : []),
+    ...(state.faces ? [['模型面数', state.faces.length.toLocaleString()], ['显示网格三角片', state.triangles.toLocaleString()]] : []),
+  ]
+  return h('section', { className: 'cmv-information' },
+    h('p', null, '用于了解当前显示的模型或程序。程序字段不代表机床实测，也不表示生产检查通过。'),
+    h('dl', null, ...rows.map(([label, value]) => h('div', { key: label }, h('dt', null, label), h('dd', null, value)))),
+    active ? h('p', null, '回放时长按程序进给估算，不包含换刀、加减速和停留；不用于承诺实际加工时间。') : null,
+    state.sha ? h('details', null, h('summary', null, '文件版本标识'), h('p', null, state.sha)) : null)
+}
+function SourceDrawer({ program, line, follow, onFollow, onSeek }: { program: Program; line: number; follow: boolean; onFollow: (v: boolean) => void; onSeek: (line: number) => void }) {
   const rows = useMemo(() => program.content.split('\n'), [program])
   const scroll = useRef<HTMLDivElement>(null)
   const [top, setTop] = useState(0), [requested, setRequested] = useState('')
+  const locate = (target: number) => {
+    const el = scroll.current
+    if (!el) return
+    el.scrollTop = Math.max(0, (target - 5) * 20)
+    setTop(el.scrollTop)
+  }
   useEffect(() => { setTop(0); if (scroll.current) scroll.current.scrollTop = 0 }, [program])
-  useEffect(() => { if (follow && scroll.current) scroll.current.scrollTop = Math.max(0, (line - 5) * 20) }, [line, follow, program])
+  useEffect(() => {
+    if (!follow) return
+    // The modal must be visible before measuring its scroll viewport.
+    const frame = requestAnimationFrame(() => locate(line))
+    return () => cancelAnimationFrame(frame)
+  }, [line, follow, program])
   const start = Math.max(0, Math.floor(top / 20) - 10), end = Math.min(rows.length, start + 100)
   return h('aside', { className: 'cmv-source', 'aria-label': 'NC源码' },
-    h('div', { className: 'cmv-source-head' }, h('strong', null, program.file), h(Button, { onClick: () => onFollow(!follow), 'aria-pressed': follow }, '跟随刀位'), h(Button, { onClick: onClose }, '关闭源码'),
-      h('form', { onSubmit: (e: React.FormEvent) => { e.preventDefault(); const n = Number(requested); if (Number.isInteger(n) && n >= 1 && n <= rows.length) { onSeek(n); if (scroll.current) scroll.current.scrollTop = Math.max(0, (n - 5) * 20) } } }, h(Input, { type: 'number', min: 1, max: rows.length, 'aria-label': '源码行号', placeholder: '行号', value: requested, onChange: (e: any) => setRequested(e.target.value) }), h(Button, { type: 'submit' }, '定位'))),
+    h('div', { className: 'cmv-source-head' }, h('strong', null, program.file), h(Button, { onClick: () => { onFollow(true); locate(line) }, 'aria-pressed': follow }, '跟随刀位'),
+      h('form', { onSubmit: (e: React.FormEvent) => { e.preventDefault(); const n = Number(requested); if (Number.isInteger(n) && n >= 1 && n <= rows.length) { onSeek(n); locate(n) } } }, h(Input, { type: 'number', min: 1, max: rows.length, 'aria-label': '源码行号', placeholder: '行号', value: requested, onChange: (e: any) => setRequested(e.target.value) }), h(Button, { type: 'submit' }, '定位'))),
     h('div', { ref: scroll, className: 'cmv-source-lines', tabIndex: 0, onScroll: (e: any) => setTop(e.currentTarget.scrollTop), onWheel: () => onFollow(false), onPointerDown: () => onFollow(false), onKeyDown: (e: any) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) onFollow(false) } },
       h('div', { style: { height: rows.length * 20, position: 'relative', minWidth: 'max-content' } }, h('div', { style: { position: 'absolute', top: start * 20, minWidth: '100%' } }, rows.slice(start, end).map((text, i) => h('button', { key: start + i, type: 'button', className: 'cmv-source-line', 'aria-current': start + i + 1 === line, onClick: () => onSeek(start + i + 1) }, `${String(start + i + 1).padStart(5)}  ${text}`))))))
 }
@@ -104,7 +145,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
     view.callbacks.segmentClicked = index => {
       const range = scene.ranges.find(r => index >= r.start && index < r.end), p = programs.find(p => p.id === range?.id)
       if (!p) return
-      setActive(p.id); setTime(p.times[scene.locals[index]]); setPlaying(false); setSource(true); setDetails(false); setFollow(true)
+      setActive(p.id); setTime(p.times[scene.locals[index]]); setPlaying(false); setDetails(false); setFollow(true)
     }
     return () => { delete view.callbacks.segmentClicked }
   }, [view, scene, programs, expectedSha, state.sha])
@@ -197,7 +238,18 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         view?.fitView(bounds); e.target.value = '' } }, h('option', { value: '' }, '适配'), h('option', { value: 'all' }, '全部'), path ? h('option', { value: 'model' }, '模型') : null, active ? h('option', { value: 'active' }, '当前工序') : null),
       h(Button, { onClick: () => setLayers(v => !v), disabled: !ready, 'aria-expanded': layers }, '显示'),
       path ? h(Button, { onClick: () => { setSelecting(v => !v); setSource(false); setDetails(false); setPlaying(false) }, disabled: !ready, 'aria-pressed': selecting }, '选择面') : null,
-      h(Button, { onClick: () => setExpanded(value => !value), disabled: !ready, 'aria-pressed': expanded }, expanded ? '退出扩大' : '扩大视区')),
+      h(Button, { onClick: () => setExpanded(value => !value), disabled: !ready, 'aria-pressed': expanded }, expanded ? '退出扩大' : '扩大视区'),
+      h('details', { className: 'cmv-inspect' }, h('summary', null, '检查'),
+        h('div', { className: 'cmv-inspect-menu' },
+          h(Button, { onClick: (e: any) => { setDetails(v => !v); setPlaying(false); setSource(false); setSelecting(false); e.currentTarget.closest('details').open = false }, disabled: !ready, 'aria-expanded': details }, '预览信息'),
+          active ? h(Button, { onClick: (e: any) => { setSource(v => !v); setPlaying(false); setSelecting(false); setDetails(false); setFollow(true); e.currentTarget.closest('details').open = false }, disabled: !ready, 'aria-expanded': source }, '程序核对') : null,
+          active ? h('p', null, '轨迹为近似回放，不是材料去除、碰撞检查或机床仿真。刀位标记可穿过遮挡。') : null,
+          alerts.length ? h('div', { className: 'cmv-alerts' }, ...alerts.slice(0, 30).map((a, i) => h('button', { key: i, type: 'button', onClick: (e: any) => { setSource(true); setSelecting(false); setDetails(false); setFollow(true); seekLine(a.line); e.currentTarget.closest('details').open = false } }, a.text))) : null,
+          state.manifest?.warnings?.length ? h('p', null, `模型导出告警：${JSON.stringify(state.manifest.warnings)}`) : null)),
+      active ? h('span', { className: 'cmv-preview-note', title: '程序轨迹近似回放，不是材料去除、碰撞检查或机床仿真。刀位标记可穿过遮挡。' }, '近似轨迹 · 非碰撞仿真') : null),
+    active ? h('div', { className: 'cmv-playbar' }, h(Button, { onClick: () => step(-1), disabled: !playingEnabled }, '上一步'), h(Button, { variant: 'primary', onClick: togglePlay, disabled: !playingEnabled }, playing ? '暂停' : '播放'), h(Button, { onClick: () => step(1), disabled: !playingEnabled }, '下一步'),
+      h('input', { type: 'range', 'aria-label': '当前工序播放进度', min: 0, max: active.duration || 1, step: 'any', value: time, disabled: !playingEnabled, onChange: (e: any) => { setPlaying(false); setTime(Number(e.target.value)) } }),
+      h('select', { 'aria-label': '播放速度', value: speed, onChange: (e: any) => setSpeed(Number(e.target.value)) }, ...[0.25, 0.5, 1, 2, 4, 8].map(v => h('option', { key: v, value: v }, `${v}×`))), h('span', { title: '按程序F估算；快移假定8000、缺F假定500单位/分钟，不含换刀/加减速/停留' }, `${Math.round(active.duration ? time / active.duration * 100 : 0)}%`)) : null,
     notice ? h('div', { className: 'cmv-note', role: 'status' }, notice) : null,
     h('div', { className: 'cmv-body' },
       programs.length > 1 || path && programs.length ? h('nav', { className: 'cmv-ops', 'aria-label': '工序导航' },
@@ -224,18 +276,14 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         const query = new URLSearchParams({ path, sha: state.sha, geometry: state.geometry_sha256, fids: fids.join(',') })
         const reference = await json(`${base(sessionId)}/selection?${query}`)
         await onReference(reference)
-      } : undefined }) : null,
-      source && active ? h(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine, onClose: () => setSource(false) }) : null,
-      ready && details ? h('aside', { className: 'cmv-details', 'aria-label': '预览详情' }, h('strong', null, '预览详情'), h('pre', null, JSON.stringify({ source_sha256: state.sha ?? null, model_faces: state.faces?.length ?? null, model_triangles: state.triangles ?? null, operation: active?.name, nc_file: active?.file, nc_units: active?.parsed.meta.units, segments: active?.parsed.segments.length, estimate_seconds: active?.duration, coordinate_frame: path ? 'package_to_nc' : 'NC原始坐标', station: active?.station, part_to_nc: path ? active?.toPackage.inverse() : null, source_face: active?.fid ?? null }, null, 2)), h(Button, { onClick: () => setDetails(false) }, '关闭详情')) : null),
-    h('div', { className: 'cmv-footer' }, h('span', null, active ? `${active.name} · ${active.station} · ${path ? '来源与对齐信息已校验' : 'NC原始坐标'}${display.through ? ' · 穿透显示' : ''}` : state.faces ? `${state.faces.length} 面 · ${state.triangles.toLocaleString()} 三角片 · mm` : 'NC 轨迹预览'),
-      h(Button, { onClick: () => { setDetails(v => !v); setSource(false); setSelecting(false) }, disabled: !ready, 'aria-expanded': details }, '详情'),
-      active ? h(Button, { onClick: () => { setSource(v => !v); setSelecting(false); setDetails(false) }, disabled: !ready, 'aria-expanded': source }, '源码') : null),
-    active ? h('div', { className: 'cmv-playbar' }, h(Button, { onClick: () => step(-1), disabled: !playingEnabled }, '上一步'), h(Button, { onClick: togglePlay, disabled: !playingEnabled }, playing ? '暂停' : '播放'), h(Button, { onClick: () => step(1), disabled: !playingEnabled }, '下一步'),
-      h('input', { type: 'range', 'aria-label': '当前工序播放进度', min: 0, max: active.duration || 1, step: 'any', value: time, disabled: !playingEnabled, onChange: (e: any) => { setPlaying(false); setTime(Number(e.target.value)) } }),
-      h('select', { 'aria-label': '播放速度', value: speed, onChange: (e: any) => setSpeed(Number(e.target.value)) }, ...[0.25, 0.5, 1, 2, 4, 8].map(v => h('option', { key: v, value: v }, `${v}×`))), h('span', { title: '按程序F估算；快移假定8000、缺F假定500单位/分钟，不含换刀/加减速/停留' }, `${Math.round(active.duration ? time / active.duration * 100 : 0)}% · 估算轨迹回放`)) : null,
-    alerts.length ? h('div', { className: 'cmv-alerts' }, ...alerts.slice(0, 30).map((a, i) => h('button', { key: i, type: 'button', onClick: () => { setSource(true); setSelecting(false); setFollow(true); seekLine(a.line) } }, a.text))) : null,
-    state.manifest?.warnings?.length ? h('div', { className: 'cmv-note' }, `模型导出告警：${JSON.stringify(state.manifest.warnings)}`) : null,
-    active ? h('div', { className: 'cmv-footer' }, '程序轨迹近似预览；刀位标记可穿过遮挡。不是材料去除、碰撞检查或机床仿真。') : null)
+      } : undefined }) : null),
+    source && active ? h(InspectionDialog, { title: 'NC 程序核对', close: () => setSource(false) },
+      h('p', { className: 'cmv-dialog-note' }, '供编程工程师核对换刀、转速、进给与坐标指令。仅显示原始程序，不在此编辑；动画查看无需打开。'),
+      h(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine })) : null,
+    ready && details ? h(InspectionDialog, { title: '预览信息', close: () => setDetails(false) },
+      h(PreviewInformation, { state, active, aligned: Boolean(path) })) : null,
+
+    !active && state.faces ? h('div', { className: 'cmv-footer' }, `${state.faces.length} 面 · ${state.triangles.toLocaleString()} 三角片 · mm`) : null)
 }
 export function ModelViewer({ sessionId, path, runId, onReference }: { sessionId: string; path?: string; runId?: string; onReference?: ReferenceHandler }) {
   const [selectedRun, setRun] = useState(runId ?? ''), [runs, setRuns] = useState<any[]>([]), [joint, setJoint] = useState<any>(null), [notice, setNotice] = useState('')

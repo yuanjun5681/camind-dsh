@@ -20,6 +20,7 @@ const input = {
 }
 const store = { getSnapshot: () => ({ view: activeView }), actions: { setView: view => { activeView = view } } }
 const React = {
+  Component: class { constructor(props) { this.props = props } setState(next) { this.state = { ...this.state, ...next } } },
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
   useState: initial => { const i = cursor++; if (!(i in values)) values[i] = typeof initial === 'function' ? initial() : initial; return [values[i], next => { values[i] = typeof next === 'function' ? next(values[i]) : next }] },
   useEffect: fn => effects.push(fn),
@@ -49,7 +50,7 @@ services.set('inputTriggers', { registerSource: definition => { codec = definiti
 async function load(file) {
   let plugin
   let code = await fs.readFile(new URL(file, import.meta.url), 'utf8')
-  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { OperationEditor, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
+  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { composerViewportRect, TaskOperations, TaskAnswer, OperationEditor, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
   vm.runInNewContext(code, {
     window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : { Button: 'button', Tooltip: 'tooltip', MarkdownText: 'markdown', IconGaugeOutlineRegular: 'icon' }) } } },
     Blob, URL, URLSearchParams, AbortController, document: { body: {} },
@@ -63,6 +64,11 @@ async function load(file) {
 }
 await load('../ui-preview/lib/client.js')
 await load('./lib/client.js')
+const canvasRect = { left: 280, right: 885, bottom: 820, width: 605, height: 686 }
+const collapsedStage = { left: 280, right: 280, bottom: 407, width: 0, height: 0 }
+assert.equal(taskComponents.composerViewportRect(canvasRect, collapsedStage, false), canvasRect, 'Collapsed model viewport must not collapse composer or approval')
+assert.equal(taskComponents.composerViewportRect(canvasRect, { ...canvasRect, width: 300 }, true), canvasRect, 'Approval uses the stable canvas bounds')
+
 const edits = [], originalVersion = 3
 const draftOp = { id: 'op-a', new_name: 'OP_{suffix}', station: 'station-a', type: 'from_scratch_workpiece_op', depends_on: [], inspection: ['check'], feed: 100 }
 const editRecord = { task: { version: originalVersion, operations: [draftOp] }, act: async (action, args) => edits.push({ action, args }) }
@@ -71,6 +77,11 @@ const editorTree = taskComponents.OperationEditor({ op: draftOp, record: editRec
 editRecord.task.version = 9
 await editorTree.props.onSubmit({ preventDefault() {} })
 assert.equal(edits[0].action, 'operations'); assert.equal(edits[0].args.version, originalVersion, 'Editor pins reviewed version rather than silently overwriting a background update')
+// Existing operations must render their planning confirmations, including after restart.
+values.length = 0; cursor = 0
+const operationsRecord = { ...editRecord, task: { ...editRecord.task, revision: 1, blockers: [], questions: [{ id: 'post', scope: 'planning', prompt: '核对后处理' }], answers: {} } }
+const operationsTree = taskComponents.TaskOperations({ sessionId: 's1', record: operationsRecord })
+assert.ok(JSON.stringify(operationsTree).includes('方案参数与确认'))
 const snapshot = { version: 4, revision: 1, fingerprint: 'a'.repeat(64), inputs: {}, operations: [draftOp] }
 values.length = 0; cursor = 0
 const review = taskComponents.PlanReview({ snapshot, record: editRecord, close: () => {} })
@@ -111,7 +122,12 @@ for (const missing of [[], [{ name: 'missing.prt', available: false }]]) {
   await new Promise(resolve => setImmediate(resolve)); assert.equal(activeView, null); cleanup()
 }
 values.length = 0; cursor = 0; effects.length = 0
-const tree = workbench.component({ sessionId: 's1' })
+const entryTree = workbench.component({ sessionId: 's1' })
+const boundary = new entryTree.type(entryTree.props)
+boundary.state = entryTree.type.getDerivedStateFromError(Error('render failure'))
+assert.ok(JSON.stringify(boundary.render()).includes('工作台显示失败'))
+const viewNode = entryTree.children[0]
+const tree = viewNode.type(viewNode.props)
 const agent = tree.children.at(-1)
 values.length = 0; cursor = 0; effects.length = 0
 agent.type(agent.props); const dispose = effects.shift()(); values[1] = { left: 10, width: 600, bottom: 12 }; cursor = 0
@@ -153,6 +169,19 @@ const deliveryTree = JSON.stringify(delivery.type(delivery.props))
 assert.ok(deliveryTree.includes('delivery/test.nc')); assert.ok(deliveryTree.includes('report.md'))
 assert.ok(deliveryTree.includes('nc_batch.zip')); assert.ok(deliveryTree.includes('不是放行结论'))
 for (const dispose of disposeDelivery) dispose()
+// Planning confirmation failures keep the typed answer and do not claim success.
+values.length = 0; cursor = 0
+const planningCalls = []
+const planningRecord = { task: { answers: { stock: { value: '原有毛坯说明', resolved: false } } }, busy: false, act: async (action, args) => { planningCalls.push({ action, args }); throw Error('版本冲突') } }
+let planningTree = taskComponents.TaskAnswer({ record: planningRecord, question: { id: 'stock', prompt: '毛坯' } })
+planningTree.children.find(n => n?.type === 'textarea').props.onChange({ target: { value: '测试毛坯120×187×30.5' } })
+cursor = 0; planningTree = taskComponents.TaskAnswer({ record: planningRecord, question: { id: 'stock', prompt: '毛坯' } })
+await planningTree.props.onSubmit({ preventDefault() {} })
+await new Promise(resolve => setImmediate(resolve))
+cursor = 0; planningTree = taskComponents.TaskAnswer({ record: planningRecord, question: { id: 'stock', prompt: '毛坯' } })
+assert.equal(planningCalls[0].args.resolved, true)
+assert.equal(planningTree.children.find(n => n?.type === 'textarea').props.value, '测试毛坯120×187×30.5')
+assert.ok(JSON.stringify(planningTree).includes('版本冲突'))
 // Wizard choices save once, advance only after success and preserve unresolved decisions.
 const findAll = (node, predicate) => {
   if (!node || typeof node !== 'object') return []

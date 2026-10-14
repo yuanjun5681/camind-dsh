@@ -3168,20 +3168,23 @@ var viewerCss = `
 .cmv{container-type:inline-size;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:13px}
 .cmv *{box-sizing:border-box}.cmv-expanded{position:fixed;inset:0;width:100%;height:100%;z-index:1000}
 .cmv-tools,.cmv-footer,.cmv-playbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.cmv-inspect{position:relative;margin-left:auto}.cmv-inspect summary{cursor:pointer;padding:6px 8px;border-radius:8px}.cmv-inspect[open] summary{background:var(--dsw-alias-bg-layer-2)}.cmv-inspect-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;width:280px;max-width:calc(100cqw - 24px);max-height:320px;overflow:auto;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);box-shadow:0 4px 16px #0002}.cmv-inspect-menu p{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0 0}.cmv-inspect-menu button{margin-right:6px}.cmv-preview-note{font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.cmv-playbar button{flex:none}.cmv-playbar>span{min-width:3ch;text-align:right;font-variant-numeric:tabular-nums}
 .cmv-tools label{display:flex;align-items:center;gap:4px}.cmv-tools select,.cmv-playbar select{max-width:240px;font:inherit;color:inherit;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px}
-.cmv select:focus-visible,.cmv input:focus-visible,.cmv button:focus-visible,.cmv summary:focus-visible,.cmv canvas:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}
+.cmv summary:focus-visible,.cmv select:focus-visible,.cmv input:focus-visible,.cmv button:focus-visible,.cmv summary:focus-visible,.cmv canvas:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}
 .cmv-body{display:flex;flex:1;min-height:0;min-width:0}.cmv-stage{position:relative;flex:1;min-width:0;min-height:240px;background:#1b1e24;overflow:hidden}.cmv-stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .cmv-message{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#eee;text-align:center;font-size:13px;background:#1b1e24}
 .cmv-hud{position:absolute;left:12px;bottom:12px;max-width:calc(100% - 24px);color:#eee;background:#1b1e24d9;border-radius:8px;padding:6px 10px;pointer-events:none;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap}
 .cmv-marker{position:absolute;width:12px;height:12px;border:2px solid white;border-radius:50%;background:#f0b43c;transform:translate(-50%,-50%);pointer-events:none;display:none}
 .cmv-ops{width:180px;flex:none;border-right:1px solid var(--dsw-alias-border-l2);overflow:auto;padding:8px}.cmv-ops strong{display:block;font-size:12px;color:var(--dsw-alias-label-secondary);padding:8px 4px}.cmv-op{display:flex;align-items:center;gap:4px}.cmv-op button{flex:1;min-width:0;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;padding:8px;overflow-wrap:anywhere;cursor:pointer}.cmv-op button[aria-current=true]{background:var(--dsw-alias-bg-layer-3);font-weight:600}.cmv-op button:hover{background:var(--dsw-alias-bg-layer-2)}
-.cmv-footer{font-size:12px;color:var(--dsw-alias-label-secondary);border-top:1px solid var(--dsw-alias-border-l2);border-bottom:0;overflow-wrap:anywhere}.cmv-footer>span:first-child{flex:1;min-width:0}.cmv-playbar{border-top:1px solid var(--dsw-alias-border-l2);border-bottom:0}.cmv-playbar input[type=range]{flex:1;min-width:120px}.cmv-note{padding:8px 12px;color:var(--dsw-alias-state-warn-label);font-size:12px;overflow-wrap:anywhere}.cmv-alerts{display:flex;gap:6px;flex-wrap:wrap;padding:4px 12px}.cmv-alerts button{border:0;background:transparent;color:var(--dsw-alias-state-warn-label);cursor:pointer;text-align:left;font:inherit}
+.cmv-footer{font-size:12px;color:var(--dsw-alias-label-secondary);border-top:1px solid var(--dsw-alias-border-l2);border-bottom:0;overflow-wrap:anywhere}.cmv-footer>span:first-child{flex:1;min-width:0}.cmv-playbar{border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-playbar input[type=range]{flex:1;min-width:120px}.cmv-note{padding:8px 12px;color:var(--dsw-alias-state-warn-label);font-size:12px;overflow-wrap:anywhere}.cmv-alerts{display:flex;gap:6px;flex-wrap:wrap;padding:4px 12px}.cmv-alerts button{border:0;background:transparent;color:var(--dsw-alias-state-warn-label);cursor:pointer;text-align:left;font:inherit}
 .cmv-selection,.cmv-source,.cmv-details{width:310px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);min-height:0;overflow:auto;padding:10px}.cmv-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace}.cmv-axes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}.cmv-selection-body{display:flex;flex-direction:column;gap:8px;padding-top:8px;overflow-wrap:anywhere}.cmv-face-form{display:flex;gap:6px;flex-wrap:wrap}.cmv-face-form input{width:100%}.cmv-selection fieldset{display:flex;gap:8px;flex-wrap:wrap;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-selected{max-height:180px;overflow:auto}
-.cmv-source{display:flex;flex-direction:column;overflow:hidden;padding:0}.cmv-source-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-source-head strong{flex:1;min-width:0;overflow-wrap:anywhere}.cmv-source-head input{width:90px}.cmv-source-lines{flex:1;min-height:100px;overflow:auto;font:12px/20px ui-monospace,monospace;background:var(--dsw-alias-markdown-code-block)}.cmv-source-line{display:block;border:0;background:transparent;color:inherit;text-align:left;white-space:pre;height:20px;line-height:20px;padding:0 8px;min-width:100%;cursor:pointer;font:inherit}.cmv-source-line[aria-current=true]{background:var(--dsw-alias-bg-layer-3)}
+.cmv-source{display:flex;flex-direction:column;overflow:hidden;padding:0}.cmv-source-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-source-head strong{flex:1;min-width:0;overflow-wrap:anywhere}.cmv-source-head input{width:90px}.cmv-source-lines{flex:1;min-height:100px;overflow:auto;font:12px/20px ui-monospace,monospace;background:var(--dsw-alias-markdown-code-block)}.cmv-source-line{display:block;border:0;background:transparent;color:inherit;text-align:left;white-space:pre;height:20px;line-height:20px;padding:0 8px;min-width:100%;cursor:pointer;font:inherit}.cmv-source-line[aria-current=true]{position:relative;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#2468d8) 24%,var(--dsw-alias-markdown-code-block,#f6f8fa));box-shadow:inset 3px 0 var(--dsw-alias-state-business-primary,#2468d8);font-weight:700}.cmv-source-line[aria-current=true]::before{content:"\u203A";position:absolute;left:5px;color:var(--dsw-alias-state-business-primary,#2468d8);font-weight:700}
 .cmv-layers{position:absolute;right:12px;top:12px;z-index:2;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-layers label{display:block;padding:4px 0}
+.cmv-inspection-dialog{width:min(900px,calc(100vw - 48px));height:min(720px,80vh);max-height:calc(100vh - 48px);padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:0 16px 64px #0005;overflow:hidden;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.cmv-inspection-dialog[open]{display:flex;flex-direction:column}.cmv-inspection-dialog::backdrop{background:#0005}.cmv-inspection-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-inspection-dialog h2{margin:0;font-size:18px}.cmv-dialog-note{margin:0;padding:12px 20px;color:var(--dsw-alias-label-secondary);flex:none}.cmv-inspection-dialog .cmv-source{width:100%;height:auto;flex:1;min-height:0;border:0}.cmv-inspection-dialog .cmv-source-head{padding:10px 20px}.cmv-inspection-dialog .cmv-source-line{padding:0 20px}.cmv-information{padding:8px 20px 20px;overflow:auto}.cmv-information p{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.cmv-information dl{margin:16px 0}.cmv-information dl>div{display:grid;grid-template-columns:minmax(100px,160px) 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-information dt{color:var(--dsw-alias-label-secondary)}.cmv-information dd{margin:0;overflow-wrap:anywhere}
 /* The embedded composer reduces available height; never crop the canvas to a standalone minimum. */
 .campv-embedded .cmv-stage{min-height:min(120px,100%)}
-@container(max-width:736px){.cmv-body{flex-wrap:wrap;overflow:auto}.cmv-ops{width:132px}.cmv-source,.cmv-selection,.cmv-details{width:100%;height:220px;border-left:0;border-top:1px solid var(--dsw-alias-border-l2)}.cmv-stage{min-height:200px}.cmv-tools{gap:6px;padding:6px}.cmv-tools select{max-width:160px}.cmv-hud{font-size:11px}}
+@container(max-width:480px){.cmv-playbar input[type=range]{order:1;flex-basis:100%}.cmv-preview-note{white-space:normal}}
+@container(max-width:736px){.cmv-body{flex-wrap:wrap;overflow:auto}.cmv-ops{width:132px}.cmv-source,.cmv-selection,.cmv-details{width:100%;height:220px;border-left:0;border-top:1px solid var(--dsw-alias-border-l2)}.cmv-stage{flex-basis:calc(100% - 132px);min-height:200px}.cmv-tools{gap:6px;padding:6px}.cmv-tools select{max-width:160px}.cmv-hud{font-size:11px}}
 `;
 
 // ui-model-viewer/src/client.ts
@@ -3231,16 +3234,76 @@ async function loadEntry(url, entry, signal) {
   if (digest !== entry.sha256) throw new Error("\u7F51\u683C SHA256 \u6821\u9A8C\u5931\u8D25");
   return entry.encoding === "gzip" ? bounded(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))) : raw;
 }
-function SourceDrawer({ program, line, follow, onFollow, onSeek, onClose }) {
+function InspectionDialog({ title, close, children }) {
+  const dialog = (0, import_react2.useRef)(null);
+  (0, import_react2.useEffect)(() => {
+    const el = dialog.current, previous = document.activeElement;
+    el.showModal();
+    return () => {
+      el.close();
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
+  return h2(
+    "dialog",
+    {
+      ref: dialog,
+      className: "cmv-inspection-dialog",
+      "aria-label": title,
+      onCancel: (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      },
+      onKeyDown: (e) => e.stopPropagation()
+    },
+    h2("header", null, h2("h2", null, title), h2(import_dsh_client_ui_primitives2.Button, { onClick: close, autoFocus: true }, "\u5173\u95ED")),
+    children
+  );
+}
+function PreviewInformation({ state, active, aligned }) {
+  const rows = [
+    ["\u9884\u89C8\u5185\u5BB9", active ? "NC \u7A0B\u5E8F\u8F68\u8FF9" : "\u96F6\u4EF6\u6A21\u578B"],
+    ...active ? [
+      ["\u7A0B\u5E8F\u6587\u4EF6", active.file],
+      ["\u5DE5\u5E8F", active.name],
+      ["\u5750\u6807\u4E0E\u5BF9\u9F50", aligned ? "\u5DF2\u6821\u9A8C\u6A21\u578B\u4E0E\u5DE5\u5E8F\u5750\u6807\u53D8\u6362" : "NC \u539F\u59CB\u5750\u6807\uFF0C\u672A\u4E0E\u96F6\u4EF6\u6A21\u578B\u5BF9\u9F50"],
+      ["\u5355\u4F4D", active.parsed.meta.units],
+      ["\u7A0B\u5E8F\u6362\u5200\u53F7", active.parsed.meta.tools.length ? active.parsed.meta.tools.map((t) => `T${t}`).join("\u3001") : "\u672A\u8BFB\u5230\u6362\u5200\u6307\u4EE4"],
+      ["\u7A0B\u5E8F\u6700\u540E\u8BBE\u5B9A\u8F6C\u901F", active.parsed.meta.spindle == null ? "\u672A\u8BFB\u5230\u8F6C\u901F\u6307\u4EE4" : `${active.parsed.meta.spindle} rpm`],
+      ["\u7A0B\u5E8F\u6700\u540E\u8BBE\u5B9A\u8FDB\u7ED9", active.parsed.meta.feed == null ? "\u672A\u8BFB\u5230\u8FDB\u7ED9\u6307\u4EE4" : `${active.parsed.meta.feed}\uFF08\u5355\u4F4D\u4E0E\u8FDB\u7ED9\u6A21\u5F0F\u9700\u6838\u5BF9\u7A0B\u5E8F\uFF09`],
+      ["\u8F68\u8FF9\u6BB5\u6570", active.parsed.segments.length.toLocaleString()],
+      ["\u4F30\u7B97\u56DE\u653E\u65F6\u957F", `${Math.round(active.duration / 60)} \u5206\u949F`]
+    ] : [],
+    ...state.faces ? [["\u6A21\u578B\u9762\u6570", state.faces.length.toLocaleString()], ["\u663E\u793A\u7F51\u683C\u4E09\u89D2\u7247", state.triangles.toLocaleString()]] : []
+  ];
+  return h2(
+    "section",
+    { className: "cmv-information" },
+    h2("p", null, "\u7528\u4E8E\u4E86\u89E3\u5F53\u524D\u663E\u793A\u7684\u6A21\u578B\u6216\u7A0B\u5E8F\u3002\u7A0B\u5E8F\u5B57\u6BB5\u4E0D\u4EE3\u8868\u673A\u5E8A\u5B9E\u6D4B\uFF0C\u4E5F\u4E0D\u8868\u793A\u751F\u4EA7\u68C0\u67E5\u901A\u8FC7\u3002"),
+    h2("dl", null, ...rows.map(([label, value]) => h2("div", { key: label }, h2("dt", null, label), h2("dd", null, value)))),
+    active ? h2("p", null, "\u56DE\u653E\u65F6\u957F\u6309\u7A0B\u5E8F\u8FDB\u7ED9\u4F30\u7B97\uFF0C\u4E0D\u5305\u542B\u6362\u5200\u3001\u52A0\u51CF\u901F\u548C\u505C\u7559\uFF1B\u4E0D\u7528\u4E8E\u627F\u8BFA\u5B9E\u9645\u52A0\u5DE5\u65F6\u95F4\u3002") : null,
+    state.sha ? h2("details", null, h2("summary", null, "\u6587\u4EF6\u7248\u672C\u6807\u8BC6"), h2("p", null, state.sha)) : null
+  );
+}
+function SourceDrawer({ program, line, follow, onFollow, onSeek }) {
   const rows = (0, import_react2.useMemo)(() => program.content.split("\n"), [program]);
   const scroll = (0, import_react2.useRef)(null);
   const [top, setTop] = (0, import_react2.useState)(0), [requested, setRequested] = (0, import_react2.useState)("");
+  const locate = (target) => {
+    const el = scroll.current;
+    if (!el) return;
+    el.scrollTop = Math.max(0, (target - 5) * 20);
+    setTop(el.scrollTop);
+  };
   (0, import_react2.useEffect)(() => {
     setTop(0);
     if (scroll.current) scroll.current.scrollTop = 0;
   }, [program]);
   (0, import_react2.useEffect)(() => {
-    if (follow && scroll.current) scroll.current.scrollTop = Math.max(0, (line - 5) * 20);
+    if (!follow) return;
+    const frame = requestAnimationFrame(() => locate(line));
+    return () => cancelAnimationFrame(frame);
   }, [line, follow, program]);
   const start = Math.max(0, Math.floor(top / 20) - 10), end = Math.min(rows.length, start + 100);
   return h2(
@@ -3250,14 +3313,16 @@ function SourceDrawer({ program, line, follow, onFollow, onSeek, onClose }) {
       "div",
       { className: "cmv-source-head" },
       h2("strong", null, program.file),
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => onFollow(!follow), "aria-pressed": follow }, "\u8DDF\u968F\u5200\u4F4D"),
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: onClose }, "\u5173\u95ED\u6E90\u7801"),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => {
+        onFollow(true);
+        locate(line);
+      }, "aria-pressed": follow }, "\u8DDF\u968F\u5200\u4F4D"),
       h2("form", { onSubmit: (e) => {
         e.preventDefault();
         const n = Number(requested);
         if (Number.isInteger(n) && n >= 1 && n <= rows.length) {
           onSeek(n);
-          if (scroll.current) scroll.current.scrollTop = Math.max(0, (n - 5) * 20);
+          locate(n);
         }
       } }, h2(import_dsh_client_ui_primitives2.Input, { type: "number", min: 1, max: rows.length, "aria-label": "\u6E90\u7801\u884C\u53F7", placeholder: "\u884C\u53F7", value: requested, onChange: (e) => setRequested(e.target.value) }), h2(import_dsh_client_ui_primitives2.Button, { type: "submit" }, "\u5B9A\u4F4D"))
     ),
@@ -3365,7 +3430,6 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
       setActive(p.id);
       setTime(p.times[scene.locals[index]]);
       setPlaying(false);
-      setSource(true);
       setDetails(false);
       setFollow(true);
     };
@@ -3539,8 +3603,56 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         setDetails(false);
         setPlaying(false);
       }, disabled: !ready, "aria-pressed": selecting }, "\u9009\u62E9\u9762") : null,
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setExpanded((value) => !value), disabled: !ready, "aria-pressed": expanded }, expanded ? "\u9000\u51FA\u6269\u5927" : "\u6269\u5927\u89C6\u533A")
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setExpanded((value) => !value), disabled: !ready, "aria-pressed": expanded }, expanded ? "\u9000\u51FA\u6269\u5927" : "\u6269\u5927\u89C6\u533A"),
+      h2(
+        "details",
+        { className: "cmv-inspect" },
+        h2("summary", null, "\u68C0\u67E5"),
+        h2(
+          "div",
+          { className: "cmv-inspect-menu" },
+          h2(import_dsh_client_ui_primitives2.Button, { onClick: (e) => {
+            setDetails((v) => !v);
+            setPlaying(false);
+            setSource(false);
+            setSelecting(false);
+            e.currentTarget.closest("details").open = false;
+          }, disabled: !ready, "aria-expanded": details }, "\u9884\u89C8\u4FE1\u606F"),
+          active ? h2(import_dsh_client_ui_primitives2.Button, { onClick: (e) => {
+            setSource((v) => !v);
+            setPlaying(false);
+            setSelecting(false);
+            setDetails(false);
+            setFollow(true);
+            e.currentTarget.closest("details").open = false;
+          }, disabled: !ready, "aria-expanded": source }, "\u7A0B\u5E8F\u6838\u5BF9") : null,
+          active ? h2("p", null, "\u8F68\u8FF9\u4E3A\u8FD1\u4F3C\u56DE\u653E\uFF0C\u4E0D\u662F\u6750\u6599\u53BB\u9664\u3001\u78B0\u649E\u68C0\u67E5\u6216\u673A\u5E8A\u4EFF\u771F\u3002\u5200\u4F4D\u6807\u8BB0\u53EF\u7A7F\u8FC7\u906E\u6321\u3002") : null,
+          alerts.length ? h2("div", { className: "cmv-alerts" }, ...alerts.slice(0, 30).map((a, i) => h2("button", { key: i, type: "button", onClick: (e) => {
+            setSource(true);
+            setSelecting(false);
+            setDetails(false);
+            setFollow(true);
+            seekLine(a.line);
+            e.currentTarget.closest("details").open = false;
+          } }, a.text))) : null,
+          state.manifest?.warnings?.length ? h2("p", null, `\u6A21\u578B\u5BFC\u51FA\u544A\u8B66\uFF1A${JSON.stringify(state.manifest.warnings)}`) : null
+        )
+      ),
+      active ? h2("span", { className: "cmv-preview-note", title: "\u7A0B\u5E8F\u8F68\u8FF9\u8FD1\u4F3C\u56DE\u653E\uFF0C\u4E0D\u662F\u6750\u6599\u53BB\u9664\u3001\u78B0\u649E\u68C0\u67E5\u6216\u673A\u5E8A\u4EFF\u771F\u3002\u5200\u4F4D\u6807\u8BB0\u53EF\u7A7F\u8FC7\u906E\u6321\u3002" }, "\u8FD1\u4F3C\u8F68\u8FF9 \xB7 \u975E\u78B0\u649E\u4EFF\u771F") : null
     ),
+    active ? h2(
+      "div",
+      { className: "cmv-playbar" },
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => step(-1), disabled: !playingEnabled }, "\u4E0A\u4E00\u6B65"),
+      h2(import_dsh_client_ui_primitives2.Button, { variant: "primary", onClick: togglePlay, disabled: !playingEnabled }, playing ? "\u6682\u505C" : "\u64AD\u653E"),
+      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => step(1), disabled: !playingEnabled }, "\u4E0B\u4E00\u6B65"),
+      h2("input", { type: "range", "aria-label": "\u5F53\u524D\u5DE5\u5E8F\u64AD\u653E\u8FDB\u5EA6", min: 0, max: active.duration || 1, step: "any", value: time, disabled: !playingEnabled, onChange: (e) => {
+        setPlaying(false);
+        setTime(Number(e.target.value));
+      } }),
+      h2("select", { "aria-label": "\u64AD\u653E\u901F\u5EA6", value: speed, onChange: (e) => setSpeed(Number(e.target.value)) }, ...[0.25, 0.5, 1, 2, 4, 8].map((v) => h2("option", { key: v, value: v }, `${v}\xD7`))),
+      h2("span", { title: "\u6309\u7A0B\u5E8FF\u4F30\u7B97\uFF1B\u5FEB\u79FB\u5047\u5B9A8000\u3001\u7F3AF\u5047\u5B9A500\u5355\u4F4D/\u5206\u949F\uFF0C\u4E0D\u542B\u6362\u5200/\u52A0\u51CF\u901F/\u505C\u7559" }, `${Math.round(active.duration ? time / active.duration * 100 : 0)}%`)
+    ) : null,
     notice ? h2("div", { className: "cmv-note", role: "status" }, notice) : null,
     h2(
       "div",
@@ -3576,46 +3688,20 @@ F ${active.parsed.segments[position?.index ?? 0]?.feed ?? "\u2014"}`) : null,
         const query = new URLSearchParams({ path, sha: state.sha, geometry: state.geometry_sha256, fids: fids.join(",") });
         const reference = await json(`${base(sessionId)}/selection?${query}`);
         await onReference(reference);
-      } : void 0 }) : null,
-      source && active ? h2(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine, onClose: () => setSource(false) }) : null,
-      ready && details ? h2("aside", { className: "cmv-details", "aria-label": "\u9884\u89C8\u8BE6\u60C5" }, h2("strong", null, "\u9884\u89C8\u8BE6\u60C5"), h2("pre", null, JSON.stringify({ source_sha256: state.sha ?? null, model_faces: state.faces?.length ?? null, model_triangles: state.triangles ?? null, operation: active?.name, nc_file: active?.file, nc_units: active?.parsed.meta.units, segments: active?.parsed.segments.length, estimate_seconds: active?.duration, coordinate_frame: path ? "package_to_nc" : "NC\u539F\u59CB\u5750\u6807", station: active?.station, part_to_nc: path ? active?.toPackage.inverse() : null, source_face: active?.fid ?? null }, null, 2)), h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setDetails(false) }, "\u5173\u95ED\u8BE6\u60C5")) : null
+      } : void 0 }) : null
     ),
-    h2(
-      "div",
-      { className: "cmv-footer" },
-      h2("span", null, active ? `${active.name} \xB7 ${active.station} \xB7 ${path ? "\u6765\u6E90\u4E0E\u5BF9\u9F50\u4FE1\u606F\u5DF2\u6821\u9A8C" : "NC\u539F\u59CB\u5750\u6807"}${display.through ? " \xB7 \u7A7F\u900F\u663E\u793A" : ""}` : state.faces ? `${state.faces.length} \u9762 \xB7 ${state.triangles.toLocaleString()} \u4E09\u89D2\u7247 \xB7 mm` : "NC \u8F68\u8FF9\u9884\u89C8"),
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => {
-        setDetails((v) => !v);
-        setSource(false);
-        setSelecting(false);
-      }, disabled: !ready, "aria-expanded": details }, "\u8BE6\u60C5"),
-      active ? h2(import_dsh_client_ui_primitives2.Button, { onClick: () => {
-        setSource((v) => !v);
-        setSelecting(false);
-        setDetails(false);
-      }, disabled: !ready, "aria-expanded": source }, "\u6E90\u7801") : null
-    ),
-    active ? h2(
-      "div",
-      { className: "cmv-playbar" },
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => step(-1), disabled: !playingEnabled }, "\u4E0A\u4E00\u6B65"),
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: togglePlay, disabled: !playingEnabled }, playing ? "\u6682\u505C" : "\u64AD\u653E"),
-      h2(import_dsh_client_ui_primitives2.Button, { onClick: () => step(1), disabled: !playingEnabled }, "\u4E0B\u4E00\u6B65"),
-      h2("input", { type: "range", "aria-label": "\u5F53\u524D\u5DE5\u5E8F\u64AD\u653E\u8FDB\u5EA6", min: 0, max: active.duration || 1, step: "any", value: time, disabled: !playingEnabled, onChange: (e) => {
-        setPlaying(false);
-        setTime(Number(e.target.value));
-      } }),
-      h2("select", { "aria-label": "\u64AD\u653E\u901F\u5EA6", value: speed, onChange: (e) => setSpeed(Number(e.target.value)) }, ...[0.25, 0.5, 1, 2, 4, 8].map((v) => h2("option", { key: v, value: v }, `${v}\xD7`))),
-      h2("span", { title: "\u6309\u7A0B\u5E8FF\u4F30\u7B97\uFF1B\u5FEB\u79FB\u5047\u5B9A8000\u3001\u7F3AF\u5047\u5B9A500\u5355\u4F4D/\u5206\u949F\uFF0C\u4E0D\u542B\u6362\u5200/\u52A0\u51CF\u901F/\u505C\u7559" }, `${Math.round(active.duration ? time / active.duration * 100 : 0)}% \xB7 \u4F30\u7B97\u8F68\u8FF9\u56DE\u653E`)
+    source && active ? h2(
+      InspectionDialog,
+      { title: "NC \u7A0B\u5E8F\u6838\u5BF9", close: () => setSource(false) },
+      h2("p", { className: "cmv-dialog-note" }, "\u4F9B\u7F16\u7A0B\u5DE5\u7A0B\u5E08\u6838\u5BF9\u6362\u5200\u3001\u8F6C\u901F\u3001\u8FDB\u7ED9\u4E0E\u5750\u6807\u6307\u4EE4\u3002\u4EC5\u663E\u793A\u539F\u59CB\u7A0B\u5E8F\uFF0C\u4E0D\u5728\u6B64\u7F16\u8F91\uFF1B\u52A8\u753B\u67E5\u770B\u65E0\u9700\u6253\u5F00\u3002"),
+      h2(SourceDrawer, { program: active, line, follow, onFollow: setFollow, onSeek: seekLine })
     ) : null,
-    alerts.length ? h2("div", { className: "cmv-alerts" }, ...alerts.slice(0, 30).map((a, i) => h2("button", { key: i, type: "button", onClick: () => {
-      setSource(true);
-      setSelecting(false);
-      setFollow(true);
-      seekLine(a.line);
-    } }, a.text))) : null,
-    state.manifest?.warnings?.length ? h2("div", { className: "cmv-note" }, `\u6A21\u578B\u5BFC\u51FA\u544A\u8B66\uFF1A${JSON.stringify(state.manifest.warnings)}`) : null,
-    active ? h2("div", { className: "cmv-footer" }, "\u7A0B\u5E8F\u8F68\u8FF9\u8FD1\u4F3C\u9884\u89C8\uFF1B\u5200\u4F4D\u6807\u8BB0\u53EF\u7A7F\u8FC7\u906E\u6321\u3002\u4E0D\u662F\u6750\u6599\u53BB\u9664\u3001\u78B0\u649E\u68C0\u67E5\u6216\u673A\u5E8A\u4EFF\u771F\u3002") : null
+    ready && details ? h2(
+      InspectionDialog,
+      { title: "\u9884\u89C8\u4FE1\u606F", close: () => setDetails(false) },
+      h2(PreviewInformation, { state, active, aligned: Boolean(path) })
+    ) : null,
+    !active && state.faces ? h2("div", { className: "cmv-footer" }, `${state.faces.length} \u9762 \xB7 ${state.triangles.toLocaleString()} \u4E09\u89D2\u7247 \xB7 mm`) : null
   );
 }
 function ModelViewer({ sessionId, path, runId, onReference }) {
