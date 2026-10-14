@@ -44,3 +44,11 @@
 证据保存在 `.dsh/workbench-acceptance/finalize-live/result.json` 与 `next-preview.json`，交付文件在对应 cam-runs 批次及会话工作区 delivery 镜像中。
 
 代码提交：Camind `e9c23f5`；CAM-Agent 最新基线上的修复 `7c1159f0`，主检出集成为 `5b4ffed1`。原部署台账修改保留，临时检出已清理。
+
+## 桌面点击链补测（已完成）
+
+用户在同一原始文件测试会话手动确认方案、生成 NC、点击“打包问题包”并批准。新批次 `20261014-211234-ZM26030-704` 于 21:12:59 完成执行、21:13:32 登记问题包（上海时间）。NC `ZM26030_ROUGH_df650c79.nc`，T3/S8000/F2400 与冻结方案一致，ZIP 实数 1 个 NC，对账、CRC、三件套 SHA 及会话工作区镜像字节核对通过。
+
+本批次安全收尾的保存、文件核验、状态回读及单件关闭全部成功；再次只读诊断 NX，未保存数及状态不可读数均为 0，本副本不在打开列表。原始 PRT/DWG SHA 不变。执行 ok、问题包完整、生产检查 incomplete，未生产放行。交付镜像位于真实会话工作区 `/Volumes/UWorks/Projects/Test/camind-project/delivery/20261014-211234-ZM26030-704/`。
+
+桌面方案确认及打包批准的待测项已由用户手动点击补齐，证据在 `.dsh/workbench-acceptance/finalize-live/gui-result.json`。完整记录见 `ui-cam-regression-2026-10-14.md`；与先前接口测试批次分别记载。
