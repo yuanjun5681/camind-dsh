@@ -1285,7 +1285,8 @@ function WorkbenchView({ sessionId }) {
     h('header', { className: 'wb-main-head' }, h('div', { className: 'wb-file-heading', ref: setHeading }, mode === 'drawing' ? h('strong', { title: task?.inputs.dwg?.name }, task?.inputs.dwg?.name || 'CAD 图纸') : !heading || !Preview ? h('strong', null, task?.inputs.prt?.name || '加工工作台') : null),
       h('nav', { className: 'wb-view-controls', 'aria-label': '零件视图' }, ['prt', 'dwg'].map(role => h('button', { key: role, disabled: !task?.inputs[role], 'aria-pressed': mode === (role === 'prt' ? 'model' : 'drawing'), title: task?.inputs[role]?.name, onClick: () => {
         if (role === 'prt') { setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) } else setMode('drawing')
-      } }, role === 'prt' ? '3D 模型' : 'CAD 图纸'))),
+      } }, role === 'prt' ? '3D 模型' : 'CAD 图纸')),
+        h('button', { disabled: !task, 'aria-pressed': panel === 'operations', title: '查看工序、审核并确认方案', onClick: () => setPanel('operations') }, '工序方案')),
       h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${task.phase}` : '读取任务'),
       !wizard && !running && (task?.review?.status === 'pending' || task?.review?.status === 'complete' && task?.requirement_summary?.status !== 'confirmed') && h(Button, { variant: 'primary', onClick: () => setWizard(true) }, task?.review?.status === 'complete' ? '确认加工要求' : '继续处理')),
     h('div', { className: 'wb-scene' },
