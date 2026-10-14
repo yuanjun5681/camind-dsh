@@ -124,6 +124,7 @@ export function evaluateCamDeliverGate({ dshHome, sessionId, runId }) {
   if (resolved.error) return resolved.error
   const { dir } = resolved
 
+  if (existsSync(path.join(dir, 'delivery'))) return deny('该批交付包已冻结，不可覆盖；修改请建立同任务修订与新批次。')
   const jobPath = path.join(dir, 'job.json')
   const statePath = path.join(dir, 'runstate.json')
   if (!existsSync(jobPath)) {
@@ -177,7 +178,7 @@ export function evaluateCamDeliverGate({ dshHome, sessionId, runId }) {
 }
 
 export function registerCamGate(ctx) {
-  ctx.on('tools/pre-execute', (exec, next) => {
+  ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec.name !== 'cam_run' && exec.name !== 'cam_deliver') return next()
     try {
       const runId = typeof exec.arguments?.run_id === 'string' ? exec.arguments.run_id.trim() : ''
@@ -187,7 +188,24 @@ export function registerCamGate(ctx) {
         sessionId: safeSessionId(exec.agent?.id),
         runId,
       }
-      return exec.name === 'cam_run' ? evaluateCamRunGate(args) : evaluateCamDeliverGate(args)
+      const decision = exec.name === 'cam_run' ? evaluateCamRunGate(args) : evaluateCamDeliverGate(args)
+      if (decision.kind === 'deny') return decision
+      if (exec.name === 'cam_run') {
+        const tasks = ctx.get('camTasks'), task = await tasks?.read(args.sessionId)
+        if (task?.version > 0) {
+          const job = JSON.parse(readFileSync(path.join(resolveRunDir(args.dshHome, args.sessionId, runId).dir, 'job.json'), 'utf8'))
+          await tasks.assertRun(args.sessionId, runId, job)
+          return next() // Frozen user scheme authorizes this exact batch; legacy batches retain approval.
+        }
+      }
+      if (exec.name === 'cam_deliver') {
+        const job = JSON.parse(readFileSync(path.join(resolveRunDir(args.dshHome, args.sessionId, runId).dir, 'job.json'), 'utf8'))
+        if (job.formal_task) {
+          await ctx.get('camTasks').assertRun(args.sessionId, runId, job)
+          decision.reason = `问题包打包确认（不是生产放行）：\n缺少完整夹具、真实刀柄、残料及工位/参数核验，包内明确禁止作为已放行生产程序。\n${decision.reason}`
+        }
+      }
+      return decision
     } catch (error) {
       // 闸门自身异常一律 fail-closed（deny），不放过执行。
       return deny(`${exec.name} 闸门核对失败（${error.message}），已按 fail-closed 拒绝执行。`)

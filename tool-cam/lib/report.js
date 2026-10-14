@@ -153,7 +153,7 @@ export function buildDeliveryReport({
   lines.push('', '## 六、备注', '')
   if (note) lines.push(`- 交付备注：${note}`)
   lines.push(
-    '- 刀路查看器本迭代未提供（旧 Camind 的 cnc-simulator 资产包太重，留 P3）：NC 查看/仿真请在车间侧工具进行。',
+    '- 可通过工作台预览 NC 轨迹；预览不等于真实夹具、刀柄及残料的生产仿真。',
     '- 安全提示：所有 NC 上真机前必须人工签字放行；程序数须与工序数对账一致。',
   )
   return `${lines.join('\n')}\n`

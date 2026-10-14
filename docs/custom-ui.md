@@ -1,15 +1,17 @@
 # 自定义 UI 架构
 
-本文介绍 Camind 的定制前端如何工作。定制 UI 挂在 `/camind` 并是默认入口（`/` 302 跳转到 `/camind/`）；官方 UI 仍在 fallback 席位，由任意未占用路径（如 `/web`）访问，两者互不干扰。涉及这些插件：
+本文介绍 Camind 的定制前端如何工作。工作台部分于 2026-10-14 同步；当前产品交互见 [工作台设计](cam-workbench-interaction-design.md)，插件实现见 [ui-workbench](../ui-workbench/README.md) 和 [紧凑输入](../ui-compact-composer/README.md)。定制 UI 挂在 `/camind` 并是默认入口（`/` 302 跳转到 `/camind/`）；官方 UI 仍在 fallback 席位，由任意未占用路径（如 `/web`）访问，两者互不干扰。涉及这些插件：
 
 - `camind-ui-shell`（ui-shell/）— Host 协议桥 + 自托管 React SPA：半注册 `/camind` 与 `/camind/api`，浏览器侧加载官方插件图并复用官方 slot runtime。
 - `camind-ui-foundation`（ui-foundation/）— client-only 基础层：官方主题之上的 `--camind-*` 产品语义和 Page/Tabs/Card/Dialog 等公共组件，只在 `/camind` 激活。
 - `camind-ui-sidebar`（ui-sidebar/）— 以官方模块 ID 静态替换的 Sidebar，沿用 0.1.1 起上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`。
 - `camind-ui-brand`（ui-brand/）— 品牌插件：Host 提供 CAM 虎钳工匠 PNG，客户端将 mascot + “Camind” 字标徽章注册到 `sidebar.brand.mark` / `sidebar.brand.name` 席位（priority -10 压过图内 ui-brand-official；仅 `/camind` 路径注册）。
 - `camind-ui-home`（ui-home/）— 新会话首页（`/`）品牌区与紧随其下的示例卡片：`shell.home` 链叠加在官方 conversation 上方，并中和官方 hero 的自居中、由外层把「品牌 + 示例 + 工作区行 + 输入卡」收成一个整体居中组；`conversation.input.dock` 上挂一个不可见的 inputActions 桥供示例写草稿；官方 HeroShell 用结构选择器 CSS 隐藏。
+- `camind-ui-workbench`（ui-workbench/）— 桌面、官方 Web 与 `/camind` 共用的一级模型工作台；临时审图向导、右侧图标资料面板和只读确认要求。
+- `camind-ui-compact-composer`（ui-compact-composer/）— 保留官方编辑器、草稿、附件、引用与提交，仅在工作台适配紧凑浮动布局及最新公开活动行。
 - `camind-page-memory`（page-memory/）— 记忆库管理页（两级）：底部菜单 + `/pages/memory` 知识/经验双 tab 列表 + `/pages/memory/<type>/<name>` 详情，Host 半自带 `/camind/api/memory`。
 
-仅 web profile 组合这些插件，且 foundation 必须排在消费它的动态插件之前。改 ui-shell 任何代码都要 `npm run build`：dist 不会随 link 依赖自动更新，未构建时 `/camind` 直接返回 503 提示（`ui-shell/src/host/http.ts:52`）。
+ui-shell 与 foundation 属于 Web 壳；工作台和紧凑输入也装入 desktop profile。Web profile 组合这些插件，且 foundation 必须排在消费它的动态插件之前。改 ui-shell 任何代码都要 `npm run build`：dist 不会随 link 依赖自动更新，未构建时 `/camind` 直接返回 503 提示（`ui-shell/src/host/http.ts:52`）。
 
 ## Host 侧：/camind 与 /camind/api
 
@@ -43,6 +45,8 @@
 
 ## 布局与 slot
 
+本节 root/子洞示例保留了早期结构名称；0.2.0 的 `main`、`rightbar` 与迁移边界以 [升级记录](upgrades/0.2.0-rc.2.md) 为准，不按旧 `conversation/details` 清单新增注册。
+
 组件树：`Root`（routes.tsx）→ `App` → `OfficialSidebar`（等官方 client 就绪且 `root`/`sidebar` slot 均有注册后 `renderSlot('root', {})`，未就绪时渲染加载回退）→ `OfficialSlotRoot`。
 
 **root slot 的子洞集中声明在一处**（customShell，`officialClient.ts:98-109`），第三方插件只通过 `slots.inject` 注册条目，不自行声明洞：
@@ -57,12 +61,18 @@
 全局 Shell 是两列 grid（sidebar + page）。page 列按路由三分支（`OfficialSlotRoot.tsx:152`）：
 
 - `/pages/*` → `renderSlotChain('shell.content', routeOwner)` 命中的插件页面；
-- `/s/:id` → `SessionDetailLayout`：三列 `conversation | Workbench | details`。Workbench 与官方 details 互斥（`workbench.open && detailsWidth === 0`），宽度 300–560 可拖拽调宽，视口过窄时退化为 overlay；折叠且 details 未开时显示「工作台」悬浮按钮；
+- `/s/:id` → 官方 Conversation 与 rightbar；工作台由 `conversation.view` 注册，不再由壳额外渲染一列 Workbench。全局页面出口使用 keyed `main`，旧 `details` 席位已退役；
 - 其余（`/`）→ 新会话首页：`shell.home` 链的中标内容叠在官方 `conversation` slot 上方（无 entry 时锚点为 display:contents + null，布局与纯官方完全一致）。官方 hero 的工作区行、preset chip、输入卡（含上传）原样保留；官方 HeroShell（鱼标 + 标题 + 预览徽章）无 slot 可换、locale 重复注册会 throw，由 ui-home 用结构选择器 CSS 隐藏（锚点 `[data-phase="hero"]`/`[data-composer-seat]`/`[data-chain-overlay-fallback]`，不含 hash 类名；dsh 升级时复核，见 dsh-upgrade.md）。
 
-URL 归位由 `OfficialSidebar.tsx` 的单个仲裁 effect 负责：侧栏打开已有会话 → `/s/:id`；空白新会话 → `/`；首条消息把空白会话变成已有会话（id 不变、只翻 `blank`）时，自动从 `/` 归位到 `/s/:id`——少了这一跳，提交后会停在 `/`，Workbench（只在 `/s/:id` 子布局）永远不会出现。
+URL 归位由 `OfficialSidebar.tsx` 的单个仲裁 effect 负责：侧栏打开已有会话 → `/s/:id`；空白新会话 → `/`；首条消息把空白会话变成已有会话（id 不变、只翻 `blank`）时，自动从 `/` 归位到 `/s/:id`——少了这一跳，提交后会停在 `/`，会话视图与路由会不同步。
 
-Workbench（`Workbench.tsx`）是自定义工作台：tabs = 输入 / 交付物。输入页签展示会话工作目录、运行状态与本次上传文件；交付物页签列出会话轮次产出的文件（数据源是会话投影快照的 tool-result 节点 callView，由常驻的 `DeliverablesSync` 无头组件同步进 workbenchStore——不依赖聊天区挂载，刷新后停在「预览」标签也能恢复；聊天区 turnTail chips 仍复用官方投影渲染）。工作台各「预览」入口（交付物/加工/输入区文件列表）经 `previewClient` 桥调用 camind-ui-preview 插件的 `filePreview` 服务：目标文件写入插件预览态并切到主对话区的「预览」标签页（插件注册进官方 `conversation.view`，跟在「对话」「轨迹」之后；预览数据走插件自己的 Host 路由 `/camind/api/preview/sessions/<id>/file`）。全局 `DiffOverlay`（代码对比，分栏/统一）挂在 `shell.overlay`，任意界面可通过 `diffOverlayActions` 或 `window.__camindDiff__` 打开同一组件。
+工作台由 `ui-workbench/lib/client.js` 提供，读取官方 `binding(id).target('chat').legacy` 的公开回复和 `timeline` 轮次的 deliverables；旧壳 `Workbench.tsx`、`DeliverablesSync` 和顶层 nodes/callView 不再是当前数据链。模型、图纸、NC 与文档经 `filePreview.View` 嵌入中央画布；常用预览留在工作台，通用“预览”标签保留兼容入口，目标按会话隔离。
+
+顶部合并文件标题与模型/图纸操作，右侧图标按需打开资料，主画布持续存在。确认向导是临时居中对话框；逐题保存并前进，汇总核对后冻结加工要求清单，完成即返回模型。正式记录与失效规则由 tool-cam 维护，右侧要求面板只有只读投影，不保存另一份可编辑草案。
+
+`ui-compact-composer` 使用官方结构标记适配输入布局，不接管另一条发送链：空草稿收窄、聚焦展开、多行自适应，完全浮在实际模型视区上。响应时仅呈现当前轮次最新工具活动或公开回复；无关键信息时不显示套话，结束恢复输入。附件、错误和审批保留官方行为，完整控制与历史在对话视图。详情见插件 README。
+
+全局 `DiffOverlay` 挂在 `shell.overlay`，工作台只作为调用方。
 
 其余 slot：
 

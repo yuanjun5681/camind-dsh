@@ -226,10 +226,7 @@ type ModuleLoaderFacade = {
   create(options: { boot: unknown; staticModules: Record<string, unknown> }): ClientModuleSystemLike
 }
 
-type ClientModuleSystemLike = {
-  manifest: { plugins: { id: string; immediately: boolean }[] }
-  prefetch(id: string): Promise<void>
-}
+type ClientModuleSystemLike = ReturnType<typeof createClientModuleSystem>
 
 export async function bootOfficialClient(): Promise<void> {
   try {
@@ -268,9 +265,7 @@ export async function bootOfficialClient(): Promise<void> {
     // 预注册顶替的两个图行（layout/sidebar）也会在批次里再注册一次——
     // 官方模块系统对重复注册直接 throw 并中断批次余量，这里在 live 口子上
     // 把被顶替 id 的官方注册吞掉（本地 factory 已在 create 前入队生效）。
-    const stripClientSuffix = (ModulesClient as Record<string, unknown>).stripClientSuffix as
-      ((id: string) => string) | undefined
-    const strip = stripClientSuffix ?? ((id: string) => id.replace(/\/client$/, ''))
+    const strip = (id: string) => id.replace(/\/client$/, '')
     const replacedIds = new Set([LAYOUT_ID, SIDEBAR_ID])
     const liveLoad = facade.load.bind(facade)
     facade.load = (registration) => {
@@ -281,7 +276,8 @@ export async function bootOfficialClient(): Promise<void> {
 
     const ctx = new Context()
     await ctx.plugin(Loader)
-    ctx.loader.internal = modules
+    // Upstream annotates this bridge with Node-only internals; the browser kernel has its own implementation.
+    ctx.loader.internal = modules as unknown as typeof ctx.loader.internal
 
     await Promise.all(
       manifest.plugins

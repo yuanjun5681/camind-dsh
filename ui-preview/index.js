@@ -155,6 +155,12 @@ export function apply(ctx) {
 
   /** 将用户请求约束在 session cwd 或本会话上传批次内，并拒绝跨边界访问。 */
   async function resolveSessionFile(sessionId, requested) {
+    if (requested.startsWith('task-input://')) {
+      const tasks = ctx.get('camTasks')
+      if (!tasks) throw previewError('FilePreviewNotFoundError', '正式任务服务不可用')
+      const input = await tasks.resolveInput(sessionId, requested)
+      return { root: path.dirname(input.file), file: input.file, name: input.name, relative: requested, displayPath: input.name }
+    }
     if (requested.startsWith('reference://')) {
       if (!/^reference:\/\/[a-f0-9]{64}$/.test(requested)) throw previewError('FilePreviewForbiddenError', '非法文件引用')
       return withSession(sessionId, async session => {
@@ -204,7 +210,7 @@ export function apply(ctx) {
       return {
         displayPath: resolved.displayPath ?? resolved.relative,
         path: resolved.relative,
-        name: path.basename(resolved.file),
+        name: resolved.name ?? path.basename(resolved.file),
         size: info.size,
         mediaType,
         kind,
@@ -215,7 +221,7 @@ export function apply(ctx) {
     return {
       displayPath: resolved.displayPath ?? resolved.relative,
       path: resolved.relative,
-      name: path.basename(resolved.file),
+      name: resolved.name ?? path.basename(resolved.file),
       size: info.size,
       mediaType,
       kind,

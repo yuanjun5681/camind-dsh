@@ -15,10 +15,11 @@
 // 写的是 proxy 侧的目标路径（input/<session>_<sha8>_<文件名>，命名约定同 cam_survey），
 // 实际 /fs_upload 推送由 cam_run 执行时完成。
 
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { digest } from '../tasks.js'
+import { isDeepStrictEqual } from 'node:util'
 import { normalizeRiskKind, opRiskKind } from '../risk.js'
 import { resolvePart, safeRemoteName, safeSessionId } from './survey.js'
 
@@ -68,7 +69,8 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
       + '刀具引用必须逐字命中机床刀库（库里没有直接阻断）、显式转速/进给不得超机床上限'
       + '（拿不准就留空，交材料规则解析）、刚性攻丝 feed = spindle × pitch、'
       + '攻丝/沉窝工序必须有对应 declarations 声明。全部问题一次性聚合返回；'
-      + '通过后落盘 run 目录（job.json + declarations.json + machine_snapshot.json）并返回 run_id。',
+      + '新批次先通过 cam_task 归档 PRT/DWG、完成关键确认并在工作台审核方案；传入完整冻结 operations。'
+      + '通过后绑定授权、落盘 run 目录并返回 run_id。',
     parameters: {
       type: 'object',
       properties: {
@@ -102,7 +104,7 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
             + 'spindle/feed 拿不准留空；攻丝/沉窝类在 declarations 里要有对应声明。',
           items: { type: 'object' },
         },
-        post_name: { type: 'string', description: `后处理器名，默认 ${DEFAULT_POST}` },
+        post_name: { type: 'string', description: 'NX 注册后处理器精确名；省略时使用已确认正式方案值' },
         out_dir: { type: 'string', description: 'proxy 侧输出目录（相对 base_dir），默认 output/<part_id>' },
         prepare: {
           type: 'object',
@@ -120,6 +122,20 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
     },
     async execute(args, exec) {
       const errors = []
+      const tasks = ctx.get('camTasks'), sid = safeSessionId(exec?.agent?.id)
+      let formal = null
+      try {
+        const task = await tasks?.read(sid)
+        if (!task || task.version === 0) throw new Error('新编程批次需先归档正式PRT/DWG、读件审图并在工作台确认方案')
+        if (task.version > 0) {
+          formal = await tasks.assertAuthorized(sid, args.operations)
+          args = { ...args, post_name: args.post_name ?? formal.post_name, prepare: args.prepare ?? formal.prepare }
+          if (args.machine_id !== formal.machine_id || (args.post_name ?? DEFAULT_POST) !== formal.post_name || !isDeepStrictEqual(args.prepare ?? {}, formal.prepare ?? {})) throw new Error('机床/后处理/初始化与已确认方案不一致')
+          if (args.operations.some(op => op.execution !== 'nc')) throw new Error('外协/非NC环节尚未执行确认，不能混入自动NC批次')
+          if (args.operations.some(op => !op.tool_assembly_id)) throw new Error('每个正式NC工序必须绑定明确刀库装配号')
+          if (args.operations.some(op => op.type === 'copy_postprocess' && (op.spindle !== undefined || op.feed !== undefined))) throw new Error('模板复制不应用显式转速/进给，不接受静默忽略的参数')
+        }
+      } catch (error) { return json({ status: 'error', stage: 'authorization', msg: error.message }) }
 
       // ---- 入参粗检 -------------------------------------------------------
       const partId = typeof args?.part_id === 'string' ? args.part_id.trim() : ''
@@ -139,7 +155,7 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
       } else {
         let resolved
         try {
-          resolved = resolvePart(uploads, exec, requestedPart)
+          resolved = await resolvePart(uploads, exec, requestedPart, ctx)
         } catch (error) {
           return json({ status: 'error', stage: 'resolve_upload', msg: `读取上传清单失败：${error.message}` })
         }
@@ -340,14 +356,19 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
       const sessionId = safeSessionId(exec?.agent?.id)
       const { runId, dir } = allocateRunDir(path.join(dshHome, 'cam-runs'), sessionId, partId)
 
-      const sha8 = createHash('sha256').update(partRef.file.absolute).digest('hex').slice(0, 8)
+      const prtSha = digest(readFileSync(partRef.file.absolute))
+      if (formal && prtSha !== formal.inputs.prt.sha256) return json({ status: 'error', stage: 'authorization', msg: '零件与冻结输入不符' })
+      if (formal) partRef.file.absolute = (await tasks.inputFile(sessionId, 'prt')).file
+      const sha8 = prtSha.slice(0, 8)
       const remoteRel = `input/${sessionId}_${sha8}_${safeRemoteName(partRef.file.name)}`
       const job = {
         camindbase_job: SCHEMA_VERSION,
         part_id: partId,
         prt: remoteRel,
         prt_local: partRef.file.absolute,
-        out_dir: outDir,
+        prt_sha256: prtSha,
+        ...(formal ? { formal_task: { revision: formal.revision, authorization: formal.authorization.fingerprint } } : {}),
+        out_dir: formal ? `output/${sessionId}/${runId}` : outDir,
         post_name: postName,
         work_copy: true,
         machine_context: {
@@ -359,6 +380,10 @@ export function registerCamPlan(ctx, { machineRegistry, uploads }) {
         ...(prepare ? { prepare } : {}),
       }
       const snapshot = machineRegistry.snapshot(machineId)
+      if (formal) {
+        try { await tasks.bindRun(sessionId, runId, job) }
+        catch (error) { return json({ status: 'error', stage: 'authorization', msg: error.message }) }
+      }
       writeFileSync(path.join(dir, 'job.json'), `${JSON.stringify(job, null, 2)}\n`)
       writeFileSync(path.join(dir, 'declarations.json'), `${JSON.stringify({
         part_id: partId,

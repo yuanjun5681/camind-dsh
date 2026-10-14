@@ -34,7 +34,6 @@ export function DiffOverlay() {
       onClose={() => diffOverlayActions.close()}
       title={title}
       closeLabel="关闭对比"
-      headless
       className="file-preview-dialog"
     >
       <div className="file-preview-chrome diff-overlay">

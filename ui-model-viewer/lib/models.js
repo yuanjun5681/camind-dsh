@@ -88,7 +88,10 @@ export function createModelService({ home, resolve, pipeline }) {
       }
       const result = await validatePackage(temp, t.sha)
       if (createHash('sha256').update(await readFile(t.file)).digest('hex') !== t.sha) throw new Error('导出期间源文件发生变化')
-      await writeFile(path.join(temp, 'provenance.json'), JSON.stringify({ source_sha256: t.sha, remote_out: out, stamped, created_at: new Date().toISOString() }))
+      // This UUID-named stamped clone is ours; discard export-only dirty state, never close an existing user part.
+      const closed = checked(await pipeline.run('/cam_close_part', { prt: stamped }))
+      if (closed.closed !== true) throw new Error('自建预览副本关闭未确认；请处理 NX 状态后重试')
+      await writeFile(path.join(temp, 'provenance.json'), JSON.stringify({ source_sha256: t.sha, remote_out: out, stamped, stamped_closed: true, created_at: new Date().toISOString() }))
       await mkdir(path.dirname(t.dir), { recursive: true })
       await rename(temp, t.dir)
       return result

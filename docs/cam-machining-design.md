@@ -1,5 +1,8 @@
 # CAM 加工场景设计（camind-tool-cam + camind-service-machine + cam-machining skill）
 
+> 文档时效（2026-10-14）：本文保留工具设计与早期实施记录，部分“页签/右栏工作台/聊天卡”描述属于历史版本。当前 UI 以 [工作台交互设计](cam-workbench-interaction-design.md) 为准：中央模型画布、右侧图标资料、临时逐题向导、浮动紧凑输入与只读确认清单。正式任务、授权及交付现状见 [正式任务记录](cam-formal-task-records.md)，当前操作见 [手测文档](ui-manual-test-cam.md)。
+
+
 > 状态：设计稿（未实现；2026-08-22 依据 dsh 0.1.0-rc.7 官方机制与本工作区现状成文；同日执行层方案由「复用 Camindbase CLI」改为「直连 CAM-Agent proxy HTTP 协议」，见 §1.2）
 > 范围：CAM 编程交付场景端到端（读件 → 声明问齐 → 排工艺 → NX 远程执行 → 机器自检 → 人工签字 → 交付 → 经验沉淀）；**不含报价场景**（另行设计）、不含机床管理页面、不含范本库独立插件（被经验库扩展吸收）
 > 执行层前提：NX 远程执行**直连 Windows 侧 CAM-Agent proxy 的 HTTP 协议**（全部端点 POST、统一信封、`/submit`+`/poll` 长任务、sha256 传输校验），协议契约由旧 Camind 项目 `backend/app/services/nx/client.py`（NxClient）生产验证，本设计在插件内用 Node.js 移植等价客户端；断点续跑、op 终态、完整性护栏等确定性执行语义按旧 Camind `flows/cam_job` + `services/cam` 的现成语义在插件内实现最小集合，不发明新机制

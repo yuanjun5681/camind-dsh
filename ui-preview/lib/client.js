@@ -316,7 +316,7 @@ function FilePreviewBody({ sessionId, preview, error, onReference }) {
 
 // --- the view -------------------------------------------------------------------------
 
-function FilePreviewView({ sessionId, embedded = false, onReference }) {
+function FilePreviewView({ sessionId, embedded = false, onReference, renderHeader }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot)
   const target = snap.targets[sessionId]
   const viewClass = embedded ? 'campv-view campv-embedded' : 'campv-view'
@@ -343,7 +343,7 @@ function FilePreviewView({ sessionId, embedded = false, onReference }) {
 
   return h('div', { className: viewClass },
     h('div', { className: 'campv-chrome' },
-      h('header', { className: 'campv-head' },
+      renderHeader ? renderHeader({ title, displayPath, meta, openUrl }) : h('header', { className: 'campv-head' },
         h('div', { className: 'campv-head-text' },
           h('strong', { title: displayPath }, title),
           h('span', { title: meta }, meta)),

@@ -1,0 +1,7 @@
+{
+  "name": "camind-ui-compact-composer", "version": "0.1.0", "type": "module",
+  "description": "Workbench compact presentation of the official session composer",
+  "main": "./index.js", "exports": { ".": "./index.js", "./client": "./lib/client.js", "./package.json": "./package.json" },
+  "files": ["index.js", "cordis.patch.yml", "lib/client.js"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web" } }
+}

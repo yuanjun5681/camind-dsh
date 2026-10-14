@@ -297,7 +297,6 @@ function Timeline({ rows, runstate, opsTotal, active, now }: {
 function CamRunCard({
   sessionId,
   run,
-  viewerComponent,
 }: {
   sessionId: string
   run: CamRunSummary

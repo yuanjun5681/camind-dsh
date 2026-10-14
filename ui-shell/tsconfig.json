@@ -10,9 +10,16 @@
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
+    "allowImportingTsExtensions": true,
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@deepseek-ai/dsh-client-ui-primitives": ["./vendor/dsh-client-ui-primitives/src/index.ts"],
+      "@deepseek-ai/*/client": ["./node_modules/@deepseek-ai/*/lib/types/client/index.d.ts", "./node_modules/@deepseek-ai/*/lib/types/client.d.ts"],
+      "@deepseek-ai/*": ["./node_modules/@deepseek-ai/*"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "clsx": ["./node_modules/clsx"]
     }
   },
   "include": ["src/web/**/*.ts", "src/web/**/*.tsx", "src/shared/**/*.ts"]

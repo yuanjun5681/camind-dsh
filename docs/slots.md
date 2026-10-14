@@ -5,6 +5,15 @@
 
 本文盘点 `/camind` 定制前端组合下所有可由插件注入的 UI slot：本工作区自定义的（ui-shell / ui-sidebar fork）与官方 rc.7 插件图提供的。插件注册方式统一为 `ctx.slots.inject(name, () => ctx.slots.register(...))`——`inject` 等待 slot 声明就绪后再注册，未声明的 slot 直接 register 会 throw。
 
+## 当前工作台接入（2026-10-14）
+
+- `ui-workbench` 通过 `conversation.view` 注册一级工作台（order -10），桌面、官方 Web 和 `/camind` 共用，不再注册旧右栏工作台。
+- 文件预览使用 `filePreview.View` 与 `cam.model.preview` / `cam.nc.preview` 查看器席位，常用入口留在中央画布。
+- `ui-compact-composer` 通过布局适配与 `compactComposer` 客户端服务呈现紧凑输入/最新活动，不新增聊天 store 或发送接口，也不抢占 `conversation.composer` 另建输入链。
+- 右侧资料图标、逐题向导和确认清单属于工作台内部组件，不是新的全局 TAB 或通用 slot。
+
+具体注册与兼容限制见 [工作台 README](../ui-workbench/README.md)、[紧凑输入 README](../ui-compact-composer/README.md)。以下旧版清单用于历史参考。
+
 ## 通用规则
 
 - **kind**：

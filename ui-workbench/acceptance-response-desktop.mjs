@@ -35,7 +35,7 @@ try {
         const panel = document.querySelector('.wb-agent')
         if (!panel) return
         const text = panel.querySelector('.wb-response')?.textContent ?? ''
-        const streaming = panel.querySelector('summary')?.textContent === '公开回复生成中'
+        const streaming = panel.querySelector('[role="status"]')?.textContent === '公开回复生成中'
         const sample = { text: text.slice(0, 8192), streaming }
         const previous = window.__wbResponseSamples.at(-1)
         if ((!previous || previous.text !== sample.text || previous.streaming !== sample.streaming) && window.__wbResponseSamples.length < 200) window.__wbResponseSamples.push(sample)
@@ -45,15 +45,22 @@ try {
     await editor.fill('这是 Camind 工作台公开回复验收。不要调用任何工具。请逐行输出 1 到 80，每行只写一个数字，不要解释。')
     await editor.press('Enter')
     await page.getByRole('button', { name: '工作台', exact: true }).click()
-    await page.waitForFunction(() => {
-      const panel = document.querySelector('.wb-agent')
-      return panel?.querySelector('header [role="status"]')?.textContent === '等待指令' && /\b80\b/.test(panel.querySelector('.wb-response')?.textContent ?? '')
-    }, null, { timeout: 180000 })
+    await page.locator('.wb-agent').waitFor()
+    assert.equal(await page.locator('[data-composer-seat]').evaluate(el => getComputedStyle(el).visibility), 'hidden', 'Submission replaces the input with the response dock')
+    await page.getByRole('button', { name: '停止', exact: true }).waitFor()
+    await page.locator('.wb-agent').waitFor({ state: 'detached', timeout: 180000 })
+    assert.equal(await page.locator('[data-composer-seat]').evaluate(el => getComputedStyle(el).visibility), 'visible', 'Completion restores the original input')
     const samples = await page.evaluate(() => window.__wbResponseSamples)
     assert.ok(samples.some(sample => sample.streaming), 'Must observe a real partial response, not only a finalized message')
     assert.ok(new Set(samples.filter(sample => sample.streaming).map(sample => sample.text)).size > 1, 'Public text must update during the stream')
-    const final = await page.locator('.wb-response').innerText()
-    assert.match(final, /\b80\b/)
+    assert.equal((await page.locator('[contenteditable="true"]').first().innerText()).trim(), '')
+    // Stop a second number-only stream through the same official Conversation cancel action.
+    await editor.fill('这是停止响应验收。不要调用任何工具。请逐行输出1到5000，每行一个数字。')
+    await editor.press('Enter')
+    await page.locator('.wb-agent').waitFor()
+    await page.getByRole('button', { name: '停止', exact: true }).click()
+    await page.locator('.wb-agent').waitFor({ state: 'detached', timeout: 60000 })
+    assert.equal(await page.locator('[data-composer-seat]').evaluate(el => getComputedStyle(el).visibility), 'visible')
     // Read only this new session's log, including all concatenated zstd frames, to prove no tools ran.
     const dir = workspaceDirs.find(dir => existsSync(path.join(dir, sessionId)))
     assert.ok(dir, 'New session must be persisted')
@@ -64,9 +71,10 @@ try {
     const events = text.split('\n').filter(Boolean).map(line => JSON.parse(line))
     assert.equal(events.filter(event => event.type === 'tool/call').length, 0, 'Acceptance must not run tools or NX')
     assert.ok(events.some(event => event.type === 'assistant/message'))
+    assert.match(JSON.stringify(events.filter(event => event.type === 'assistant/message')), /80/)
     assert.deepEqual(errors, [])
     await fs.mkdir(path.join(home, 'workbench-acceptance'), { recursive: true })
-    await fs.writeFile(path.join(home, 'workbench-acceptance/response-report.json'), JSON.stringify({ sessionId, partial_updates: samples.filter(sample => sample.streaming).length, tools: 0, pageerrors: errors.length, scope: 'One number-only prompt in a new session' }, null, 2))
+    await fs.writeFile(path.join(home, 'workbench-acceptance/response-report.json'), JSON.stringify({ sessionId, partial_updates: samples.filter(sample => sample.streaming).length, tools: 0, pageerrors: errors.length, stop_restores_composer: true, scope: 'Two number-only prompts in a new session; second stopped via official cancel' }, null, 2))
     console.log(JSON.stringify({ partial_updates: samples.filter(sample => sample.streaming).length, tools: 0, pageerrors: errors.length }))
   } finally {
     await page.evaluate(() => { window.__wbResponseObserver?.disconnect(); delete window.__wbResponseObserver; delete window.__wbResponseSamples })

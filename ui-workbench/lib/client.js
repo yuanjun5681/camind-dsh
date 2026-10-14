@@ -9,8 +9,8 @@ window.__ModuleLoader__.load({ id: "camind-ui-workbench", factory: (require) => 
 var module = { exports: {} }; var exports = module.exports;
 
 const React = require('react')
-const { createElement: h, useEffect, useState } = React
-const { Button, IconGaugeOutlineRegular, Tooltip } = require('@deepseek-ai/dsh-client-ui-primitives')
+const { createElement: h, useEffect, useState, useRef } = React
+const { Button, MarkdownText, IconGaugeOutlineRegular, Tooltip } = require('@deepseek-ai/dsh-client-ui-primitives')
 
 const VIEW_ID = 'workbench'
 const INPUTS_API = '/camind/api/preview/sessions'
@@ -34,13 +34,128 @@ const benchCss = `
 .wb-placeholder { padding:24px; margin:auto; max-width:560px; line-height:1.7; }
 .wb-placeholder h3 { margin:0 0 12px; font-size:16px; }
 .wb-placeholder small { color:var(--dsw-alias-label-tertiary); }
-.wb-agent { flex:none; border-top:1px solid var(--dsw-alias-border-l2); }
+.wb-agent { position:fixed; z-index:100; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 8px 28px #0003; }
+.wb-floating-composer { position:fixed!important; z-index:100; padding:0!important; background:transparent!important; }
+.wb-floating-composer::before,.wb-floating-composer::after { background:none!important; pointer-events:none; }
+body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:none; }
+.wb-floating-composer.wb-composer-muted { visibility:hidden; pointer-events:none; }
+.wb-agent .wb-response { padding:10px 12px; max-height:min(24vh,160px); }
+.wb-agent .wb-progress { width:8px; height:8px; border-radius:50%; background:var(--dsw-alias-label-primary); flex:none; }
 .wb-agent details, .wb-hint { margin:8px 12px; }
 .wb-response { max-height:100px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.6; padding:8px 0; }
 .wb-agent header span { flex:1; font-size:12px; }
 .wb-main .campv-view { min-height:0; }
 @container (max-width:800px) { .wb-left { width:210px; } .wb-inspector { position:absolute; right:0; top:0; bottom:0; z-index:5; background:var(--dsw-alias-bg-base); box-shadow:0 2px 8px #0003; } }
 @container (max-width:560px) { .wb-left { position:absolute; left:0; top:0; bottom:0; z-index:4; background:var(--dsw-alias-bg-base); } }
+.wb-main { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow:hidden; background:var(--dsw-alias-bg-base); }
+.wb-main-head { min-height:48px; flex:none; padding:10px 16px; flex-wrap:nowrap; }
+.wb-main-head > strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wb-view-controls { display:flex; gap:4px; flex:none; }
+.wb-view-controls button,.wb-context-nav button { font:inherit; color:inherit; border:0; background:transparent; cursor:pointer; border-radius:6px; padding:8px; }
+.wb-view-controls button:hover,.wb-context-nav button:hover { background:var(--dsw-alias-interactive-bg-hover); }
+.wb-view-controls button[aria-pressed="true"],.wb-context-nav button[aria-pressed="true"] { color:var(--dsw-alias-state-business-primary); background:var(--dsw-alias-interactive-bg-hover); font-weight:600; }
+.wb-view-controls button:disabled { opacity:.4; cursor:default; }
+.wb-context-nav { order:2; width:48px; flex:none; display:flex; flex-direction:column; gap:6px; padding:8px 4px; border-left:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
+.wb-context-nav button { display:flex; align-items:center; justify-content:center; width:40px; height:40px; padding:10px; }
+.wb-context-nav svg { width:20px; height:20px; }
+.wb-file-heading { display:flex; align-items:center; gap:12px; min-width:0; }
+.wb-file-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wb-file-heading a { flex:none; font-size:12px; color:var(--dsw-alias-state-business-primary); text-decoration:none; }
+.wb-canvas .cmv { position:relative; }
+.wb-canvas .cmv-footer { position:absolute; bottom:0; left:0; right:0; z-index:2; color:#d5d9df; background:#1b1e24dd; border:0; padding:4px 12px; }
+.wb-canvas .cmv-footer button { color:#d5d9df!important; }
+.wb-phase { margin-left:auto; white-space:nowrap; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; padding:3px 8px; }
+.wb-canvas { position:relative; overflow:hidden; }
+.wb-context { width:340px; max-width:45%; min-height:0; flex:none; display:flex; flex-direction:column; border-left:1px solid var(--dsw-alias-border-l2); overflow:auto; background:var(--dsw-alias-bg-base); }
+.wb-context-head { display:flex; flex:none; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-context-body { padding:16px; overflow:auto; }
+.wb-context h3 { font-size:14px; }
+.wb-context .wb-placeholder { margin:0; padding:12px; }
+.wb-context .wb-body { padding:14px; }
+.wb-question textarea,.wb-context input:not([type="checkbox"]),.wb-context textarea,.wb-context select,.wb-drawing-annotations input { width:100%; min-height:34px; padding:7px 9px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; font:inherit; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
+.wb-main textarea { min-height:70px; resize:vertical; }
+.wb-main input[type="checkbox"] { width:16px; height:16px; flex:none; accent-color:var(--dsw-alias-state-business-primary); }
+.wb-main button:focus-visible,.wb-main input:focus-visible,.wb-main textarea:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:2px; }
+.wb-review-scrim { position:absolute; inset:0; z-index:6; display:grid; place-items:center; padding:24px; background:#0005; }
+.wb-review { position:relative; width:min(800px,100%); height:min(640px,85%); max-height:100%; display:flex; flex-direction:column; min-height:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-base); box-shadow:0 6px 24px #0002; }
+.wb-review:focus { outline:none; }
+.wb-review-head { display:flex; align-items:center; gap:16px; padding:16px 20px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-review-head > div { flex:1; }
+.wb-review h2 { margin:0; font-size:18px; }
+.wb-review-head p { margin:4px 0 0; font-size:12px; color:var(--dsw-alias-label-tertiary); }
+.wb-review-body { flex:1; min-height:0; overflow:auto; padding:18px 24px; }
+.wb-input-summary { display:flex; gap:24px; padding-bottom:16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-input-summary > div { display:flex; flex:1; min-width:0; flex-direction:column; gap:3px; }
+.wb-input-summary span { overflow-wrap:anywhere; }
+.wb-question { padding:18px 0; margin:0; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-question > strong { display:block; margin-bottom:10px; line-height:1.6; }
+.wb-question p { margin:8px 0; }
+.wb-check { display:flex; align-items:flex-start; gap:8px; }
+.wb-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.wb-muted,.wb-input-summary small { color:var(--dsw-alias-label-tertiary); font-size:12px; }
+.wb-evidence { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:1.6; }
+.wb-evidence small { color:var(--dsw-alias-state-business-primary); }
+.wb-wizard-progress { flex:none; padding:12px 20px; }
+.wb-wizard-progress > div { display:flex; justify-content:space-between; font-size:12px; }
+.wb-wizard-progress span { color:var(--dsw-alias-label-secondary); }
+.wb-wizard-progress progress { display:block; width:100%; height:4px; margin:8px 0 0; accent-color:var(--dsw-alias-state-business-primary); }
+.wb-wizard-steps { flex:1; min-width:0; justify-content:center; display:flex; flex-wrap:wrap; gap:6px; max-height:80px; overflow:auto; }
+.wb-wizard-steps button { flex:none; min-width:32px; height:30px; padding:0 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background:transparent; color:inherit; cursor:pointer; }
+.wb-wizard-steps button[aria-current="step"] { color:var(--dsw-alias-state-business-primary); border-color:currentColor; font-weight:600; }
+.wb-wizard-question { display:flex; flex-direction:column; height:100%; min-height:0; }
+.wb-wizard-question-content { flex:1; min-width:0; min-height:0; overflow:auto; padding:6px 8px 8px 6px; scrollbar-gutter:stable; }
+.wb-wizard-recommendation { padding:12px; margin:12px 0; background:var(--dsw-alias-interactive-bg-hover); border-radius:6px; font-size:13px; line-height:1.7; }
+.wb-wizard-recommendation p { margin:6px 0 0; }
+.wb-wizard-question h3 { margin:16px 0; font-size:15px; line-height:1.7; }
+.wb-wizard-question h3:focus,.wb-wizard-summary h3:focus { outline:none; }
+.wb-wizard-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); flex:none; gap:8px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
+.wb-wizard-options button,.wb-review-answers { margin-top:20px; }
+.wb-review-answers summary { cursor:pointer; }
+.wb-review-answers button { display:block; width:100%; text-align:left; padding:10px; margin:8px 0; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.wb-review-answers button strong,.wb-review-answers button span,.wb-review-answers button small { display:block; margin:4px 0; }
+.wb-requirement-list section { padding:12px 0; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-requirement-list h4 { margin:0 0 8px; font-size:13px; }
+.wb-requirement-list ul { list-style:none; padding:0; margin:0; }
+.wb-requirement-list li { margin:8px 0; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.wb-requirements-check { margin:18px 0; }
+.wb-wizard-summary > button { width:100%; display:flex; flex-direction:column; align-items:flex-start; gap:6px; padding:12px 16px; text-align:left; font:inherit; color:inherit; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:transparent; cursor:pointer; }
+.wb-wizard-options button:hover:not(:disabled),.wb-wizard-summary > button:hover { border-color:var(--dsw-alias-state-business-primary); background:var(--dsw-alias-interactive-bg-hover); }
+.wb-wizard-options span { font-size:13px; line-height:1.7; color:var(--dsw-alias-label-secondary); }
+.wb-wizard-options button:disabled { opacity:.5; cursor:default; }
+.wb-wizard-custom { min-width:0; margin-top:16px; padding:2px; }
+.wb-wizard-custom textarea { width:100%; min-height:90px; padding:10px; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); border-radius:6px; }
+.wb-wizard-custom textarea:focus-visible { outline-offset:-2px; border-color:var(--dsw-alias-state-business-primary); }
+.wb-wizard-custom button { margin-top:10px; }
+.wb-review-answers { margin-top:20px; }
+.wb-review-answers summary { cursor:pointer; }
+.wb-review-answers button { display:block; width:100%; text-align:left; padding:10px; margin:8px 0; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.wb-review-answers button strong,.wb-review-answers button span,.wb-review-answers button small { display:block; margin:4px 0; }
+.wb-requirement-list section { padding:12px 0; border-bottom:1px solid var(--dsw-alias-border-l2); }
+.wb-requirement-list h4 { margin:0 0 8px; font-size:13px; }
+.wb-requirement-list ul { list-style:none; padding:0; margin:0; }
+.wb-requirement-list li { margin:8px 0; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.wb-requirements-check { margin:18px 0; }
+.wb-wizard-summary > button { margin:10px 0; }
+.wb-wizard-summary small { color:var(--dsw-alias-state-business-primary); }
+.wb-review-foot { display:flex; justify-content:space-between; align-items:center; flex:none; gap:12px; padding:12px 20px; border-top:1px solid var(--dsw-alias-border-l2); }
+.wb-review-foot > button { flex:none; }
+.wb-review-foot span { font-size:12px; color:var(--dsw-alias-label-secondary); }
+.wb-notice { margin:12px; font-size:13px; color:var(--dsw-alias-state-warn-primary); overflow-wrap:anywhere; }
+.wb-drawing { display:flex; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; }
+.wb-drawing-stage { display:flex; flex:1; min-width:0; flex-direction:column; background:#fff; color:#202833; }
+.wb-drawing-stage > p { margin:10px 14px!important; font-size:12px; flex:none; }
+.wb-drawing-controls { display:flex; flex:none; flex-wrap:wrap; align-items:center; gap:6px; padding:0 12px 8px; font-size:12px; }
+.wb-drawing-controls small { color:#59616c; }
+.wb-drawing-svg { touch-action:none; cursor:grab; flex:1; min-height:0; padding:12px; overflow:hidden; }
+.wb-drawing-svg svg { width:100%; height:100%; display:block; }
+.wb-drawing-svg svg [stroke]:not([stroke="none"]) { stroke-width:1px; vector-effect:non-scaling-stroke; }
+.wb-drawing-annotations { flex:none; width:280px; max-width:40%; overflow:auto; padding:12px; border-left:1px solid var(--dsw-alias-border-l2); }
+.wb-drawing-annotations h3 { font-size:14px; margin:0 0 12px; }
+.wb-drawing-annotations > p { font-size:12px; color:var(--dsw-alias-label-tertiary); }
+.wb-drawing-annotations > button { padding:8px!important; margin:3px 0; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); background:transparent; color:inherit; font:inherit; font-size:12px; cursor:pointer; }
+.wb-agent .wb-response { max-height:120px; }
+@container (max-width:900px) { .wb-context { position:absolute; inset:0 48px 0 auto; width:340px; max-width:75%; z-index:8; box-shadow:-4px 0 16px #0002; } .wb-review-scrim { padding:16px; } .wb-review-head { padding:12px; flex-wrap:wrap; } .wb-review-body { padding:12px; } }
+
 .wb { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--dsw-alias-label-primary); }
 .wb *, .wb *::before, .wb *::after { box-sizing: border-box; }
 .wb-tabs { flex: none; display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
@@ -566,32 +681,6 @@ function CamRunsTab({ sessionId }) {
 
 // --- tab body + registration -----------------------------------------------------------
 
-const SUBTABS = [
-  { id: 'input', label: '输入' },
-  { id: 'deliverables', label: '交付物' },
-  { id: 'cam', label: '加工' },
-]
-
-function WorkbenchTab({ sessionId, useTabInfo }) {
-  const navTab = useTabInfo?.((info) => info.tab.navigation.params?.tab)
-  const [tab, setTab] = useState(SUBTABS.some(sub => sub.id === navTab) ? navTab : 'input')
-  return h('div', { className: 'wb' },
-    h('div', { className: 'wb-tabs', role: 'tablist' },
-      SUBTABS.map((sub) => h('button', {
-        type: 'button',
-        role: 'tab',
-        key: sub.id,
-        'aria-selected': tab === sub.id,
-        className: tab === sub.id ? 'wb-tab active' : 'wb-tab',
-        onClick: () => setTab(sub.id),
-      }, sub.label))),
-    h('div', { className: 'wb-body' },
-      !sessionId && h('div', { className: 'wb-empty' }, '选择或新建会话后显示工作区信息。'),
-      sessionId && tab === 'input' && h(InputTab, { sessionId }),
-      sessionId && tab === 'deliverables' && h(DeliverablesTab, { sessionId }),
-      sessionId && tab === 'cam' && h(CamRunsTab, { sessionId })))
-}
-
 // shortcut: use the upstream internal store bridge until DSH exposes public view navigation.
 function conversationStore(sessionId) {
   const slots = applyCtx?.slots
@@ -666,49 +755,465 @@ function CapabilityPlaceholder({ title, children }) {
 }
 
 function AgentPanel({ sessionId }) {
-  const [state, setState] = useState({ running: false, streaming: false, text: '' })
+  const [state, setState] = useState({ running: false, streaming: false, text: '', pending: false })
+  const [dock, setDock] = useState(null), [stopping, setStopping] = useState(false), [error, setError] = useState('')
+  const panel = React.useRef(null)
   useEffect(() => {
     const sessions = applyCtx?.get('sessions')
     const source = applyCtx?.get('uiConversation')?.binding(sessionId).target('chat')
     const sync = () => {
       const chat = source?.getSnapshot()?.legacy
-      const latest = chat?.partial ?? [...(chat?.nodes ?? [])].reverse().find(node => node.kind === 'assistant')
-      setState({ running: sessions?.list.getSnapshot().byId[sessionId]?.running === true, streaming: Boolean(chat?.partial),
-        text: (latest?.blocks ?? []).filter(block => block.kind === 'text').map(block => block.text).join('\n') })
+      const nodes = chat?.nodes ?? [], lastUser = nodes.findLastIndex(node => node.kind === 'user')
+      const latest = chat?.partial ?? nodes.slice(lastUser + 1).findLast(node => node.kind === 'assistant')
+      const submitting = sessionInput(sessionId)?.state.getSnapshot().phase === 'submitting'
+      setState({ activity: submitting ? '' : applyCtx?.get('compactComposer')?.latestActivity(chat), submitting, running: sessions?.list.getSnapshot().byId[sessionId]?.running === true || submitting, streaming: Boolean(chat?.partial),
+        pending: Boolean(applyCtx?.get('uiSession')?.sessionStatus.getSnapshot().get(sessionId)?.pendingInteraction),
+        text: (submitting ? [] : latest?.blocks ?? []).filter(block => block.kind === 'text').map(block => block.text).join('\n') })
     }
     const disposeConversation = source?.subscribe(sync)
     sync()
     const disposeSessions = sessions?.list.subscribe(sync)
-    return () => { disposeConversation?.(); disposeSessions?.() }
+    const disposeInput = sessionInput(sessionId)?.state.subscribe(sync)
+    const disposeStatus = applyCtx?.get('uiSession')?.sessionStatus.subscribe(sync)
+    return () => { disposeConversation?.(); disposeSessions?.(); disposeInput?.(); disposeStatus?.() }
   }, [sessionId])
-  return h('section', { className: 'wb-agent', 'aria-label': 'Agent 当前响应' },
-    h('header', null, h('strong', null, 'Agent'), h('span', { role: 'status' }, state.running ? '会话执行中 · 详细进度见加工记录' : '等待指令'),
-      h(Button, { onClick: () => openView(sessionId, 'chat') }, '查看对话')),
-    h('details', { open: state.streaming }, h('summary', null, state.streaming ? '公开回复生成中' : '最新公开回复'), h('div', { className: 'wb-response' }, state.text || (state.streaming ? '正在等待公开回复…' : '暂无公开回复。'))),
-    h('p', { className: 'wb-hint' }, '使用下方原生输入框提问。选面可添加为版本化引用，发送时重新核对；引用不是加工授权。'))
+  useEffect(() => {
+    if (!state.running) { setStopping(false); setError('') }
+    const main = document.querySelector('.wb-main')
+    const content = main?.closest('[data-conversation-content]')
+    const seat = content?.querySelector('[data-composer-seat]')
+    if (!main || !content || !seat) return
+    const previous = seat.getAttribute('style')
+    seat.classList.add('wb-floating-composer')
+    seat.classList.toggle('wb-composer-muted', state.running && !state.pending)
+    seat.classList.toggle('wb-composer-confirmation', state.pending)
+    const measure = () => {
+      const canvas = main.querySelector('.wb-canvas')
+      const stage = canvas?.querySelector('.wb-preview-stage:not([hidden]) .cmv-stage')
+      const rect = (stage || canvas || content).getBoundingClientRect()
+      const side = main.querySelector('.wb-context')?.getBoundingClientRect()
+      const right = side && side.left > rect.left && side.left < rect.right ? side.left : rect.right
+      const available = right - rect.left, width = Math.max(0, Math.min(760, available - 32))
+      const next = { left: rect.left + (available - width) / 2, width, bottom: Math.max(16, window.innerHeight - rect.bottom + 16) }
+      seat.style.setProperty('--wb-composer-center', `${rect.left + available / 2}px`)
+      seat.style.setProperty('--wb-composer-width', `${width}px`)
+      Object.assign(seat.style, { left: `${next.left}px`, width: `${next.width}px`, bottom: `${next.bottom}px` })
+      setDock(old => old && old.left === next.left && old.width === next.width && old.bottom === next.bottom ? old : next)
+
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(content); observer.observe(main);
+    const canvas = main.querySelector('.wb-canvas')
+    const observeViewport = () => {
+      observer.disconnect(); observer.observe(content); observer.observe(main)
+      if (canvas) observer.observe(canvas)
+      const stage = canvas?.querySelector('.cmv-stage'); if (stage) observer.observe(stage)
+      measure()
+    }
+    const mutation = new MutationObserver(observeViewport)
+    if (canvas) mutation.observe(canvas, { childList: true, subtree: true })
+    observeViewport()
+    window.addEventListener('resize', measure); measure()
+    return () => { observer.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); seat.classList.remove('wb-floating-composer', 'wb-composer-muted', 'wb-composer-confirmation'); previous === null ? seat.removeAttribute('style') : seat.setAttribute('style', previous) }
+  }, [sessionId, state.running, state.pending])
+  if (!state.running || !dock || state.pending) return null // Keep official confirmation cards visible.
+  const compact = applyCtx?.get('compactComposer')
+  if (compact) return require('react-dom').createPortal(compact.renderResponse({ state, dock }), document.body)
+  return require('react-dom').createPortal(h('section', { ref: panel, className: 'wb-agent', style: dock, 'aria-label': 'Agent 当前响应' },
+    h('header', null, h('i', { className: 'wb-progress', 'aria-hidden': true }), h('strong', null, 'Agent'),
+      h('span', { role: 'status' }, stopping ? '正在请求停止' : state.streaming ? '公开回复生成中' : '处理中'),
+      h(Button, { disabled: stopping, title: '停止 Agent 当前响应；后台 NX 加工需另行停止', onClick: async () => {
+        setStopping(true); setError('')
+        try { await applyCtx.get('sessions').scope(sessionId).get('conversation').cancel() }
+        catch (e) { setStopping(false); setError(e.message || '停止失败，请重试') }
+      } }, '停止')),
+    h('div', { className: 'wb-response', 'aria-live': 'polite', 'aria-atomic': false }, state.text ? h(MarkdownText, { text: state.text }) : '正在等待公开输出…'),
+    error && h('p', { className: 'wb-hint', role: 'alert' }, error)), document.body)
 }
 
+const TASK_API = '/camind/api/cam/tasks'
+async function taskApi(sessionId, action = '', args) {
+  const response = await fetch(`${TASK_API}/${encodeURIComponent(sessionId)}${action ? `/${action}` : ''}`, args ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) } : {})
+  const body = await response.json()
+  if (!response.ok || !body.ok) throw new Error(body.message || `HTTP ${response.status}`)
+  return body.data
+}
+function useFormalTask(sessionId) {
+  const [task, setTask] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setTask(null); setError('')
+    const refresh = async () => { try { const next = await taskApi(sessionId); if (!next.review) throw new Error('请完整退出桌面应用并重新启动，以加载新版接件服务'); if (!cancelled) { setTask(old => old?.version >= next.version ? old : next); setError('') } } catch (e) { if (!cancelled) setError(e.message) } }
+    void refresh(); const timer = setInterval(refresh, 3000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [sessionId])
+  const act = async (action, args) => {
+    setBusy(true); setError('')
+    try { const next = await taskApi(sessionId, action, { version: task?.version, ...args }); setTask(next); return next }
+    catch (e) { setError(e.message); throw e }
+    finally { setBusy(false) }
+  }
+  return { task, error, busy, act }
+}
+function WizardQuestion({ record, question, draft, setDraft, next }) {
+  const pair = question.id === 'input_pair', answer = record.task.answers[question.id]
+  const [custom, setCustom] = useState(false), saving = useRef(false)
+  const recommendation = pair ? '我已核对两个文件的版本与加工范围对应' : typeof question.recommendation === 'string' ? question.recommendation : question.recommendation ? JSON.stringify(question.recommendation) : ''
+  const save = async (value, resolved) => {
+    if (record.busy || saving.current) return
+    saving.current = true
+    try { await record.act('answer', { id: question.id, value, resolved }); next() }
+    catch { /* Keep this question and custom draft; shared error is rendered below. */ }
+    finally { saving.current = false }
+  }
+  return h('section', { className: 'wb-wizard-question' },
+    h('div', { className: 'wb-wizard-question-content' },
+    pair && h('div', { className: 'wb-input-summary' }, ['prt', 'dwg'].map(role => h('div', { key: role }, h('strong', null, role.toUpperCase()), h('span', null, record.task.inputs[role]?.name || '尚未归档'), h('small', null, record.task.inputs[role]?.sha256.slice(0, 12))))), h('h3', { tabIndex: -1, 'data-wizard-title': true }, question.prompt),
+    question.reason && h('p', { className: 'wb-evidence' }, question.reason),
+    answer && h('p', { className: 'wb-muted' }, answer.resolved ? `已确认：${pair ? recommendation : answer.value}` : `已暂存：${answer.value}`),
+    recommendation && h('div', { className: 'wb-wizard-recommendation' }, h('strong', null, '建议'), h('p', null, recommendation)),
+    custom && h('form', { className: 'wb-wizard-custom', onSubmit: event => {
+      event.preventDefault()
+      if (draft.trim() && draft.trim() !== '暂不确定') void save(draft.trim(), !pair)
+    } },
+      pair && h('p', { className: 'wb-muted' }, '文件对应关系的补充意见会保留为未决；核对完成后请选择“已核对，对应”。'),
+      h('textarea', { autoFocus: true, 'aria-label': '其他建议或补充', placeholder: '填写你的意见或补充信息', value: draft, onChange: event => setDraft(event.target.value) }),
+      h(Button, { type: 'submit', variant: 'primary', disabled: record.busy || !draft.trim() || draft.trim() === '暂不确定' }, '保存并继续'))),
+    h('div', { className: 'wb-wizard-options' },
+      h('button', { type: 'button', disabled: record.busy || !recommendation, onClick: () => save(pair ? 'confirm' : recommendation, true) },
+        h('strong', null, pair ? '已核对，对应' : '使用建议'), h('span', null, recommendation ? '保存并进入下一题' : '暂无建议，请补充回答')),
+      h('button', { type: 'button', disabled: record.busy, onClick: () => save('暂不确定', false) }, h('strong', null, '暂不确定'), h('span', null, '保存为未决项，继续下一题')),
+      h('button', { type: 'button', disabled: record.busy, 'aria-expanded': custom, onClick: () => setCustom(true) }, h('strong', null, '其他建议或补充'), h('span', null, '填写自己的意见'))))
+}
+
+function TaskWizard({ sessionId, record, close, complete }) {
+  const dialog = useRef(null), dismiss = useRef(close)
+  dismiss.current = close
+  const task = record.task
+  const questions = [{ id: 'input_pair', prompt: '模型与图纸是否对应本次加工范围？' }, ...(task?.questions ?? []).filter(q => !q.scope || q.scope === 'review')]
+  const [selected, setSelected] = useState(() => questions.find(q => !task?.answers[q.id]?.resolved)?.id || '__summary')
+  const [drafts, setDrafts] = useState({})
+  const [requirementIds, setRequirementIds] = useState(null), [requirementsChecked, setRequirementsChecked] = useState(false)
+  const requirementItems = task?.requirement_summary?.draft ?? []
+  const selectedRequirements = requirementIds ?? requirementItems.map(item => item.id)
+  useEffect(() => { setRequirementIds(null); setRequirementsChecked(false) }, [task?.requirement_summary?.fingerprint])
+  const index = questions.findIndex(q => q.id === selected), summary = index < 0
+  const question = questions[index], answered = questions.filter(q => task?.answers[q.id]).length, confirmed = questions.filter(q => task?.answers[q.id]?.resolved).length
+  useEffect(() => {
+    const previous = document.activeElement
+    dialog.current?.focus()
+    return () => { if (previous?.isConnected) previous.focus() }
+  }, [sessionId])
+  useEffect(() => {
+    const body = dialog.current?.querySelector('.wb-review-body')
+    if (body) body.scrollTop = 0
+    dialog.current?.querySelector('[data-wizard-title]')?.focus()
+  }, [selected])
+  if (!task) return null
+  const go = id => { if (!record.busy) setSelected(id) }
+  const next = () => setSelected(questions[index + 1]?.id || '__summary')
+  const extraBlockers = task.review.blockers.filter(text => !questions.some(q => q.prompt === text) && !text.includes('版本和加工范围'))
+  return h('section', { ref: dialog, className: 'wb-review', role: 'dialog', 'aria-modal': true, tabIndex: -1, 'aria-label': '接件审图确认', onKeyDown: event => {
+      if (event.key === 'Escape' && !record.busy) { event.stopPropagation(); dismiss.current(); return }
+      if (event.key !== 'Tab') return
+      const controls = [...dialog.current.querySelectorAll('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]')].filter(el => el.getClientRects().length)
+      const first = controls[0], last = controls.at(-1)
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first?.focus() }
+    } },
+    h('header', { className: 'wb-review-head' }, h('div', null, h('h2', null, '核对本次审图结果'), h('p', null, '逐项确认后回到模型工作区。后续编程方案单独审核。')),
+      h(Button, { disabled: record.busy, onClick: close }, '保存并稍后继续')),
+    h('div', { className: 'wb-wizard-progress' },
+      h('div', { role: 'status' }, summary ? '核对确认结果' : `第 ${index + 1} / ${questions.length} 题`, h('span', null, `已处理 ${answered}/${questions.length} · 已确认 ${confirmed}`)),
+      h('progress', { max: questions.length, value: answered, 'aria-label': '问题处理进度' })),
+    h('div', { className: 'wb-review-body' },
+      summary ? h('section', { className: 'wb-wizard-summary' }, h('h3', { tabIndex: -1, 'data-wizard-title': true }, '核对本次加工要求'),
+        h('p', { className: 'wb-muted' }, '取消不应纳入的条目。确认后，右侧仅显示勾选内容；补充约定中的待提供资料不代表已核实事实。'),
+        h(RequirementList, { items: requirementItems, selected: selectedRequirements, disabled: record.busy, onSelect: (id, checked) => { setRequirementIds(old => { const ids = old ?? requirementItems.map(item => item.id); return checked ? [...ids, id] : ids.filter(value => value !== id) }); setRequirementsChecked(false) } }),
+        !requirementItems.length && h('p', { className: 'wb-notice' }, '尚无可确认的要求；请先整理加工要求，若服务未更新请重启桌面。'),
+        h('label', { className: 'wb-check wb-requirements-check' }, h('input', { type: 'checkbox', disabled: record.busy || !selectedRequirements.length, checked: requirementsChecked, onChange: event => setRequirementsChecked(event.target.checked) }), '我已核对以上勾选的加工要求和补充约定'),
+        h('details', { className: 'wb-review-answers' }, h('summary', null, '查看确认回答'),
+        questions.map((q, i) => h('button', { key: q.id, disabled: record.busy, onClick: () => go(q.id) },
+          h('strong', null, `${i + 1}. ${q.prompt}`),
+          h('span', { className: 'wb-muted' }, task.answers[q.id]?.resolved ? `已确认：${q.id === 'input_pair' ? '模型与图纸版本及加工范围对应' : task.answers[q.id].value}` : task.answers[q.id] ? `待确认：${task.answers[q.id].value}` : '尚未回答'), h('small', null, '查看 / 修改')))),
+        extraBlockers.length > 0 && h('div', { className: 'wb-notice' }, h('strong', null, '其他未决事项'), h('ul', null, extraBlockers.map(text => h('li', { key: text }, text)))))
+      : h(WizardQuestion, { key: `${task.revision}/${question.id}/${JSON.stringify(question)}`, record, question,
+          draft: drafts[question.id] ?? (task.answers[question.id]?.value !== 'confirm' && task.answers[question.id]?.value !== '暂不确定' ? task.answers[question.id]?.value : '') ?? '',
+          setDraft: value => setDrafts(old => ({ ...old, [question.id]: value })), next }),
+      record.error && h('p', { role: 'alert', className: 'wb-notice' }, record.error)),
+    h('footer', { className: 'wb-review-foot' },
+      h(Button, { disabled: record.busy || (!summary && index === 0), onClick: () => go(questions[summary ? questions.length - 1 : index - 1].id) }, '上一题'),
+      h('nav', { className: 'wb-wizard-steps', 'aria-label': '确认步骤' }, questions.map((q, i) => h('button', { key: q.id, disabled: record.busy, 'aria-current': selected === q.id ? 'step' : undefined, title: q.prompt, 'aria-label': `第 ${i + 1} 题：${task.answers[q.id]?.resolved ? '已确认' : task.answers[q.id] ? '待确认' : '未回答'}`, onClick: () => go(q.id) }, `${i + 1}${task.answers[q.id]?.resolved ? ' ✓' : task.answers[q.id] ? ' ?' : ''}`)),
+        h('button', { disabled: record.busy, 'aria-current': summary ? 'step' : undefined, onClick: () => go('__summary') }, '汇总')),
+      summary ? h(Button, { variant: 'primary', disabled: record.busy || Boolean(task.review.blockers.length) || !requirementsChecked || !selectedRequirements.length, onClick: async () => {
+        try { await record.act('finish-review', { fingerprint: task.review.fingerprint, requirement_ids: selectedRequirements }); complete() } catch { /* Keep summary open with the error. */ }
+      } }, '完成确认') : h(Button, { disabled: record.busy, onClick: () => go(questions[index + 1]?.id || '__summary') }, index === questions.length - 1 ? '查看汇总' : '下一题')))
+}
+function sanitizeDwgSvg(text) {
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml')
+  if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg') throw new Error('SVG 转换结果不合法')
+  const tags = new Set(['svg', 'g', 'defs', 'symbol', 'use', 'path', 'line', 'polyline', 'polygon', 'circle', 'ellipse', 'rect', 'text', 'tspan', 'title', 'desc'])
+  const attrs = new Set(['id', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'fill-rule', 'font-size', 'font-family', 'text-anchor', 'dominant-baseline', 'preserveAspectRatio'])
+  let count = 0
+  function clean(node) {
+    if (++count > 20000) throw new Error('图纸预览节点超过 20000，暂不显示')
+    const style = node.getAttribute('style')
+    if (style) for (const declaration of style.split(';')) {
+      const colon = declaration.indexOf(':'); if (colon < 0) continue
+      const key = declaration.slice(0, colon).trim(), value = declaration.slice(colon + 1).trim()
+      if (attrs.has(key) && !/url\s*\(|javascript:|data:|\\\\/i.test(value)) node.setAttribute(key, value)
+    }
+    for (const child of [...node.children]) { if (!tags.has(child.localName) || child.namespaceURI !== 'http://www.w3.org/2000/svg') child.remove(); else clean(child) }
+    for (const attr of [...node.attributes]) {
+      if ((attr.localName === 'href') && /^#[A-Za-z0-9_-]+$/.test(attr.value) && node.localName === 'use') continue
+      if (!attrs.has(attr.name) || /url\s*\(|javascript:|data:|\\\\/i.test(attr.value)) node.removeAttributeNode(attr)
+    }
+  }
+  clean(doc.documentElement)
+  doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  return new XMLSerializer().serializeToString(doc.documentElement)
+}
+function DwgPane({ sessionId, record }) {
+  const [data, setData] = useState(null), [error, setError] = useState(''), [selected, setSelected] = useState(null), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
+  const drawingHost = useRef(null)
+  const fit = (all = false) => {
+    const svg = drawingHost.current?.querySelector('svg')
+    if (!svg) return
+    try {
+      // LibreDWG block inserts may carry paper-space offsets. The default
+      // explicitly fits direct model-space geometry; full extents remain available.
+      const nodes = [...svg.children].filter(n => ['path', 'circle', 'ellipse', 'line', 'polyline', 'polygon'].includes(n.localName))
+      let box = svg.getBBox()
+      if (!all && nodes.length) {
+        const inverse = svg.getCTM().inverse(), points = []
+        for (const node of nodes) {
+          const b = node.getBBox(), matrix = inverse.multiply(node.getCTM())
+          for (const [x, y] of [[b.x,b.y],[b.x+b.width,b.y],[b.x,b.y+b.height],[b.x+b.width,b.y+b.height]]) {
+            const point = svg.createSVGPoint(); point.x=x; point.y=y; points.push(point.matrixTransform(matrix))
+          }
+        }
+        const x = Math.min(...points.map(p=>p.x)), y = Math.min(...points.map(p=>p.y))
+        box = { x, y, width: Math.max(...points.map(p=>p.x))-x, height: Math.max(...points.map(p=>p.y))-y }
+      }
+      if (!(box.width > 0 && box.height > 0)) throw new Error('图纸预览没有可显示的实体')
+      const margin = Math.max(box.width, box.height) * 0.05
+      svg.setAttribute('viewBox', `${box.x-margin} ${box.y-margin} ${box.width+2*margin} ${box.height+2*margin}`)
+      setError('')
+    } catch (e) { setError(e.message) }
+  }
+  const zoom = factor => {
+    const svg = drawingHost.current?.querySelector('svg'); if (!svg) return
+    const b=svg.viewBox.baseVal, w=b.width*factor, h=b.height*factor
+    svg.setAttribute('viewBox', `${b.x+(b.width-w)/2} ${b.y+(b.height-h)/2} ${w} ${h}`)
+  }
+  useEffect(() => {
+    fit()
+    const host = drawingHost.current, svg = host?.querySelector('svg')
+    if (!svg) return
+    let drag
+    const down = e => { if (e.button !== 0) return; const b=svg.viewBox.baseVal; drag={ x:e.clientX,y:e.clientY,b:{x:b.x,y:b.y,width:b.width,height:b.height} }; host.setPointerCapture(e.pointerId) }
+    const move = e => { if (!drag) return; const rect=svg.getBoundingClientRect(), scale=Math.max(drag.b.width/rect.width,drag.b.height/rect.height); svg.setAttribute('viewBox', `${drag.b.x-(e.clientX-drag.x)*scale} ${drag.b.y-(e.clientY-drag.y)*scale} ${drag.b.width} ${drag.b.height}`) }
+    const up = () => { drag=null }
+    const wheel = e => { e.preventDefault(); zoom(e.deltaY>0 ? 1.12 : 1/1.12) }
+    host.addEventListener('pointerdown',down); host.addEventListener('pointermove',move); host.addEventListener('pointerup',up); host.addEventListener('pointercancel',up); host.addEventListener('wheel',wheel,{passive:false})
+    return () => { host.removeEventListener('pointerdown',down); host.removeEventListener('pointermove',move); host.removeEventListener('pointerup',up); host.removeEventListener('pointercancel',up); host.removeEventListener('wheel',wheel) }
+  }, [data])
+  useEffect(() => { let alive = true; setData(null); setError(''); void taskApi(sessionId, 'drawing').then(next => { if (alive) setData({ ...next, safeSvg: sanitizeDwgSvg(next.svg) }) }).catch(e => { if (alive) setError(e.message) }); return () => { alive = false } }, [sessionId, record.task?.inputs.dwg?.sha256])
+  if (!data) return h('div', { className: 'wb-empty' }, error || '读取本地图纸转换…')
+  return h('div', { className: 'wb-drawing' },
+    h('div', { className: 'wb-drawing-stage' },
+      h('p', { style: { margin: 8 } }, data.note),
+      h('div', { className: 'wb-drawing-controls' }, h(Button, { onClick: () => fit() }, '适配零件区域'), h(Button, { onClick: () => fit(true) }, '查看全部实体'), h(Button, { onClick: () => zoom(1/1.3) }, '放大图纸'), h(Button, { onClick: () => zoom(1.3) }, '缩小图纸'), h('small', null, '默认显示模型空间直接实体；拖动平移，滚轮缩放')),
+      h('div', { ref: drawingHost, className: 'wb-drawing-svg', dangerouslySetInnerHTML: { __html: data.safeSvg } }), error && h('p', { className: 'wb-notice', role: 'alert' }, error)),
+    h('aside', { className: 'wb-drawing-annotations' }, h('h3', null, '图纸标注'), h('input', { 'aria-label': '搜索图纸标注', placeholder: '搜索文字、图层或句柄', value: query, onChange: e => setQuery(e.target.value) }),
+      h('p', null, '原始尺寸属性不等于 NX 实测；格式化尺寸与视图关系需核对原图。'),
+      selected && h('section', null, h('p', null, `${selected.id} · ${selected.layer} · ${selected.text || `图纸标称 ${selected.nominal ?? '未读取'}`}`), h('button', { onClick: () => void addTaskObjectToDraft(sessionId, { kind: 'drawing', source_sha256: data.source_sha256, ids: [selected.id] }, `图纸 ${selected.id}`).catch(e => setError(e.message)) }, '添加标注到提问')),
+      data.annotations.filter(entity => `${entity.id} ${entity.text} ${entity.layer}`.toLowerCase().includes(query.toLowerCase())).slice(0, limit).map(entity => h('button', { key: entity.id, style: { display: 'block', width: '100%', textAlign: 'left' }, onClick: () => setSelected({ id: entity.id, type: entity.type, layer: entity.layer, text: entity.text, nominal: entity.nominal }) }, `${entity.id} · ${entity.text || `原始标称 ${entity.nominal ?? '未读取'}`}`)),
+      h('p', null, `共 ${data.annotations.filter(entity => `${entity.id} ${entity.text} ${entity.layer}`.toLowerCase().includes(query.toLowerCase())).length} 条标注`),
+      data.annotations.filter(entity => `${entity.id} ${entity.text} ${entity.layer}`.toLowerCase().includes(query.toLowerCase())).length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多标注'),
+      error && h('p', { role: 'alert' }, error)))
+}
+async function addTaskObjectToDraft(sessionId, reference, label) {
+  const checked = await taskApi(sessionId, 'reference', { reference: { ...reference, session_id: sessionId } })
+  const input = sessionInput(sessionId), state = input?.state.getSnapshot()
+  if (!state || state.phase !== 'plain') throw new Error('原生输入框未就绪或正在提交')
+  const ref = JSON.stringify(checked)
+  if (state.occurrences.some(item => item.source === 'cam-object' && item.ref === ref)) { input.focus(); return }
+  const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
+  if (!input.insertReference({ source: 'cam-object', ref, label, appearance: 'file', clipboardText: `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]` }, { start: end, end, draftRev: state.draftRev })) throw new Error('草稿已经变更，请重新添加引用')
+  input.focus()
+}
+function OperationEditor({ op, record, close }) {
+  const [draft, setDraft] = useState({ ...op }), [error, setError] = useState('')
+  const [version] = useState(record.task.version)
+  const field = (key, label, numeric = false) => h('label', { key, style: { display: 'grid', gap: 4 } }, label,
+    h('input', { 'aria-label': label, type: numeric ? 'number' : 'text', value: draft[key] ?? '', step: numeric ? 'any' : undefined,
+      onChange: e => { const value = e.target.value; setDraft(old => { const next = { ...old }; if (!value) delete next[key]; else next[key] = numeric ? Number(value) : value; return next }) } }))
+  return h('form', { className: 'wb-placeholder', onSubmit: async e => {
+    e.preventDefault(); setError('')
+    try { await record.act('operations', { version, operations: record.task.operations.map(item => item.id === op.id ? draft : item) }); close() }
+    catch (e) { setError(e.message) }
+  } }, h('h3', null, `编辑 ${op.id}`),
+    h('p', null, '修改会撤销方案授权。工位和参数是方案定义，不表示已经应用到 NX。'),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 12 } },
+      field('new_name', 'NX 工序名称（保留 {suffix}）'), field('station', '工位'), field('template', '模板工序'), field('geometry', 'NX 几何组'), field('parent', 'NX 父坐标组'), field('tool', 'NX 刀具名'), field('tool_assembly_id', '冻结刀库引用'), field('spindle', '转速 rpm', true), field('feed', '进给 mm/min', true), field('depth_per_cut', '每刀深度 mm', true), field('stepover', '步距', true)),
+    h('label', { style: { display: 'block', marginTop: 12 } }, '前置工序', h('select', { multiple: true, 'aria-label': '前置工序', value: draft.depends_on,
+      onChange: e => setDraft(old => ({ ...old, depends_on: [...e.target.selectedOptions].map(option => option.value) })) },
+      record.task.operations.filter(item => item.id !== op.id).map(item => h('option', { key: item.id, value: item.id }, item.id)))),
+    h('label', { style: { display: 'grid', margin: '12px 0' } }, '检验与交接要求（一行一项）', h('textarea', { 'aria-label': '检验与交接要求', value: draft.inspection.join('\n'),
+      onChange: e => setDraft(old => ({ ...old, inspection: e.target.value.split('\n').filter(line => line.trim()) })) })),
+    h('button', { type: 'submit', disabled: record.busy }, '保存草案'), h('button', { type: 'button', onClick: close, disabled: record.busy }, '取消'), error && h('p', { role: 'alert' }, error))
+}
+function PlanReview({ snapshot, record, close }) {
+  const [bounds, setBounds] = useState({}), [accepted, setAccepted] = useState(false), [error, setError] = useState('')
+  return h('section', { className: 'wb-body', style: { overflow: 'auto' }, 'aria-label': '方案审核' },
+    h('h3', null, `确认方案 R${snapshot.revision} · ${snapshot.fingerprint.slice(0, 12)}`),
+    h('p', null, '确认冻结输入版本、机床、工序及下面的调整范围。缺失事实不因签字变成已验证；生产放行另需检查证据。确认后可在冻结范围内编程；交付缺少检查证据时仅生成问题包。'),
+    h('pre', null, JSON.stringify({ inputs: snapshot.inputs, machine: snapshot.machine_id, post: snapshot.post_name, setup: snapshot.setup, requirements: snapshot.requirements, operations: snapshot.operations, prepare: snapshot.prepare }, null, 2)),
+    h('h4', null, '允许自动调整的范围（默认不允许）'),
+    snapshot.operations.filter(op => op.type === 'from_scratch_workpiece_op').map(op => h('section', { key: op.id }, h('strong', null, op.id),
+      ['spindle', 'feed'].filter(field => Number.isFinite(op[field])).map(field => h('div', { key: field },
+        h('label', null, h('input', { type: 'checkbox', checked: Boolean(bounds[op.id]?.[field]), onChange: e => setBounds(old => {
+          const next = { ...old, [op.id]: { ...old[op.id] } }; if (e.target.checked) next[op.id][field] = [op[field], op[field]]; else { delete next[op.id][field]; if (!Object.keys(next[op.id]).length) delete next[op.id] } return next
+        }) }), field === 'spindle' ? '转速 rpm' : '进给 mm/min'),
+        bounds[op.id]?.[field] && [0, 1].map(index => h('input', { key: index, type: 'number', min: 0, step: 'any', 'aria-label': `${op.id} ${field} ${index === 0 ? '下限' : '上限'}`, value: bounds[op.id][field][index],
+          onChange: e => setBounds(old => { const range = [...old[op.id][field]]; range[index] = e.target.value === '' ? '' : Number(e.target.value); return { ...old, [op.id]: { ...old[op.id], [field]: range } } }) })))))),
+    h('p', null, '模板复制暂不支持自动调整转速/进给。更换刀具、对象、工位、方法或依赖需重新确认。'),
+    h('label', null, h('input', { type: 'checkbox', checked: accepted, onChange: e => setAccepted(e.target.checked) }), '我已核对当前冻结版本和上述范围'),
+    h('div', null, h('button', { disabled: !accepted || record.busy, onClick: async () => {
+      setError(''); try { await record.act('authorize', { version: snapshot.version, fingerprint: snapshot.fingerprint, bounds }); close() } catch (e) { setError(e.message) }
+    } }, '确认方案'), h('button', { disabled: record.busy, onClick: close }, '返回草案')),
+    error && h('p', { role: 'alert' }, error))
+}
+function TaskOperations({ sessionId, record }) {
+  const [error, setError] = useState('')
+  const [editing, setEditing] = useState(null), [review, setReview] = useState(null)
+  const task = record.task
+  if (!task) return h('div', { className: 'wb-empty' }, record.error || '读取正式工序…')
+  if (review) return h(PlanReview, { snapshot: review, record, close: () => setReview(null) })
+  const edit = task.operations.find(op => op.id === editing)
+  if (edit) return h(OperationEditor, { key: `${task.revision}/${edit.id}`, op: edit, record, close: () => setEditing(null) })
+  const saveOrder = operations => { setError(''); void record.act('operations', { operations }).catch(e => setError(e.message)) }
+  return h('div', { className: 'wb-body', style: { overflow: 'auto' } }, h('h3', null, `正式工序草案 R${task.revision}`),
+    h(Button, { variant: 'primary', disabled: record.busy || Boolean(task.active_run) || task.blockers.length > 0, onClick: () => setReview(JSON.parse(JSON.stringify(task))) }, task.authorization ? '重新审核方案' : '审核并确认方案'),
+    task.blockers.length > 0 && h('details', null, h('summary', null, `编程前置条件未齐备（${task.blockers.length} 项）`), h('ul', null, task.blockers.map(text => h('li', { key: text }, text)))),
+    task.operations.length > 0 && h('details', null, h('summary', null, '方案参数与确认'),
+      Object.entries({ material: '材料与状态', stock: '毛坯尺寸与已加工面', datum: '定位基准与工件坐标系', fixture: '夹具与避让限制' }).map(([id, prompt]) => h(TaskAnswer, { key: `${task.revision}/${id}`, record, question: { id, prompt } })),
+      task.questions.filter(q => q.scope === 'planning' && !['material', 'stock', 'datum', 'fixture'].includes(q.id)).map(q => h(TaskAnswer, { key: q.id, record, question: q }))),
+    record.error && h('p', { role: 'alert' }, record.error),
+    h('p', null, '工序记录与执行批次独立；定义存在不表示已经出 NC 或通过检查。依赖重排由服务核验。'),
+    task.operations.length ? task.operations.map(op => h('section', { className: 'wb-placeholder', key: op.id }, h('h3', null, `${op.sequence}. ${op.new_name} · ${op.station}`),
+      h('p', null, `${op.type} · ${op.execution === 'external' ? '外协/非NC环节' : 'NC'} · 依赖：${op.depends_on.join('、') || '无'}`), h('pre', null, JSON.stringify(op, null, 2)),
+      h('button', { disabled: record.busy || Boolean(task.active_run), onClick: () => setEditing(op.id) }, '编辑'),
+      ['上移', '下移'].map((label, offset) => h('button', { key: label, disabled: record.busy || Boolean(task.active_run) || (offset === 0 ? op.sequence === 1 : op.sequence === task.operations.length), onClick: () => {
+        const next = [...task.operations], index = next.findIndex(item => item.id === op.id), target = index + (offset === 0 ? -1 : 1)
+        ;[next[index], next[target]] = [next[target], next[index]]; saveOrder(next)
+      } }, label)),
+      h('button', { disabled: record.busy || Boolean(task.active_run), onClick: () => { if (window.confirm(`删除草案工序 ${op.id}？依赖它的工序需先修改。`)) saveOrder(task.operations.filter(item => item.id !== op.id)) } }, '删除'),
+      h('button', { onClick: () => void addTaskObjectToDraft(sessionId, { kind: 'operation', revision: task.revision, plan_sha256: task.operation_fingerprint, ids: [op.id] }, `工序 ${op.id} · R${task.revision}`).catch(e => setError(e.message)) }, '添加工序到提问'))) : h('p', null, '尚未形成正式工序。请在原生输入框让 Agent 读取正式任务、图纸与机床，整理带来源的方案。'),
+    error && h('p', { role: 'alert' }, error))
+}
+function TaskInspector({ record }) {
+  const [feedback, setFeedback] = useState(''), [error, setError] = useState('')
+  const task = record.task
+  return task ? h('div', { className: 'wb-body', style: { overflow: 'auto' } }, h('h3', null, `加工任务 R${task.revision}`), h('p', null, task.phase),
+    h('p', null, `机床：${task.machine_id || '未绑定'} · 后处理：${task.post_name}`),
+    h('h4', null, '交付与反馈修订'),
+    task.deliveries.map(item => h('section', { key: item.run_id, className: 'wb-placeholder' },
+      h('strong', null, `R${item.revision} · ${item.run_id} · ${item.status === 'released' ? '已放行' : '问题包（未放行）'}`),
+      h('ul', null, item.blockers.map(reason => h('li', { key: reason }, reason))),
+      h('button', { disabled: record.busy || Boolean(task.active_run) || item.revision !== task.revision, onClick: () => void record.act('release', { run_id: item.run_id }).catch(e => setError(e.message)) }, '核验放行条件'))),
+    h('label', null, '反馈及实测证据', h('textarea', { 'aria-label': '反馈及实测证据', value: feedback, onChange: e => setFeedback(e.target.value) })),
+    h('button', { disabled: record.busy || Boolean(task.active_run) || !feedback.trim(), onClick: async () => {
+      if (!window.confirm('在同一任务建立下一修订？旧输入与交付包保留，当前方案授权撤销。')) return
+      try { await record.act('revise', { feedback }); setFeedback(''); setError('') } catch (e) { setError(e.message) }
+    } }, '建立同任务修订'),
+    error && h('p', { role: 'alert' }, error),
+    h('h4', null, '修订历史'), task.revisions.map(rev => h('p', { key: rev.revision }, `R${rev.revision}：${rev.feedback}`))) : h('p', null, record.error || '读取正式任务…')
+}
+function readBenchPreference(sessionId) {
+  try { return JSON.parse(localStorage.getItem(`camind-workbench/${sessionId}`)) || {} } catch { return {} }
+}
+function TaskPanelIcon({ name }) {
+  const paths = {
+    requirements: ['M9 5h6M9 3h6v4H9z', 'M7 5H5v16h14V5h-2M8 12h8M8 16h6'],
+    inputs: ['M3 7h7l2 2h9v11H3z', 'M3 7V4h7l2 3'],
+    operations: ['M4 5h3v3H4zM4 11h3v3H4zM4 17h3v3H4z', 'M11 6.5h9M11 12.5h9M11 18.5h9'],
+    runs: ['M3 11a9 9 0 1 1 2.5 7', 'M3 4v7h7M12 7v5l3 2'],
+    delivery: ['M4 7l8-4 8 4v10l-8 4-8-4z', 'M4 7l8 4 8-4M12 11v10M8 5l8 4']
+  }
+  return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, paths[name].map((d, i) => h('path', { key: i, d })))
+}
 function WorkbenchView({ sessionId }) {
   useEffect(() => { collapseLegacySidebar() }, [sessionId])
-  const [left, setLeft] = useState(true), [right, setRight] = useState(false), [stage, setStage] = useState('view')
+  const [mode, setMode] = useState(() => readBenchPreference(sessionId).mode || 'model')
+  const [panel, setPanel] = useState(() => readBenchPreference(sessionId).panel || '')
+  const [wizard, setWizard] = useState(false)
+  const [heading, setHeading] = useState(null)
+  const preference = useRef(readBenchPreference(sessionId)), loaded = useRef('')
+  const record = useFormalTask(sessionId), task = record.task
   const Preview = previewService()?.View
-  useEffect(() => previewService()?.subscribe(sessionId, () => setStage('view')), [sessionId])
+  const running = React.useSyncExternalStore(listener => applyCtx.get('sessions').list.subscribe(listener), () => applyCtx.get('sessions').list.getSnapshot().byId[sessionId]?.running === true)
+  useEffect(() => { preference.current = readBenchPreference(sessionId); loaded.current = ''; setMode(preference.current.mode || 'model'); setPanel(preference.current.panel || ''); setWizard(false) }, [sessionId])
+  const reviewKey = task ? JSON.stringify({ revision: task.revision, inputs: task.inputs, questions: task.questions.filter(q => !q.scope || q.scope === 'review'), requirements: task.requirements }) : ''
+  useEffect(() => {
+    if (!task?.inputs.prt || loaded.current === task.inputs.prt.sha256) return
+    loaded.current = task.inputs.prt.sha256
+    // Restore the formal model after remount/restart without generating geometry.
+    previewService()?.preview(sessionId, task.inputs.prt.uri)
+  }, [sessionId, task?.inputs.prt?.sha256])
+  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model')), [sessionId])
+  useEffect(() => {
+    if (task?.review?.status === 'complete') { if (task?.requirement_summary?.status === 'confirmed') setWizard(false); return }
+    if (!running && task?.inputs.prt && task?.inputs.dwg && (task.requirements.length || task.questions.length) && preference.current.pausedReview !== reviewKey) setWizard(true)
+  }, [running, reviewKey, task?.review?.status, task?.requirement_summary?.status])
+  useEffect(() => {
+    try { localStorage.setItem(`camind-workbench/${sessionId}`, JSON.stringify({ ...preference.current, mode, panel })) } catch { /* Private browser storage may be unavailable. */ }
+  }, [sessionId, mode, panel, wizard])
+  const later = () => { preference.current.pausedReview = reviewKey; setWizard(false) }
+  const complete = () => { setWizard(false); setPanel(''); setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) }
+  const togglePanel = name => setPanel(old => old === name ? '' : name)
   return h('div', { className: 'wb-main' },
-    h('header', { className: 'wb-main-head' }, h('strong', null, '加工工作台'), h('span', null, '首期界面 · 沿用现有执行审批'),
-      h(Button, { onClick: () => setLeft(!left), 'aria-pressed': left }, '输入与加工'),
-      h(Button, { onClick: () => setRight(!right), 'aria-pressed': right }, '检视面板')),
-    h('nav', { className: 'wb-tabs', 'aria-label': '工作台内容' },
-      [['view', '模型 / 图纸 / 文档'], ['confirm', '确认向导'], ['operations', '工序表']].map(([id, label]) => h('button', {
-        type: 'button', key: id, className: stage === id ? 'wb-tab active' : 'wb-tab', 'aria-pressed': stage === id, onClick: () => setStage(id),
-      }, label))),
+    h('header', { className: 'wb-main-head' }, h('div', { className: 'wb-file-heading', ref: setHeading }, mode === 'drawing' ? h('strong', { title: task?.inputs.dwg?.name }, task?.inputs.dwg?.name || 'CAD 图纸') : !heading || !Preview ? h('strong', null, task?.inputs.prt?.name || '加工工作台') : null),
+      h('nav', { className: 'wb-view-controls', 'aria-label': '零件视图' }, ['prt', 'dwg'].map(role => h('button', { key: role, disabled: !task?.inputs[role], 'aria-pressed': mode === (role === 'prt' ? 'model' : 'drawing'), title: task?.inputs[role]?.name, onClick: () => {
+        if (role === 'prt') { setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) } else setMode('drawing')
+      } }, role === 'prt' ? '3D 模型' : 'CAD 图纸'))),
+      h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${running ? '审图分析中' : task.phase}` : '读取任务'),
+      !wizard && !running && (task?.review?.status === 'pending' || task?.review?.status === 'complete' && task?.requirement_summary?.status !== 'confirmed') && h(Button, { variant: 'primary', onClick: () => setWizard(true) }, task?.review?.status === 'complete' ? '确认加工要求' : '继续处理')),
     h('div', { className: 'wb-scene' },
-      left && h('aside', { className: 'wb-left', 'aria-label': '输入与加工记录' }, h(WorkbenchTab, { sessionId })),
       h('main', { className: 'wb-canvas' },
-        h('div', { className: 'wb-preview-stage', hidden: stage !== 'view' }, Preview ? h(Preview, { sessionId, embedded: true, onReference: reference => addSelectionToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        stage === 'confirm' && h(CapabilityPlaceholder, { title: '动态确认向导' }, '将从 PRT、DWG 和加工要求生成缺项、冲突及有依据的推荐。目前请在下方输入框补充要求，仍使用现有审批。'),
-        stage === 'operations' && h(CapabilityPlaceholder, { title: '结构化工序表' }, '正式工序草案、依赖和版本编辑待接入。现有执行工序与真实结果可在左侧“加工”查看。')),
-      right && h('aside', { className: 'wb-inspector', 'aria-label': '对象检视' }, h(CapabilityPlaceholder, { title: '对象与加工中心' }, '版本化面引用、工序参数编辑与加工中心摘要待接入。模型属性与临时选面仍可使用查看器已有工具。'))),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addSelectionToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        mode === 'drawing' && h(DwgPane, { sessionId, record }),
+        wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
+      h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
+      panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },
+        h('div', { className: 'wb-context-head' }, h('strong', null, { requirements: '加工要求', inputs: '输入文件', operations: '工序方案', runs: '加工记录', delivery: '交付文件' }[panel]), h(Button, { onClick: () => setPanel('') }, '收起')),
+        panel === 'requirements' && h(TaskRequirements, { record }),
+        panel === 'inputs' && h(InputTab, { sessionId }),
+        panel === 'operations' && h(TaskOperations, { sessionId, record }),
+        panel === 'runs' && h(CamRunsTab, { sessionId }),
+        panel === 'delivery' && h('div', null, h(DeliverablesTab, { sessionId }), h(TaskInspector, { record }))),
+      record.error && !wizard && h('p', { className: 'wb-notice', role: 'alert' }, record.error)),
     h(AgentPanel, { sessionId }))
+}
+function RequirementList({ items, selected, onSelect, disabled }) {
+  const groups = [['material', '材料与状态'], ['scope', '加工范围'], ['precision', '关键尺寸与公差'], ['special', '工艺与其他要求'], ['agreements', '补充约定']]
+  return h('div', { className: 'wb-requirement-list' }, groups.map(([id, title]) => {
+    const rows = items.filter(item => item.group === id)
+    if (!rows.length) return null
+    return h('section', { key: id }, h('h4', null, title), h('ul', null, rows.map(item => h('li', { key: item.id }, onSelect
+      ? h('label', { className: 'wb-check' }, h('input', { type: 'checkbox', disabled, checked: selected.includes(item.id), onChange: event => onSelect(item.id, event.target.checked) }), h('span', null, item.text))
+      : item.text))))
+  }))
+}
+function TaskRequirements({ record }) {
+  const task = record.task
+  if (!task) return h('p', null, '读取加工要求…')
+  const summary = task.requirement_summary
+  if (summary?.status !== 'confirmed' || !summary.confirmed) return h('div', { className: 'wb-context-body' }, h('p', { role: 'status', className: 'wb-muted' }, summary?.status === 'stale' ? '要求已变更，待重新确认' : '加工要求尚未确认'))
+  return h('div', { className: 'wb-context-body' },
+    h('p', { className: 'wb-muted' }, `已确认 · R${task.review_confirmation.revision}`),
+    h(RequirementList, { items: summary.confirmed.items }))
 }
 
 function apply(ctx) {
@@ -744,6 +1249,24 @@ function apply(ctx) {
       return true
     },
   }), 'ui-workbench: native selection references')
+
+  ctx.effect(() => ctx.get('inputTriggers').registerSource({
+    trigger: '@', name: 'cam-object', candidates: async () => [], onPick: () => undefined,
+    codec: {
+      clipboardText: ref => `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]`,
+      async serialize(ref, signal) {
+        const reference = JSON.parse(ref)
+        const check = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session_id) throw new Error('加工对象引用不属于当前会话') }
+        check()
+        const response = await fetch(`${TASK_API}/${encodeURIComponent(reference.session_id)}/reference`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reference }), signal })
+        const body = await response.json()
+        if (!response.ok || !body.ok) throw new Error(body.message || '加工对象引用核验失败')
+        check()
+        return `[CAM_OBJECT]\n${JSON.stringify(body.data)}\n[/CAM_OBJECT]`
+      },
+    },
+    openReference({ sessionId }, { ref }) { if (JSON.parse(ref).session_id !== sessionId) return false; openView(sessionId, VIEW_ID); return true },
+  }), 'ui-workbench: native task references')
 
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view', id: VIEW_ID, order: -10, label: () => '工作台',

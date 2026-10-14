@@ -7,7 +7,7 @@
 // （候选供人确认，非判定）。全部失败路径返回中文、可行动的错误 JSON。
 
 import { createHash } from 'node:crypto'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, statSync, readFileSync } from 'node:fs'
 
 import { deriveRiskCandidates } from '../survey-candidates.js'
 
@@ -44,7 +44,7 @@ export function safeSessionId(value) {
 // X-CAM-Path 是 HTTP 头，非 ASCII 在 fetch 侧直接抛 ByteString 错（实证
 // 2026-08-25「ZM26030-704程式.prt」上传失败）；sha8 前缀保唯一性，可读性其次。
 export function safeRemoteName(name) {
-  return String(name).replace(/[\\/]/g, '_').replace(/[^\x20-\x7E]/g, '_')
+  return String(name).replace(/[\\/<>:"|?*]/g, '_').replace(/[^\x20-\x7E]/g, '_')
 }
 
 // 会话消息里 @/绝对路径 提及的零件文件（用户在 composer 用 @ 引主机文件而非
@@ -72,7 +72,19 @@ function mentionedParts(exec) {
 
 // 在当前 session 的全部上传批次里按文件名/清单路径找文件；跨 session 与越界
 // 由 uploads 服务的 manifest 校验挡住（这里只读到 batch.files 的声明清单）。
-export function resolvePart(uploads, exec, requested) {
+export async function resolvePart(uploads, exec, requested, ctx) {
+  if (requested.startsWith('task-input://')) {
+    const input = await ctx?.get('camTasks')?.resolveInput(exec.agent.id, requested)
+    if (!input) throw new Error('正式任务输入服务不可用')
+    return { batch: null, file: { name: input.name, absolute: input.file, size: statSync(input.file).size } }
+  }
+  const preview = ctx?.get('previewFiles')
+  if (preview) {
+    const matches = (await preview.list(exec.agent.id)).filter(file => file.name === requested || file.path === requested || file.displayPath === requested)
+    if (matches.length > 1) throw new Error('文件名不唯一，请使用当前会话文件引用')
+    const input = await preview.resolve(exec.agent.id, matches[0]?.path ?? requested)
+    return { batch: null, file: { name: input.name ?? input.file.split('/').pop(), absolute: input.file, size: statSync(input.file).size } }
+  }
   const batches = uploads.listBatches(exec)
   const matches = []
   for (const batch of batches) {
@@ -122,8 +134,7 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
     description:
       '读取当前会话已上传的 3D 零件模型（.prt）：经 NX 工作台解析几何事实'
       + '（特征/孔位/尺寸/bbox 等），并给出疑似高风险候选清单（攻丝/沉窝，'
-      + '仅供人工确认、非判定）。2D 图纸解析（材料/热处理/螺纹/公差）尚未实现，'
-      + '需用户在对话中声明。失败时返回中文错误与处置建议。',
+      + '仅供人工确认、非判定）。事实绑定当前零件字节版本并保存在正式任务中。失败时返回中文错误与处置建议。',
     parameters: {
       type: 'object',
       properties: {
@@ -145,7 +156,7 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
       }
       let resolved
       try {
-        resolved = resolvePart(uploads, exec, requested)
+        resolved = await resolvePart(uploads, exec, requested, ctx)
       } catch (error) {
         return json({ status: 'error', stage: 'resolve_upload', msg: `读取上传清单失败：${error.message}` })
       }
@@ -154,9 +165,16 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
       const batchId = resolved.batch?.batch_id ?? null
 
       const sessionId = safeSessionId(exec?.agent?.id)
-      const sha8 = createHash('sha256').update(file.absolute).digest('hex').slice(0, 8)
-      const remoteRel = `input/${sessionId}_${sha8}_${safeRemoteName(file.name)}`
+      if (!/\.prt$/i.test(file.name)) return json({ status: 'error', stage: 'resolve_upload', msg: '读件只接受 .prt 文件。' })
+      const sourceSha = createHash('sha256').update(readFileSync(file.absolute)).digest('hex')
+      const remoteRel = `input/${sessionId.slice(0, 64)}_${sourceSha}_${safeRemoteName(file.name).slice(-64)}`
 
+      const ready = await camPipeline.ensureReady()
+      if (ready.status !== 'ok') return failure('ensure_ready', ready, adviceOf(ready))
+      if (ready.data?.queue_pending !== 0 || ready.data?.queue_processing !== 0) return json({ status: 'error', stage: 'ensure_ready', msg: 'NX 队列忙碌，暂不切换模型读件。' })
+      const session = await camPipeline.run('/ele_session_state', {})
+      if (session.status !== 'ok') return failure('ensure_ready', session, adviceOf(session))
+      if (!Array.isArray(session.data?.modified_parts) || session.data.modified_parts.length || session.data.modified_unreadable !== 0) return json({ status: 'error', stage: 'ensure_ready', msg: 'NX 有未保存模型或修改状态不明，请先处理；不会关闭或保存其他模型。' })
       const uploaded = await camPipeline.uploadFile(file.absolute, remoteRel)
       if (uploaded.status !== 'ok') return failure('upload', uploaded, adviceOf(uploaded))
 
@@ -164,10 +182,14 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
       if (ran.status !== 'ok') return failure('survey', ran, adviceOf(ran))
 
       const survey = ran.data ?? {}
+      if (createHash('sha256').update(readFileSync(file.absolute)).digest('hex') !== sourceSha) return json({ status: 'error', stage: 'survey', msg: '读件期间源文件变更，请重新读取当前版本。' })
+      const tasks = ctx.get('camTasks')
+      if (tasks && (await tasks.read(exec.agent.id)).inputs.prt?.sha256 === sourceSha) await tasks.recordSurvey(exec.agent.id, sourceSha, survey)
       return json({
         status: 'ok',
         part: {
           source: file.name,
+          source_sha256: sourceSha,
           batch_id: batchId,
           uploaded_as: remoteRel,
         },
@@ -175,7 +197,7 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
         risk_candidates: deriveRiskCandidates(survey),
         notes: [
           'risk_candidates 由几何规则推导，供人工确认，不构成判定；高风险工序未经书面声明不得进入执行。',
-          '2D 图纸解析（材料/热处理/螺纹/公差/颜色规则）本迭代未实现，相关事实需用户在对话中声明。',
+          'DWG 标注通过 read_drawing 读取正式快照；图纸要求、NX 实测与工艺建议须区分来源。',
         ],
       })
     },

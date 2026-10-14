@@ -27,6 +27,12 @@
 // 翻面验证/特征核对、2D 图纸解析、刀路查看器本体属后续迭代（设计稿 §4）。
 
 import z from '@deepseek-ai/schemastery'
+import os from 'node:os'
+import path from 'node:path'
+import { createCamTasks } from './lib/tasks.js'
+import { registerTaskRoute } from './lib/task-route.js'
+import { registerCamTask } from './lib/tools/task.js'
+import { validateTaskReferences } from './lib/task-references.js'
 
 import { createCamPipeline, DEFAULT_TOKEN_ENV } from './lib/pipeline.js'
 import { registerCamGate } from './lib/gate.js'
@@ -70,6 +76,43 @@ export function apply(ctx, config) {
 
   const camPipeline = createCamPipeline(ctx, () => current())
   ctx.provide('camPipeline', camPipeline)
+  const camTasks = createCamTasks({
+    home: process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh'),
+    machineRegistry: ctx.machineRegistry,
+    async resolve(sid, reference, exec) {
+      if (reference.startsWith('task-input://')) throw new Error('接件请选择原始会话文件；归档快照用于读件/引用')
+      const preview = ctx.get('previewFiles')
+      if (preview) {
+        let requested = reference
+        if (!reference.includes('://')) {
+          const matches = (await preview.list(sid)).filter(file => file.name === reference || file.path === reference || file.displayPath === reference)
+          if (matches.length > 1) throw new Error('文件名不唯一，请使用会话文件引用')
+          if (matches.length === 1) requested = matches[0].path
+        }
+        const resolved = await preview.resolve(sid, requested)
+        return { ...resolved, reference: requested, name: path.basename(resolved.file) }
+      }
+      const scope = exec ?? { agent: { id: sid, session: ctx.get('agents')?.get(sid)?.session } }
+      const uri = /^upload:\/\/([^/]+)\/(.+)$/.exec(reference)
+      if (uri) { const { file } = ctx.uploads.resolveFile(scope, uri[1], uri[2]); return { file: file.absolute, reference, name: file.name } }
+      const matches = ctx.uploads.listBatches(scope).flatMap(batch => batch.files.filter(file => file.name === reference || file.path === reference).map(file => ({ file, batch })))
+      if (matches.length !== 1) throw new Error('请使用当前会话唯一的上传文件引用')
+      const file = matches[0].file
+      return { file: file.absolute, reference: `upload://${matches[0].batch.batch_id}/${file.path}`, name: file.name }
+    },
+    async geometry(sid, reference) {
+      const models = ctx.get('modelPreview')
+      return models ? models.status(await models.target(sid, reference)) : null
+    },
+  })
+  ctx.provide('camTasks', camTasks)
+  registerCamTask(ctx, camTasks)
+  registerTaskRoute(ctx, camTasks)
+  ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
+    await validateTaskReferences(messages, agent.id, camTasks)
+    if (signal.aborted) return { kind: 'reject' }
+    return next()
+  })
   registerCamSurvey(ctx, camPipeline, ctx.uploads)
   registerCamPlan(ctx, { machineRegistry: ctx.machineRegistry, uploads: ctx.uploads })
   registerCamRun(ctx, camPipeline)

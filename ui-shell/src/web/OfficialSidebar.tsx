@@ -7,7 +7,7 @@
  * （列表行 retainedBy.mainView > 0）；动作面收敛到 ctx.uiWorkspace
  * （openSession / startSession）。路由包装随之改挂 uiWorkspace。
  */
-import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject, type MutableRefObject } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   getOfficialBootError,
@@ -100,7 +100,7 @@ function useOfficialActionRoutes(ctx: OfficialClient | null, routeSettled: RefOb
   }, [ctx])
 }
 
-function useOfficialSessionRoute(ctx: OfficialClient | null, routeSettled: RefObject<boolean>) {
+function useOfficialSessionRoute(ctx: OfficialClient | null, routeSettled: MutableRefObject<boolean>) {
   const navigate = useNavigate()
   const location = useLocation()
   const previous = useRef<{

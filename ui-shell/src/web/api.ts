@@ -47,7 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   const text = await res.text()
-  const data = text ? JSON.parse(text) as T & { error?: string; message?: string } : ({} as T)
+  const data = (text ? JSON.parse(text) : {}) as T & { error?: string; message?: string }
   if (!res.ok) {
     throw new Error(data.error || data.message || res.statusText)
   }

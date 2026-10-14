@@ -345,7 +345,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       return failStage('upload', { errorType: 'local_io', msg: 'job.json 缺 prt_local（本地原件路径）——请用本版本 cam_plan 重新落盘。' })
     }
     const uploadsRoot = path.resolve(dshHome, 'uploads')
-    if (!path.resolve(local).startsWith(uploadsRoot + path.sep)) {
+    if (!job.formal_task && !path.resolve(local).startsWith(uploadsRoot + path.sep)) {
       return failStage('upload', { errorType: 'local_io', msg: `job.json 的 prt_local（${local}）不在 uploads 目录内，拒绝读取。请重新 cam_plan 落盘。` })
     }
     if (!existsSync(local)) {
@@ -424,7 +424,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       post_name: op.post_name ?? job.post_name,
     }, { deadlineSeconds: opTimeoutOf(op) })
     if (ran.status !== 'ok') {
-      return { status: OP_GENERATED, error: ran.msg, error_type: ran.errorType, ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
+      return { status: OP_GENERATED, error: ran.msg, error_type: ran.errorType, ...(ran.errorDetail !== undefined ? { error_detail: ran.errorDetail } : {}), ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
     }
     const { nc, postError } = ncOf(ran.data, name)
     if (nc) return { status: OP_OK, nc_files: [nc] }
@@ -442,7 +442,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       generate: op.generate ?? true,
     }, { deadlineSeconds: opTimeoutOf(op) })
     if (ran.status !== 'ok') {
-      return { status: OP_ERROR, error: ran.msg, error_type: ran.errorType, ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
+      return { status: OP_ERROR, error: ran.msg, error_type: ran.errorType, ...(ran.errorDetail !== undefined ? { error_detail: ran.errorDetail } : {}), ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
     }
     const copy = ran.data?.copy ?? {}
     if (!copy.copied) return { status: OP_ERROR, error: copy.error ?? '模板复制失败' }
@@ -473,7 +473,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     }
     const ran = await camPipeline.run('/cam_build_workpiece_op', params, { deadlineSeconds: opTimeoutOf(op) })
     if (ran.status !== 'ok') {
-      return { status: OP_ERROR, error: ran.msg, error_type: ran.errorType, ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
+      return { status: OP_ERROR, error: ran.msg, error_type: ran.errorType, ...(ran.errorDetail !== undefined ? { error_detail: ran.errorDetail } : {}), ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
     }
     const m = createdMetricsOf(ran.data ?? {})
     if (m.error) return { status: OP_ERROR, error: m.error }
@@ -530,6 +530,8 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       ...(result.actual_name && result.actual_name !== entry.name ? { actual_name: result.actual_name } : {}),
       ...(result.nc_files ? { nc_files: result.nc_files } : {}),
       ...(result.error ? { error: result.error } : {}),
+      ...(result.error_detail !== undefined ? { error_detail: result.error_detail } : {}),
+      ...(result.error_type !== undefined ? { error_type: result.error_type } : {}),
       ...(result.error_class !== undefined ? { error_class: result.error_class } : {}),
     }
     state.ops[entry.index] = record
@@ -568,6 +570,13 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     found: check.found ?? 0,
     ...(check.total_nc_in_dir !== undefined ? { total_nc_in_dir: check.total_nc_in_dir } : {}),
     files: summary.ops.filter((o) => o.status === OP_OK).flatMap((o) => o.nc_files ?? []),
+  }
+
+  if (job.formal_task) {
+    mark({ stage: 'production_check', msg: 'NX 过切/刀柄检查；不代表完整生产验证' })
+    const gouge = await camPipeline.run('/cam_gouge_check', { prt: workPrt, operations: summary.ops.filter(op => [OP_OK, OP_GENERATED].includes(op.status)).map(op => op.actual_name ?? op.name), check_holder: true, set_holder: false }, { deadlineSeconds: 300 })
+    state.production_checks = { at: new Date().toISOString(), work_copy: workPrt, gouge, coverage: 'partial', release_ready: false }
+    persist(state)
   }
 
   // ---- 6. 汇总（fail-closed） ----------------------------------------------
@@ -645,6 +654,32 @@ export function registerCamRun(ctx, camPipeline) {
       }
 
       const labelFile = readJsonFile(path.join(runDir, 'job.json'))
+      const tasks = ctx.get('camTasks'), sessionId = safeSessionId(exec?.agent?.id)
+      let formal = false
+      try {
+        const task = await tasks?.read(sessionId)
+        formal = task?.version > 0
+        if (formal) await tasks.assertRun(sessionId, runId, labelFile.value)
+        else if (labelFile.value?.formal_task) throw new Error('正式任务服务/记录缺失，拒绝执行')
+      } catch (error) { return json({ status: 'error', stage: 'authorization', msg: error.message }) }
+      const runBound = async isCancelled => {
+        if (formal) await tasks.beginRun(sessionId, runId, labelFile.value)
+        let inFlight = false
+        const pipeline = formal ? { ...camPipeline, run: async (...args) => {
+          try { await tasks.assertRun(sessionId, runId, labelFile.value) }
+          catch (error) { return { status: 'error', errorType: 'authorization', msg: error.message } }
+          inFlight = true
+          try { return await camPipeline.run(...args) } finally { inFlight = false }
+        } } : camPipeline
+        try {
+          const summary = await executeCamRun({ camPipeline: pipeline, runDir, runId, resume, dshHome, isCancelled })
+          if (formal) await tasks.finishRun(sessionId, runId, summary, /Timeout|connection/i.test(summary.error?.error_type ?? '') || summary.ops.some(op => /Timeout|connection/i.test(op.error_type ?? '')))
+          return summary
+        } catch (error) {
+          if (formal) await tasks.finishRun(sessionId, runId, { overall: 'error', reason: error.message }, inFlight)
+          throw error
+        }
+      }
       const partId = labelFile.value?.part_id ?? runId
 
       const jobs = ctx.get('jobs')
@@ -659,17 +694,15 @@ export function registerCamRun(ctx, camPipeline) {
           jobId = jobs.start({
             kind: 'cam-run',
             label: `cam_run ${partId}（${runId}）`,
-            owner: exec.agent,
+            owner: exec.agent.id,
             run: () => ({
               cancel: () => {
                 cancelled = true
               },
-              done: executeCamRun({
-                camPipeline, runDir, runId, resume, dshHome, isCancelled: () => cancelled,
-              })
+              done: runBound(() => cancelled)
                 .then((summary) => (summary.aborted
-                  ? { status: 'killed', detail: 'job_kill 停止', output: json(summary) }
-                  : { status: 'completed', output: json(summary) }))
+                  ? { status: 'killed', detail: 'job_kill 停止', result: json(summary) }
+                  : { status: 'completed', result: json(summary) }))
                 .catch((error) => ({ status: 'failed', detail: String(error?.message ?? error) }))
                 .finally(release),
             }),
@@ -690,9 +723,7 @@ export function registerCamRun(ctx, camPipeline) {
       // jobs 服务不可用（或调用无 agent 上下文）时退化同步执行。
       activeRun = runId
       try {
-        const summary = await executeCamRun({
-          camPipeline, runDir, runId, resume, dshHome, isCancelled: () => false,
-        })
+        const summary = await runBound(() => false)
         summary.notes.push('jobs 服务不可用，本次为前台同步执行（无 job_id，完成即返回）。')
         return json(summary)
       } finally {

@@ -9,6 +9,7 @@
  * selectPanel 的合法性校验照上游：必须是已注册的 main key。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 
 const SIDEBAR_DEFAULT = 280
 const DARK_ATTRIBUTE = 'data-ds-dark-theme'

@@ -53,19 +53,25 @@ try {
   for (const name of FILES) entries[name] = await fs.readFile(path.join(fixture, name))
   entries['manifest.json'] = Buffer.from(JSON.stringify({ ...raw, part_sha256: sourceSha }))
   const calls = []
-  const success = createModelService({ home: path.join(tmp, 'success'), resolve: async () => ({ file: prt }), pipeline: {
+  let closeConfirmed = true
+  const pipeline = {
     ensureReady: async () => ({ status: 'ok', data: { queue_pending: 0, queue_processing: 0 } }),
     uploadFile: async () => ({ status: 'ok', data: {} }),
-    run: async endpoint => { calls.push(endpoint); return { status: 'ok', data: endpoint === '/ele_session_state' ? { modified_parts: [], modified_unreadable: 0 } : endpoint === '/cam_geompack_open' ? { stamped: { name: 'stamped.prt' } } : {} } },
+    run: async (endpoint, args) => {
+      calls.push(endpoint)
+      if (endpoint === '/cam_close_part') assert.match(args.prt, /^work\/preview_[a-f0-9]{32}_geom\/stamped\.prt$/, 'Close only the newly created clone')
+      return { status: 'ok', data: endpoint === '/ele_session_state' ? { modified_parts: [], modified_unreadable: 0 } : endpoint === '/cam_geompack_open' ? { stamped: { name: 'stamped.prt' } } : endpoint === '/cam_close_part' ? { closed: closeConfirmed } : {} }
+    },
     zipDir: async () => ({ status: 'ok', data: { bytes: Buffer.from(zipSync(entries)) } }),
-  } })
+  }
+  const success = createModelService({ home: path.join(tmp, 'success'), resolve: async () => ({ file: prt }), pipeline })
   const good = await success.target('session', 'test.prt')
   await success.prepare(good)
   for (let i = 0; i < 100 && (await success.status(good)).state === 'running'; i++) await new Promise(r => setTimeout(r, 5))
   assert.equal((await success.status(good)).state, 'ready')
-  assert.deepEqual(calls, ['/ele_session_state', '/cam_geompack_open', '/cam_geompack_facet', '/cam_geompack_facet', '/cam_geompack_edges', '/cam_geompack_manifest'])
+  assert.deepEqual(calls, ['/ele_session_state', '/cam_geompack_open', '/cam_geompack_facet', '/cam_geompack_facet', '/cam_geompack_edges', '/cam_geompack_manifest', '/cam_close_part'])
   await success.prepare(good)
-  assert.equal(calls.length, 6, 'Committed cache must not repeat NX export')
+  assert.equal(calls.length, 7, 'Committed cache must not repeat NX export')
   const ready = await success.status(good)
   const selection = await success.selection('session', 'test.prt', sourceSha, ready.geometry_sha256, ['F000001', 'F000001'])
   assert.deepEqual(selection.fids, ['F000001'])
@@ -85,7 +91,14 @@ try {
   await assert.rejects(validateSelectionMessages([message(reference)], 'session', success), /源模型已变更/)
   await validateSelectionMessages([message(reference), { source: { kind: 'user' }, content: [{ type: 'text', text: '开启新版本分析' }] }], 'session', success)
   await fs.writeFile(prt, 'offline fixture')
-  assert.equal(calls.length, 6, 'Selection must not call NX')
+  assert.equal(calls.length, 7, 'Selection must not call NX')
+  closeConfirmed = false
+  const failedClose = createModelService({ home: path.join(tmp, 'failed-close'), resolve: async () => ({ file: prt }), pipeline })
+  const failedTarget = await failedClose.target('session', 'test.prt')
+  await failedClose.prepare(failedTarget)
+  for (let i = 0; i < 100 && (await failedClose.status(failedTarget)).state === 'running'; i++) await new Promise(r => setTimeout(r, 5))
+  assert.match((await failedClose.status(failedTarget)).message, /副本关闭未确认/)
+  await assert.rejects(fs.stat(failedTarget.dir), { code: 'ENOENT' })
   // The renderer shares the existing preview path boundary, including official attachments.
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = tmp

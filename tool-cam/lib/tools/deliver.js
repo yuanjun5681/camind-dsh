@@ -32,7 +32,9 @@
 // 传输级失败（连不上/sha256 不符/zip 开不了包）一律 error 返回且不落盘任何
 // 文件（fail-closed）；只有「回收成功但内容/终态不符」才出包并标 incomplete。
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { digest } from '../tasks.js'
 import path from 'node:path'
 
 import { readZipEntry } from '../delivery-route.js'
@@ -127,7 +129,7 @@ export function presentableNcNames(runId) {
 // 中文可行动的 error 对象，不向模型抛异常栈。
 // workspaceDir：会话工作区绝对路径（exec.agent.session.header.cwd），可空——
 // 为空则跳过工作区镜像（交付本体不受影响）。
-export async function executeCamDeliver({ camPipeline, runDir, runId, note, workspaceDir }) {
+export async function executeCamDeliver({ camPipeline, runDir, runId, note, workspaceDir, tasks, sessionId }) {
   const fail = (stage, result, advice) => ({
     status: 'error',
     stage,
@@ -144,6 +146,14 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
   const stateRes = readJson(path.join(runDir, 'runstate.json'))
   if (stateRes.error) return fail('load', { msg: `runstate.json 无法解析：${stateRes.error}。保险起见请人工检查 run 目录后重试。` })
   const job = jobRes.value
+  const deliveryDir = path.join(runDir, 'delivery')
+  if (existsSync(deliveryDir)) return fail('immutable', { msg: '交付包已冻结，不可覆盖；如需修改，请建立同任务修订与新批次。' })
+  const formal = job.formal_task
+  let frozenScheme
+  if (formal) {
+    try { frozenScheme = (await tasks.assertRun(sessionId, runId, job)).authorization }
+    catch (error) { return fail('authorization', { msg: error.message }) }
+  }
   const state = stateRes.value
   const declRes = readJson(path.join(runDir, 'declarations.json'))
   const machineRes = readJson(path.join(runDir, 'machine_snapshot.json'))
@@ -172,9 +182,9 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
     })
   }
 
-  const deliveryDir = path.join(runDir, 'delivery')
-  mkdirSync(deliveryDir, { recursive: true })
-  const zipPath = path.join(deliveryDir, 'nc_batch.zip')
+  const stageDir = path.join(runDir, `.delivery-${randomUUID()}.tmp`)
+  mkdirSync(stageDir)
+  let zipPath = path.join(stageDir, 'nc_batch.zip')
   writeFileSync(zipPath, zipped.data.bytes)
 
   // ---- 2. 开包实数对账（不信 X-CAM-Files 头） --------------------------------
@@ -197,18 +207,40 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
 
   // ---- 4. 报告与设定单（检查未过也生成，结论章如实写未决项） -----------------
   const now = new Date()
-  const reportPath = path.join(deliveryDir, 'delivery_report.md')
+  const blockers = formal ? ['完整夹具碰撞检查未提供可信证据', '真实刀柄碰撞覆盖未核实', '残料/过切及全部图纸要求未完整验证', '各工位实际坐标及参数回读尚未证明', '后处理资格与刀具实测装载未完成生产核验', '材料/毛坯/装夹来源需按冻结记录复核；验收假设不作为生产事实'] : []
+  const ncAudit = formal ? stateOps.filter(op => op.status === 'ok').map(op => {
+    const planned = job.operations[op.index], entry = entryNames.find(name => basenameOf(name) === basenameOf(op.nc_files?.[0] ?? ''))
+    const code = entry ? readZipEntry(zipped.data.bytes, entry).toString('latin1') : ''
+    const pocket = machine?.magazine?.pockets?.find(item => item.tool?.tool_assembly_id === planned?.tool_assembly_id)
+    const toolNumbers = [...code.matchAll(/\bT0*(\d+)\s+M0?6\b/g)].map(match => `T${Number(match[1])}`)
+    const toolMatches = Boolean(pocket?.control_tool_id) && toolNumbers.length > 0 && toolNumbers.every(number => number === pocket.control_tool_id)
+    const spindleFound = planned?.spindle !== undefined && [...code.matchAll(/\bS([\d.]+)/g)].some(match => Number(match[1]) === planned.spindle)
+    const feedFound = planned?.feed !== undefined && [...code.matchAll(/\bF([\d.]+)/g)].some(match => Number(match[1]) === planned.feed)
+    if (!toolMatches) blockers.push(`${op.name}：NC 换刀 ${toolNumbers.join('/') || '未读到'} 与冻结刀位 ${pocket?.control_tool_id ?? '未知'} 未对齐`)
+    if (!spindleFound || !feedFound) blockers.push(`${op.name}：冻结转速/进给在 NC 中未完成回读匹配`)
+    return { operation: op.name, expected_tool: pocket?.control_tool_id, toolNumbers, toolMatches, spindleFound, feedFound, coverage: 'ASCII command presence only; not full simulation' }
+  }) : []
+  const problemNote = formal ? `【问题包：禁止作为已放行生产程序】\n${blockers.join('\n')}\n冻结来源记录：\n${JSON.stringify({ setup: frozenScheme.setup, requirements: frozenScheme.requirements, inputs: frozenScheme.inputs }, null, 2)}\nNX 部分检查：\n${JSON.stringify(state.production_checks ?? null, null, 2)}\nNC 回读与冻结刀位：\n${JSON.stringify(ncAudit, null, 2)}\n${note ?? ''}` : note
+  let reportPath = path.join(stageDir, 'delivery_report.md')
   writeFileSync(reportPath, buildDeliveryReport({
-    job, state, machine, declarationsDoc, check, overall, reason, note, now,
+    job, state, machine, declarationsDoc, check, overall: formal ? 'incomplete' : overall, reason: formal ? blockers.join('；') : reason, note: problemNote, now,
   }))
-  const setupPath = path.join(deliveryDir, 'setup_sheet.md')
+  let setupPath = path.join(stageDir, 'setup_sheet.md')
   writeFileSync(setupPath, buildSetupSheet({ job, state, machine, now }))
+
+  const manifest = { run_id: runId, job_sha256: digest(job), state_sha256: digest(state), package_kind: formal ? 'problem' : 'process', ...(formal ? { frozen_scheme: frozenScheme } : {}), blockers, nc_audit: ncAudit, files: DELIVERY_FILES.map(name => ({ name, sha256: digest(readFileSync(path.join(stageDir, name))) })) }
+  writeFileSync(path.join(stageDir, 'manifest.json'), json(manifest), { flag: 'wx' })
+  renameSync(stageDir, deliveryDir)
+  zipPath = path.join(deliveryDir, 'nc_batch.zip'); reportPath = path.join(deliveryDir, 'delivery_report.md'); setupPath = path.join(deliveryDir, 'setup_sheet.md')
+  if (formal) await tasks.recordDelivery(sessionId, runId, manifest)
 
   // ---- 5. 摘要对象（先建好，镜像结果与事件都往这里记） ------------------------
   const summary = {
     status: 'ok',
     run_id: runId,
-    overall,
+    overall: formal ? 'incomplete' : overall,
+    package_kind: formal ? 'problem' : 'process',
+    blockers,
     ...(reason ? { reason } : {}),
     delivery_dir: deliveryDir,
     files: [
@@ -334,7 +366,7 @@ export function registerCamDeliver(ctx, camPipeline) {
       // 会话工作区（交付物镜像目标）；无工作目录的会话（headless 等）传 null。
       const cwd = exec?.agent?.session?.header?.cwd
       const workspaceDir = typeof cwd === 'string' && cwd ? cwd : null
-      return json(await executeCamDeliver({ camPipeline, runDir, runId, note, workspaceDir }))
+      return json(await executeCamDeliver({ camPipeline, runDir, runId, note, workspaceDir, tasks: ctx.get('camTasks'), sessionId: safeSessionId(exec?.agent?.id) }))
     },
   })
 }

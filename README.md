@@ -18,7 +18,9 @@ tool-upload/      所有模式共用的会话上传文件列表与读取工具
 tool-memory/      OKF 记忆库：memoryBank 服务 + search/read/save/extract 四个记忆工具
 service-git-repository/ 通用 gitRepository 服务：本地仓库、worktree、锁
 page-memory/      记忆库管理页：底部菜单 + 两级页面（知识/经验）+ `/camind/api/memory`
-ui-shell/         混合 Web UI：官方会话/侧栏 + 文件上传、预览与交付物 Workbench，入口 /camind/
+ui-shell/         定制 Web 壳与 Host 桥：复用官方会话/侧栏，入口 /camind/
+ui-workbench/     桌面/Web 共用模型工作台、临时向导和右侧资料
+ui-compact-composer/ 工作台浮动紧凑输入，复用官方会话数据与提交
 ui-model-viewer/  模型/NC 联合查看器：WebGL2 核心、工序导航、回放、源码、选面与可信工位对齐
 ui-foundation/    Web UI 基础层：Camind 语义 token + 跨页面公共组件；仅 /camind 激活
 ui-sidebar/       /camind 专用的官方 Sidebar 兼容实现，增加品牌与一级菜单 slot
@@ -30,7 +32,7 @@ docs/dsh-topology.svg  dsh 架构拓扑图
 
 ## 当前加工工作台
 
-加工工作台已提升为“对话”“轨迹”同级的第一个会话标签，桌面与 Web 共享中央预览、输入/交付/加工列表及当前 Agent 流式公开回复。模型选面可加入原生提问草稿，引用会核验文件和几何版本，点选不执行加工。原右栏工作台和 `/camind` 重复列已退下；下文较早的右栏布局说明不再代表当前入口。DWG 阅读、确认向导和工序编辑暂为明确占位，现有审批不变。实现与验收见 [ui-workbench/README.md](ui-workbench/README.md)，完整目标见 [交互设计](docs/cam-workbench-interaction-design.md)。
+加工工作台已提升为“对话”“轨迹”同级的第一个会话标签，桌面与 Web 共享中央模型画布、右侧图标资料入口和当前 Agent 最新公开活动。模型选面可加入原生提问草稿，引用会核验文件和几何版本，点选不执行加工。原右栏工作台和 `/camind` 重复列已退下；下文较早的右栏布局说明不再代表当前入口。工作台无左侧零件/资料列，顶部只有一行文件标题；底部紧凑输入完全浮在模型画布上，聚焦展开、多行自适应。工作台内采用模型画布与右侧图标资料入口，接件审图确认作为分析后临时展开的过程，完成后关闭并回到正式模型；汇总勾选并整体核对后冻结加工要求，右侧仅只读展示该清单；审图完成与编程授权分别核验。DWG 为本地部分转换预览，不能代替精确核验。实现与验收见 [ui-workbench/README.md](ui-workbench/README.md)，完整目标见 [交互设计](docs/cam-workbench-interaction-design.md)。
 
 ## 前置要求
 
@@ -74,8 +76,10 @@ profile 即 `.dsh/profiles/<name>/` 目录，其 `package.json` 里的 `dsh.prof
 - **tool-memory** — OKF 记忆库（知识库 + 经验库，设计见 [docs/memory-design.md](docs/memory-design.md)）。提供 Cordis `memoryBank` 服务：`$DSH_HOME/memory/` 下 OKF v0.2 bundle 的解析/校验/CRUD 与检索（LLM 查询改写 + 元数据粗排 + LLM 语义重排），写操作经 `gitRepository` best-effort 自动 commit。注册 `search_memory` / `read_memory` / `save_memory` / `extract_memory` 四个模型工具。
 - **service-git-repository** — 通用 Cordis `gitRepository` 服务。初始化独立 Git 仓库、worktree、diff/commit/merge、sidecar 与仓库锁；不理解任何领域数据。
 - **page-memory** — 记忆库管理页（两级）。侧栏底部菜单「记忆库」（「设置」上方）打开 `/camind/pages/memory`：知识/经验双 tab 列表 → 详情；零表单上传 .md/.txt 后由 Host 经 dsh `llm` 服务后台自动补全元数据；经验审核流转（采纳/弃用/退回/删除）。Host 半提供 `/camind/api/memory`，领域逻辑复用 tool-memory 的 `memoryBank` 服务。
-- **ui-shell** — 基于官方 UI 插件组合出的混合界面（TypeScript）。全局 Shell 只负责 Sidebar、页面出口和 Overlay；`/s/:id` 会话详情子布局组合官方 Conversation/Details 与可折叠 Workbench，`/` 新会话和 `/pages/*` 插件页使用不挂载 Workbench 的普通页面布局。`shell.content` 提供插件页面扩展位，官方 Composer slot 挂文件上传：所有模式统一保存到 `$DSH_HOME/uploads/<session>/<batch>/`，ZIP 自动安全解压，不向 session cwd 写入上传文件；`conversation.input.dock` 作为插件生命周期锚点，待发送文件通过 portal 显示在 Composer 卡片内、textarea 上方，并统一分流拖拽（官方支持的图片进入图片 rail，其他文件进入通用文件 rail），用户 draft 只保留实际输入。Host 在下一条用户消息的 `agent/pre-step` 将不透明批次 ID 和文件摘要作为独立插件上下文注入，成功进入请求后消费 pending 标记。Workbench 提供输入上下文与交付物列表，原始与解压文件均可在 `shell.overlay` 预览。Host 桥只为这些业务能力补充 `/camind/api`。定制界面是默认入口（`/` 302 到 `/camind/`）；官方原始界面由 `/web`（302 到 `/index.html`）访问。
-- **ui-model-viewer** — PRT/NC 统一 WebGL2 查看器。工作台「输入」进入模型预览，「加工」的「加工检查」进入工序驱动联合场景；支持工位分组、显隐、回放、源码定位、临时选面和应用内扩大视区，保留纯模型与纯NC入口。联合显示必须有源模型/几何/NC版本和真实工位矩阵；常规cam_run尚缺完整工位回读，缺证据时仍只显示独立NC。几何导出沿用独立副本五步、会话缓存与SHA256校验，未保存NX模型阻断。构建、自检与真实桌面验收见 [插件说明](ui-model-viewer/README.md)。
+- **ui-shell** — 定制 Web 壳与 Host 桥，复用官方 Sidebar、keyed `main` 和 rightbar；会话中不额外渲染一列旧 Workbench。`shell.content` 提供页面扩展，`shell.overlay` 提供全局浮层。默认 `/` 跳转到 `/camind/`，官方 Web 由 `/web` 访问；桌面使用官方壳，业务工作台通过下述插件共用。
+- **ui-workbench** — 一级模型工作台：顶部合并标题、右侧图标资料栏、临时逐题向导与只读加工要求。文件嵌入主画布，公开回复和交付物读取官方会话投影，正式任务状态由 tool-cam 维护。
+- **ui-compact-composer** — 仅适配官方编辑器的浮动紧凑布局，复用草稿、附件、引用和提交；响应时只显示当前轮次最新工具活动或公开回复，完整历史与控制保留在对话。
+- **ui-model-viewer** — PRT/NC 统一 WebGL2 查看器。顶部「3D 模型」进入模型预览，右侧「加工记录」的「加工检查」进入工序驱动联合场景；支持工位分组、显隐、回放、源码定位、临时选面和应用内扩大视区，保留纯模型与纯NC入口。联合显示必须有源模型/几何/NC版本和真实工位矩阵；常规cam_run尚缺完整工位回读，缺证据时仍只显示独立NC。几何导出沿用独立副本五步、会话缓存与SHA256校验，未保存NX模型阻断。构建、自检与真实桌面验收见 [插件说明](ui-model-viewer/README.md)。
 - **ui-foundation** — `/camind` 的统一视觉与组件基础层。官方 `ui-theme` 继续负责 light/dark/system，foundation 将 `--dsw-*` 映射为稳定的 `--camind-*` 产品语义，并提供 Page、Tabs、Card、Badge、Field、State、Dialog 等无业务组件；Button、Input、Modal、Pill、Tooltip 直接复用官方 primitives。动态页面通过 `dsh.client.external` 消费，不复制主题色板与通用控件。
 - **ui-sidebar** — `/camind` 专用、基于官方 `@deepseek-ai/dsh-client-ui-sidebar` 0.1.1-rc.2 源码的兼容客户端插件。保留官方 Workspace、Settings、折叠行为与 0.1.1 起上游原生的 `sidebar.brand.mark` / `sidebar.brand.name` 品牌席位，并把官方 `sidebar.footer.action` 的 owner props 扩展为 `{ wide, pathname, navigate }`；通过官方模块 ID 静态替换，只影响 `/camind`。
 - **ui-brand** — 品牌插件。Host 提供选定的 CAM 虎钳工匠 PNG，手写 client bundle 将它与字标注册到上游原生 `sidebar.brand.mark` / `sidebar.brand.name` single 席位（priority -10 压过图内官方注册；仅 `/camind` 路径注册）；展开态显示 mascot + “Camind” 字标与主题反白 “Harness” 徽章，折叠 rail 只显示 mascot。
@@ -125,10 +129,10 @@ vendor 源码快照（`ui-shell/vendor/`）与 ui-sidebar 上游基线需要人�
 curl -LO https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg
 # 打开 dmg 把「Deep Seek Harness」拖进 /Applications
 
-scripts/desktop.sh   # 以本项目 .dsh 为 DSH_HOME 启动官方桌面应用
+sh ./scripts/desktop.sh   # 以本项目 .dsh 为 DSH_HOME 启动官方桌面应用
 ```
 
-原理：官方桌面宿主读 `DSH_HOME` 环境变量，其受管 desktop profile 只在缺失时创建、不覆写已有内容；`npm run init` 在 `.dsh/profiles/desktop/` 预置与 web 完全一致的 bundle 组合。注意桌面窗口渲染的是烘焙进 App 的官方前端（`dsh-app://` 协议直出，不经 Host 路由），`/camind` 定制 SPA 属于浏览器路径；Camind 内容经官方席位呈现——记忆库（全局面板行）、工作台（一级画布标签：输入/交付物/加工及公开回复）、NX 工作台（设置面板一节）、CAM 加工模式在桌面与 Web 官方壳均可用；`/camind` 壳的定制 SPA 页面只在浏览器 /camind 可用。
+原理：官方桌面宿主读 `DSH_HOME` 环境变量，其受管 desktop profile 只在缺失时创建、不覆写已有内容；`npm run init` 在 `.dsh/profiles/desktop/` 预置与 web 完全一致的 bundle 组合。注意桌面窗口渲染的是烘焙进 App 的官方前端（`dsh-app://` 协议直出，不经 Host 路由），`/camind` 定制 SPA 属于浏览器路径；Camind 内容经官方席位呈现——记忆库（全局面板行）、工作台（一级模型画布、右侧资料、临时向导及紧凑输入）、NX 工作台（设置面板一节）、CAM 加工模式在桌面与 Web 官方壳均可用；`/camind` 壳的定制 SPA 页面只在浏览器 /camind 可用。
 
 品牌化（桌面图标用 Camind mascot）：官方包是已签名/公证 bundle，macOS 对其施加 MACL 写保护，图标只能走「拷贝 + ad-hoc 重签」——`scripts/brand-desktop-app.sh` 一键完成（iconutil 全尺寸 .icns + icon.png + `CFBundleDisplayName`，重签并刷新注册），产出 `/Applications/Camind.app`，`scripts/desktop.sh` 优先启动它。官方桌面自动更新会整体替换官方 App，更新后重跑该脚本即可。图标规范：macOS `.icns` 带 16~1024 全尺寸（圆角蒙版由系统施加，源图满幅方形）；Windows 若做同等品牌化，需同名多尺寸 `.ico`（16/24/32/48/64/128/256 px，NSIS 安装包与任务栏读取）。
 
@@ -218,6 +222,8 @@ node scripts/dsh.mjs plugin --profile headless remove dsh-my-plugin
 也可以直接从 GitHub 或 npm 安装；git 安装需要注意 `prepare` 构建脚本与 pnpm 的 `allowBuilds` 白名单，细节见上游文档 `docs/user/develop/basic/publish.md`。
 
 ## 文档
+
+当前工作台阅读顺序与历史设计边界见 [文档索引](docs/README.md)；交互基线、手测和正式记录分别维护。
 
 项目专题：
 
