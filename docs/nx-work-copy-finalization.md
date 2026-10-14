@@ -17,7 +17,7 @@
 ## 修改范围
 
 - Camind：cam_run 编排、正式任务阶段、加工记录时间线、交付报告与模拟执行回归。
-- CAM-Agent：`nx_windows_agent/nx_worker/handlers/cleanup.py` 新安全接口、endpoint_registry 注册、API 说明；版本 `t444-work-copy-finalize-720` 与版本记录。
+- CAM-Agent：`nx_windows_agent/nx_worker/handlers/cleanup.py` 新安全接口、endpoint_registry 注册、API 说明；版本最初为 `t444-work-copy-finalize-720`，合入最新基线后调整为 `t481-work-copy-finalize-722` 与版本记录。
 
 ## 已验证
 
@@ -25,8 +25,22 @@
 - CAM-Agent 43 项离线测试通过：单件范围、禁止源件、重复/不存在目标、修改状态不明、保存失败/仍脏、关闭失败不降级，以及注册、既有清理和版本约束。
 - 生成本地更新镜像：`.dsh/updates/nx-finalize-720`（模板配置，不能覆盖现有凭据/配置）。
 
-## 部署与真机验证尚未完成
+## 部署与真机验证（已完成核心接口链路）
 
-工作站只读查询仍为 `t443-aux-bodies-trim-side-719`。本次更新版本标识位于 worker_runtime.py，不在热重载清理范围；服务部署说明要求换 NX 进程，而不是在同一 NX 中重复启动 worker。不能把简单热重载当作新版本安装成功。
+用户确认已保存需要保留的模型，并授权部署与重启 NX。推送预检发现原 CAM-Agent 检出落后 origin/main 324 个提交；没有绕过基线检查。将修复合入最新基线，解决版本记录冲突并调整为 722，再通过 43 项离线测试。更新已部署，NX 与代理均已重启，读取到工作站版本 `t481-work-copy-finalize-722`。
 
-用户此前要求保留旧的未保存副本，因此本轮没有推送、杀 NX 或重启工作站。需保存/关闭待保留模型，并允许重启 NX 后，再推送更新、核验已加载版本及新接口，使用原始 PRT/DWG 完成真实生成/打包及下一任务预览回归。离线测试不替代这一步。
+真实批次：`20261014-203924-ZM26030-704`，沿用“CAM加工原始文件上传回归测试”中已归档并通过工作台审图的原始 PRT/DWG。实际 NX 读件和几何包齐备后，接口测试以固定虚拟材料、毛坯、基准和夹持条件冻结一道粗铣。图纸原文及审图确认保持，原件 SHA 不变。
+
+验证结果：
+
+- 实际 NC 为 `ZM26030_ROUGH_e41ff262.nc`；回读 T3、S8000、F2400 与冻结方案一致（指令存在核对，不是机床仿真）。
+- `/cam_finalize_work_copy` 返回 saved=true、save_verified=true、modified_after_save=false、closed=true、ok=true。输出副本保存在本批次 output 目录，扫描确认已不在 NX 打开列表；其他干净输入仍保留。
+- 问题包完整，manifest 的 package_complete=true、execution_overall=ok、production_overall=incomplete；证据不足的生产放行尝试被拒绝。
+- 加工后 NX 修改状态未知数及未保存数均为 0。
+- 用同一原件在新的预览上下文重新执行五步几何导出，state=ready；导出后未保存数仍为 0。覆盖“本批次结束后下一任务预览被阻断”的原问题。
+
+测试方式边界：本轮桌面中实际恢复了原件预览并完成 cam_survey；桌面输入自动化随后无法稳定操作输入框。因此规划参数确认、授权、实际生成和打包采用正式任务接口/真实 cam_plan、cam_run、cam_deliver 核心实现执行，保留来源、冻结与放行门禁。任务接口动作不是审批弹窗的真实点击验收，工作台审核与打包审批卡的完整点击链仍待补测。没有把本地模拟 NX 返回值当作真机证据。
+
+证据保存在 `.dsh/workbench-acceptance/finalize-live/result.json` 与 `next-preview.json`，交付文件在对应 cam-runs 批次及会话工作区 delivery 镜像中。
+
+代码提交：Camind `e9c23f5`；CAM-Agent 最新基线上的修复 `7c1159f0`，主检出集成为 `5b4ffed1`。原部署台账修改保留，临时检出已清理。
