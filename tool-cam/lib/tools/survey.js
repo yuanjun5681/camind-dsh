@@ -174,7 +174,7 @@ export function registerCamSurvey(ctx, camPipeline, uploads) {
       if (ready.data?.queue_pending !== 0 || ready.data?.queue_processing !== 0) return json({ status: 'error', stage: 'ensure_ready', msg: 'NX 队列忙碌，暂不切换模型读件。' })
       const session = await camPipeline.run('/ele_session_state', {})
       if (session.status !== 'ok') return failure('ensure_ready', session, adviceOf(session))
-      if (!Array.isArray(session.data?.modified_parts) || session.data.modified_parts.length || session.data.modified_unreadable !== 0) return json({ status: 'error', stage: 'ensure_ready', msg: 'NX 有未保存模型或修改状态不明，请先处理；不会关闭或保存其他模型。' })
+      if (!Array.isArray(session.data?.modified_parts) || session.data.modified_parts.length || session.data.modified_unreadable !== 0) return json({ status: 'error', stage: 'ensure_ready', msg: 'NX 有未保存模型或修改状态不明，请先处理；不会关闭或保存其他模型。', session_state: { modified_parts: session.data?.modified_parts ?? null, modified_unreadable: session.data?.modified_unreadable ?? null, parts: (session.data?.parts ?? []).filter(p => p.modified !== false).map(p => ({ path: p.path, modified: p.modified, error: p.modified_err })) } })
       const uploaded = await camPipeline.uploadFile(file.absolute, remoteRel)
       if (uploaded.status !== 'ok') return failure('upload', uploaded, adviceOf(uploaded))
 

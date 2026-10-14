@@ -62,7 +62,7 @@ export function createModelService({ home, resolve, pipeline }) {
       const health = checked(await pipeline.ensureReady())
       if (health.queue_pending !== 0 || health.queue_processing !== 0) throw new Error('NX 正在处理其他任务，暂不切换模型')
       const session = checked(await pipeline.run('/ele_session_state', {}))
-      if (!Array.isArray(session.modified_parts) || session.modified_parts.length || session.modified_unreadable !== 0) throw new Error('NX 有未保存模型或无法确认修改状态，请先处理后再导出')
+      if (!Array.isArray(session.modified_parts) || session.modified_parts.length || session.modified_unreadable !== 0) throw new Error(`NX 有未保存模型或无法确认修改状态，请先处理后再导出。未保存：${Array.isArray(session.modified_parts) ? session.modified_parts.length : '状态字段缺失'}；无法读取：${session.modified_unreadable ?? '状态字段缺失'}。${(session.parts ?? []).filter(p => p.modified !== false).map(p => `${String(p.path || '未命名模型').split(/[\\/]/).pop()}${p.modified_err ? `（${p.modified_err}）` : ''}`).join('、')}`)
       const id = `preview_${randomUUID().replaceAll('-', '')}`
       const prt = `input/${id}.prt`, out = `work/${id}_geom`
       progress.stage = '上传独立预览副本'

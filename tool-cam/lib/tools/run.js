@@ -358,7 +358,8 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
 
   // ---- 2. work copy（主模型永不被写；失败即中止） ---------------------------
   mark({ stage: 'work_copy' })
-  const workPrt = workCopyPathOf(job.prt, suffix)
+  const workPrt = resume && state.work_copy ? state.work_copy : job.formal_task
+    ? `${job.out_dir}/${workCopyPathOf(job.prt, suffix).split('/').pop()}` : workCopyPathOf(job.prt, suffix)
   let needCopy = true
   if (resume && typeof state.work_copy === 'string' && state.work_copy) {
     const stWork = await camPipeline.stat(state.work_copy)
@@ -412,6 +413,26 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       tool_created: prep.data?.tool_created ?? null,
       mcs: (prep.data?.geometry_groups ?? []).find((g) => g && g !== 'NONE' && !String(g).startsWith('_err')) ?? null,
     }
+  }
+
+  // Bind machine pocket numbers before generating toolpath events (T/H/D are baked into NC).
+  if (job.formal_task && !state.tool_numbers_verified) {
+    mark({ stage: 'tool_numbers', msg: '按冻结刀库设置并回读刀号' })
+    const machine = readJsonFile(path.join(runDir, 'machine_snapshot.json')).value
+    const numbers = {}
+    for (const op of ops.filter(op => op.type === 'from_scratch_workpiece_op')) {
+      const pocket = machine?.magazine?.pockets?.find(p => p.tool?.tool_assembly_id === op.tool_assembly_id)
+      const match = /^T([1-9][0-9]*)$/.exec(pocket?.control_tool_id ?? '')
+      if (!op.tool || !match || (numbers[op.tool] && numbers[op.tool] !== Number(match[1]))) return failStage('tool_numbers', { errorType: 'tool_binding', msg: '冻结刀库缺少明确刀位，或同一 NX 刀具绑定多个刀位；请修改方案后重新审核。' })
+      numbers[op.tool] = Number(match[1])
+    }
+    if (Object.keys(numbers).length) {
+      const result = await camPipeline.run('/cam_set_tool_numbers', { prt: workPrt, numbers, operations: [], regenerate: false, save: true }, { deadlineSeconds: 300 })
+      if (result.status !== 'ok') return failStage('tool_numbers', result)
+      if (result.data?.ok !== true || result.data?.saved !== true || Object.entries(numbers).some(([tool, number]) => result.data.tools?.[tool]?.after?.num !== number)) return failStage('tool_numbers', { errorType: 'tool_binding', msg: 'NX 未返回已保存且逐刀匹配的刀号回读；停止生成，不能把建议当作刀号已经应用。' })
+      state.tool_number_binding = result.data
+    }
+    state.tool_numbers_verified = true; persist(state)
   }
 
   // ---- 4. 逐 op 执行 --------------------------------------------------------
@@ -581,7 +602,11 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
 
   // ---- 6. 汇总（fail-closed） ----------------------------------------------
   const { overall, reason } = overallOf(summary.ops, check)
+  summary.execution_overall = overall
+  summary.production_check = job.formal_task ? 'incomplete' : 'not_verified'
   summary.overall = overall
+  state.execution_overall = overall
+  state.production_overall = summary.production_check
   if (reason) summary.reason = reason
   if (overall === 'ok') {
     summary.advice.push('全部工序 NC 在盘且对账一致。下一步可 cam_deliver 交付打包（/fs_zip 回收 NC + 生成交付报告与加工设定单，调用时过签字闸门）。')

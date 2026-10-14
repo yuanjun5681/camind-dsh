@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { readDrawing } from './drawing.js'
 import { requirementDraft } from './requirement-summary.js'
+import { planningFields, reviewChanges, schemeChanges, taskPhase, SETUP_LABELS } from './task-presentation.js'
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,160}$/
 export const digest = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest('hex')
 const copy = value => JSON.parse(JSON.stringify(value))
@@ -14,7 +15,7 @@ const requiredSetup = ['material', 'stock', 'datum', 'fixture']
 // geometry, machines and planning inputs never become intake questions by default.
 export function reviewFingerprint(task) {
   return digest({ revision: task.revision, inputs: task.inputs, requirements: task.requirements,
-    questions: task.questions.filter(q => !q.scope || q.scope === 'review'),
+    questions: task.questions.filter(q => !q.scope || q.scope === 'review').map(({ id, prompt, critical, scope }) => ({ id, prompt, critical, scope })),
     answers: Object.fromEntries(Object.entries(task.answers).filter(([id]) => id === 'input_pair' || task.questions.some(q => q.id === id && (!q.scope || q.scope === 'review')))) })
 }
 export function reviewState(task) {
@@ -132,11 +133,13 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
   function project(task) {
     const blockers = draftBlockers(task)
     const review = reviewState(task)
-    const phase = task.active_run ? task.active_run.state === 'unknown' ? '执行状态未知' : task.stop_requested ? '停止确认中' : '执行中' : task.deliveries.at(-1)?.revision === task.revision ? task.deliveries.at(-1)?.status === 'released' ? '已放行' : '问题包待处理' : !task.operations.length ? review.status === 'complete' ? '审图完成' : review.status === 'empty' ? '待接件' : '审图待确认' : blockers.length ? '方案待补充' : task.authorization ? '已授权' : '待授权'
+    let machine_view = null
+    if (task.machine_id) try { const machine = machineRegistry.snapshot(task.machine_id); machine_view = { name: machine.display_name || task.machine_id, tools: Object.fromEntries((machine.magazine?.pockets ?? []).filter(p => p.tool?.tool_assembly_id).map(p => [p.tool.tool_assembly_id, p.control_tool_id])) } } catch { /* Authorization reports invalid machines. */ }
+    const phase = taskPhase(task, review, blockers)
     const draft = requirementDraft(task), summary = task.review_confirmation?.requirement_summary
     const summaryValid = review.status === 'complete' && summary?.schema === 1 && summary.fingerprint === digest(draft)
     const requirement_summary = { draft, fingerprint: digest(draft), status: summaryValid ? 'confirmed' : summary ? 'stale' : 'unconfirmed', confirmed: summaryValid ? summary : null }
-    return { ...task, review, requirement_summary, blockers, phase, fingerprint: taskFingerprint(task), operation_fingerprint: digest({ revision: task.revision, inputs: task.inputs, operations: task.operations, setup: task.setup }) }
+    return { ...task, scheme_changes: schemeChanges(task), machine_view, review, review_changes: reviewChanges(task, draft), planning: planningFields(task), requirement_summary, blockers, phase, fingerprint: taskFingerprint(task), operation_fingerprint: digest({ revision: task.revision, inputs: task.inputs, operations: task.operations, setup: task.setup }) }
   }
   async function inputFile(sid, role, input = null) {
     const task = await read(sid), value = input ?? task.inputs[role]
@@ -236,11 +239,18 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
         const allowed = ['goal', 'setup', 'machine_id', 'post_name', 'prepare', 'requirements', 'questions', 'operations']
         if (!patch || Object.keys(patch).some(key => !allowed.includes(key))) fail('草案字段不合法，确认/授权/执行结果由专用操作记录')
         const before = taskFingerprint(task), oldQuestions = copy(task.questions), oldEntries = [...Object.values(task.setup), ...task.requirements]
-        for (const [key, value] of Object.entries(patch)) task[key] = copy(value)
+        for (const [key, value] of Object.entries(patch)) task[key] = key === 'setup' ? { ...task.setup, ...copy(value) } : copy(value)
+        for (const field of requiredSetup) {
+          const previous = oldEntries.find(entry => entry?.source?.kind === 'user' && entry.source.answer_id === field)
+          const next = task.setup[field]
+          if (!previous || !next || next.source?.kind !== 'recommendation') continue
+          if (next.value === previous.value && task.answers[field]?.resolved) task.setup[field] = copy(previous)
+          else if (next.value !== previous.value && !task.questions.some(q => q.field === field && q.conflict)) task.questions.push({ id: `setup-${field}-change`, field, scope: 'planning', critical: true, conflict: true, prompt: `${SETUP_LABELS[field]}发生变更：上次确认「${previous.value}」，本次建议「${next.value}」。请核对。`, recommendation: next.value })
+        }
         if (typeof task.goal !== 'string' || task.goal.length > 10000) fail('任务目标不合法')
         if (task.operations.length) validateOperations(task.operations)
         if (!Array.isArray(task.questions) || task.questions.length > 128 || !Array.isArray(task.requirements) || task.requirements.length > 512) fail('问题/要求清单不合法或超限')
-        for (const question of task.questions) { checkId(question.id); if ('answer' in question || !question.prompt || typeof question.critical !== 'boolean') fail('问题必须有明确文本与关键性，答案经用户操作保存'); if (question.scope && !['review', 'planning', 'system'].includes(question.scope)) fail('问题范围须为 review/planning/system') }
+        for (const question of task.questions) { checkId(question.id); if ('answer' in question || !question.prompt || typeof question.critical !== 'boolean') fail('问题必须有明确文本与关键性，答案经用户操作保存'); if (question.scope && !['review', 'planning', 'system'].includes(question.scope)) fail('问题范围须为 review/planning/system'); if (question.field && (question.scope !== 'planning' || !Object.hasOwn(SETUP_LABELS, question.field))) fail('规划问题 field 仅接受 material/stock/datum/fixture') }
         if (new Set(task.questions.map(q => q.id)).size !== task.questions.length) fail('问题 ID 不能重复')
         for (const entry of [...Object.values(patch.setup ?? {}), ...patch.requirements ?? []]) {
           const source = entry.source
@@ -255,8 +265,9 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
           }
         }
         if (taskFingerprint(task) !== before) {
+          if (task.authorization) task.last_authorization = copy(task.authorization)
           task.authorization = null
-          for (const old of oldQuestions) if (!task.questions.some(q => q.id === old.id && digest(q) === digest(old))) delete task.answers[old.id]
+          for (const old of oldQuestions) if (!task.questions.some(q => q.id === old.id && q.prompt === old.prompt && q.critical === old.critical && q.scope === old.scope && q.field === old.field && q.conflict === old.conflict)) delete task.answers[old.id]
         }
       })
     },
@@ -266,8 +277,11 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
         if (id !== 'input_pair' && !requiredSetup.includes(id) && !task.questions.some(q => q.id === id)) fail('问题不存在')
         if (typeof value !== 'string' || !value.trim() || value.length > 10000) fail('请输入明确回答；暂不确定须保留未决状态')
         if (resolved && (value.trim() === '暂不确定' || (id === 'input_pair' && value !== 'confirm'))) fail('尚未确认，不能记录为已解决')
-        task.answers[id] = { value, resolved: resolved === true, at: new Date().toISOString(), input_fingerprint: digest(task.inputs) }
-        if (requiredSetup.includes(id) && resolved) task.setup[id] = { value, source: { kind: 'user', answer_id: id, input_fingerprint: digest(task.inputs) } }
+        const field = requiredSetup.includes(id) ? id : task.questions.find(q => q.id === id)?.field
+        const ids = field ? [field, ...task.questions.filter(q => q.scope === 'planning' && (q.field === field || q.id === field)).map(q => q.id)] : [id]
+        for (const key of new Set(ids)) task.answers[key] = { value, resolved: resolved === true, at: new Date().toISOString(), input_fingerprint: digest(task.inputs) }
+        if (field && resolved) task.setup[field] = { value, source: { kind: 'user', answer_id: field, input_fingerprint: digest(task.inputs) } }
+        if (task.authorization) task.last_authorization = copy(task.authorization)
         task.authorization = null
       })
     },
@@ -290,6 +304,8 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
       return transact(sid, expected, 'user', 'authorize', async task => {
         idle(task); await sourcesFresh(task)
         if (fingerprint !== taskFingerprint(task)) fail('审核对象已经变更，请重新查看', 'TaskConflict')
+        const currentReview = reviewState(task), confirmed = task.review_confirmation?.requirement_summary
+        if (currentReview.status !== 'complete' || !confirmed || confirmed.fingerprint !== digest(requirementDraft(task))) fail('请先在工作台完成当前审图要求清单的确认')
         const blockers = draftBlockers(task)
         if (blockers.length) fail(blockers.join('；'))
         await geometryFresh(task)

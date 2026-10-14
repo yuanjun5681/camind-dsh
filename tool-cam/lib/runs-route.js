@@ -63,8 +63,9 @@ function mtimeIso(file) {
 // 有 error 工序 → error；全 ok → ok；其余 → incomplete。
 // 注意这是 ops 终态的直读汇总，不含 cam_run 收尾的 NC 对账一项（对账结论以
 // 交付报告为准）；页签徽章只需粗粒度。
-function overallOfState(state) {
+export function overallOfState(state) {
   if (state === null) return 'planned'
+  if (state.execution_overall) return state.execution_overall
   const ops = Array.isArray(state?.ops) ? state.ops : []
   if (ops.some((o) => o?.status === 'error')) return 'error'
   if (ops.length > 0 && ops.every((o) => o?.status === 'ok')) return 'ok'
@@ -137,6 +138,7 @@ function readRun(sessionDir, runId) {
       ? state.updated_at
       : (mtimeIso(path.join(runDir, 'job.json')) ?? mtimeIso(runDir) ?? ''),
     overall: overallOfState(state),
+    production_overall: state?.production_overall ?? (state?.production_checks?.release_ready === false ? 'incomplete' : 'not_verified'),
     stateOps,
     read_error: jobRes.error ?? stateRes.error ?? null,
   }
@@ -170,7 +172,7 @@ function runSummary(sessionDir, runId) {
     part_id: typeof base.job?.part_id === 'string' ? base.job.part_id : null,
     machine: base.machine,
     updated_at: base.updated_at,
-    overall: base.overall,
+    overall: base.overall, production_overall: base.production_overall,
     ops,
     ops_counts: { ...counts, total: ops.length },
     preview_available: existsSync(path.join(base.runDir, 'preview.json')),
@@ -195,7 +197,7 @@ function runDetail(sessionDir, runId) {
     post_name: typeof job?.post_name === 'string' ? job.post_name : null,
     suffix: typeof base.state?.suffix === 'string' ? base.state.suffix : null,
     updated_at: base.updated_at,
-    overall: base.overall,
+    overall: base.overall, production_overall: base.production_overall,
     delivered,
     delivery,
     ...nc,

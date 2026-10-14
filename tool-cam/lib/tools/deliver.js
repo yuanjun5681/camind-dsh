@@ -220,15 +220,17 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
     if (!spindleFound || !feedFound) blockers.push(`${op.name}：冻结转速/进给在 NC 中未完成回读匹配`)
     return { operation: op.name, expected_tool: pocket?.control_tool_id, toolNumbers, toolMatches, spindleFound, feedFound, coverage: 'ASCII command presence only; not full simulation' }
   }) : []
-  const problemNote = formal ? `【问题包：禁止作为已放行生产程序】\n${blockers.join('\n')}\n冻结来源记录：\n${JSON.stringify({ setup: frozenScheme.setup, requirements: frozenScheme.requirements, inputs: frozenScheme.inputs }, null, 2)}\nNX 部分检查：\n${JSON.stringify(state.production_checks ?? null, null, 2)}\nNC 回读与冻结刀位：\n${JSON.stringify(ncAudit, null, 2)}\n${note ?? ''}` : note
+  const sourceLabels = { user: '用户确认', drawing: '图纸原文', nx: 'NX 实测', recommendation: 'Agent 建议' }
+  const problemNote = formal ? `问题包：禁止作为已放行生产程序\n生产检查未完成：\n${blockers.map(text => `- ${text}`).join('\n')}\n冻结规划来源：\n${Object.entries(frozenScheme.setup).map(([id, item]) => `- ${id}：${item.value}（${sourceLabels[item.source?.kind] || '来源未核验'}）`).join('\n')}\nNC 回读：\n${ncAudit.map(item => `- ${item.operation}：预期 ${item.expected_tool || '未知'}；实际 ${item.toolNumbers.join('/') || '未读到'}；刀号${item.toolMatches ? '匹配' : '不匹配'}；转速${item.spindleFound ? '已匹配' : '未匹配'}；进给${item.feedFound ? '已匹配' : '未匹配'}`).join('\n')}\n${note ?? ''}` : note
+
   let reportPath = path.join(stageDir, 'delivery_report.md')
-  writeFileSync(reportPath, buildDeliveryReport({
-    job, state, machine, declarationsDoc, check, overall: formal ? 'incomplete' : overall, reason: formal ? blockers.join('；') : reason, note: problemNote, now,
+  writeFileSync(reportPath, (formal ? '# 问题包：禁止作为已放行生产程序\n\n> 交付文件已冻结；生产验证未完成。以下缺口不能由人工签字替代。\n\n' : '') + buildDeliveryReport({
+    job, state, machine, declarationsDoc, check, overall, reason, note: problemNote, now, packageKind: formal ? 'problem' : 'process', productionBlockers: blockers,
   }))
   let setupPath = path.join(stageDir, 'setup_sheet.md')
   writeFileSync(setupPath, buildSetupSheet({ job, state, machine, now }))
 
-  const manifest = { run_id: runId, job_sha256: digest(job), state_sha256: digest(state), package_kind: formal ? 'problem' : 'process', ...(formal ? { frozen_scheme: frozenScheme } : {}), blockers, nc_audit: ncAudit, files: DELIVERY_FILES.map(name => ({ name, sha256: digest(readFileSync(path.join(stageDir, name))) })) }
+  const manifest = { run_id: runId, job_sha256: digest(job), state_sha256: digest(state), package_kind: formal ? 'problem' : 'process', ...(formal ? { frozen_scheme: frozenScheme } : {}), blockers, nc_audit: ncAudit, package_complete: overall === 'ok' && check.expected > 0 && check.missing.length === 0, execution_overall: overall, production_overall: formal ? 'incomplete' : 'not_verified', files: DELIVERY_FILES.map(name => ({ name, sha256: digest(readFileSync(path.join(stageDir, name))) })) }
   writeFileSync(path.join(stageDir, 'manifest.json'), json(manifest), { flag: 'wx' })
   renameSync(stageDir, deliveryDir)
   zipPath = path.join(deliveryDir, 'nc_batch.zip'); reportPath = path.join(deliveryDir, 'delivery_report.md'); setupPath = path.join(deliveryDir, 'setup_sheet.md')

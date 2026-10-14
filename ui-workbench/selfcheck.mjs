@@ -50,7 +50,7 @@ services.set('inputTriggers', { registerSource: definition => { codec = definiti
 async function load(file) {
   let plugin
   let code = await fs.readFile(new URL(file, import.meta.url), 'utf8')
-  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { composerViewportRect, TaskOperations, TaskAnswer, OperationEditor, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
+  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { submitWorkbenchRequest, composerViewportRect, TaskOperations, TaskAnswer, OperationEditor, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
   vm.runInNewContext(code, {
     window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : { Button: 'button', Tooltip: 'tooltip', MarkdownText: 'markdown', IconGaugeOutlineRegular: 'icon' }) } } },
     Blob, URL, URLSearchParams, AbortController, document: { body: {} },
@@ -86,7 +86,7 @@ const snapshot = { version: 4, revision: 1, fingerprint: 'a'.repeat(64), inputs:
 values.length = 0; cursor = 0
 const review = taskComponents.PlanReview({ snapshot, record: editRecord, close: () => {} })
 assert.ok(JSON.stringify(review).includes('缺失事实不因签字变成已验证'))
-const confirmation = review.children.find(child => child?.type === 'div').children[0]
+const confirmation = review.children[0].children.find(child => child?.type === 'div').children[0]
 assert.equal(confirmation.props.disabled, true)
 await confirmation.props.onClick()
 assert.equal(edits.at(-1).args.version, snapshot.version)
@@ -245,3 +245,19 @@ mounted = 's2'; await assert.rejects(codec.codec.serialize(inserted[0].ref, sign
 assert.equal(codec.openReference({ sessionId: 's2' }, { ref: inserted[0].ref }), false)
 assert.equal(codec.openReference({ sessionId: 's1' }, { ref: inserted[0].ref }), true)
 console.log('workbench selfcheck passed: real chat target shape, partial/final public text only, deliverables, native versioned chips, draft preservation, stale/cross-session refusal')
+
+// Workflow actions submit through the native composer and preserve drafts/references.
+running = false; state.phase = 'plain'; state.draft = ''; state.occurrences = []
+const submissions = []
+input.setDraft = text => { state.draft = text }
+input.submit = (...args) => submissions.push(args)
+taskComponents.submitWorkbenchRequest('s1', 'generate frozen NC')
+assert.equal(state.draft, 'generate frozen NC')
+assert.deepEqual(submissions[0], [undefined, 'click'])
+assert.throws(() => taskComponents.submitWorkbenchRequest('s1', 'overwrite'), /未发送内容/)
+assert.equal(state.draft, 'generate frozen NC')
+state.draft = ''; state.occurrences = [{}]
+assert.throws(() => taskComponents.submitWorkbenchRequest('s1', 'overwrite reference'), /未发送内容/)
+state.occurrences = []; running = true
+assert.throws(() => taskComponents.submitWorkbenchRequest('s1', 'duplicate'), /正在处理/)
+assert.equal(submissions.length, 1)

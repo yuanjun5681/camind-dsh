@@ -23,7 +23,7 @@ const OP_STATUS_CN = {
 
 const OVERALL_CN = {
   ok: 'ok（全部工序 NC 在盘且对账一致）',
-  incomplete: 'incomplete（交付不完整，fail-closed）',
+  incomplete: 'incomplete（NC 生成或文件对账未完成）',
   error: 'error（有工序失败）',
 }
 
@@ -68,7 +68,7 @@ function findPocket(machine, ref) {
 // ---- 交付报告（签字人视角） ------------------------------------------------
 
 export function buildDeliveryReport({
-  job, state, machine, declarationsDoc, check, overall, reason, note, now,
+  job, state, machine, declarationsDoc, check, overall, reason, note, now, packageKind, productionBlockers = [],
 }) {
   const partId = job?.part_id ?? '（未填件号）'
   const machineId = job?.machine_context?.machine_instance_id ?? '未知'
@@ -86,6 +86,7 @@ export function buildDeliveryReport({
     '',
     `> 生成时间 ${stampOf(now)}　run_id ${state?.run_id ?? '—'}　后处理器 ${postName}`,
     '',
+    ...(packageKind === 'problem' ? ['> **问题包已打包，生产验证未完成，禁止作为已放行生产程序。**', ''] : []),
     '## 一、概要',
     '',
     `- 件号：${partId}`,
@@ -94,7 +95,7 @@ export function buildDeliveryReport({
     `- 输出目录（proxy 侧）：${job?.out_dir ?? '—'}`,
     `- 工序数：${rows.length} 道`,
     `- 交付 NC：${check?.found ?? 0} 个（期望 ${check?.expected ?? expected.length} 个）`,
-    `- 交付结论：**${OVERALL_CN[overall] ?? overall}**${reason ? `——${reason}` : ''}`,
+    `- NC 文件对账：**${OVERALL_CN[overall] ?? overall}**${reason ? `——${reason}` : ''}`,
     '',
     '## 二、工序逐项结论',
     '',
@@ -138,9 +139,10 @@ export function buildDeliveryReport({
       + `${extra.length > 0 ? `；包内另有非本 run 期望的 .nc：${extra.join('、')}` : ''}`,
     `- 传输校验：zip sha256 \`${check?.zip_sha256 ?? '—'}\`（与响应头 X-CAM-SHA256 一致）`,
     '',
-    '## 五、检查结论',
+    '## 五、生产检查与放行状态',
     '',
-    `- 总结论：**${OVERALL_CN[overall] ?? overall}**`,
+    `- NC 生成与文件对账：**${OVERALL_CN[overall] ?? overall}**`,
+    ...(packageKind === 'problem' ? ['- 生产检查：未完成；未获生产放行。', ...productionBlockers.map(text => `- 未决项：${text}`)] : []),
   ])
   if (reason) lines.push(`- 原因：${reason}`)
   if (overall !== 'ok') {

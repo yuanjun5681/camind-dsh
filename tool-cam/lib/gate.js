@@ -169,7 +169,7 @@ export function evaluateCamDeliverGate({ dshHome, sessionId, runId }) {
       + `  件号：${partId}\n`
       + `  机床：${machineId}\n`
       + `  工序数：${ops.length}\n`
-      + `  检查结论：${overall}${overall === 'ok' ? '（全部工序 NC 在盘）' : `（${reason ?? '有工序未达 ok'}）`}\n`
+      + `  NC 生成结论：${overall}${overall === 'ok' ? '（全部工序 NC 在盘）' : `（${reason ?? '有工序未达 ok'}）`}\n`
       + `  NC 个数：${ncCount}（runstate ok 工序记录）\n`
       + `  run_id：${runId}\n`
       + '批准后将从 proxy 侧 out_dir 打包回收 *.nc（sha256 校验 + 开包实数对账），'
