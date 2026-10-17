@@ -160,6 +160,9 @@ assert.deepEqual(callsOf('setViewportInsets')[0][1][0], { top: 16, right: 0, bot
 hasComposer = true
 for (const observer of mutationObservers) observer.fn()
 assert.deepEqual(callsOf('setViewportInsets').at(-1)[1][0], { top: 16, right: 0, bottom: 116, left: 0 }, 'a late-mounted composer must be included in safe insets')
+const stableInsetCalls = callsOf('setViewportInsets').length
+for (const observer of mutationObservers) observer.fn()
+assert.equal(callsOf('setViewportInsets').length, stableInsetCalls, 'unchanged insets must not redraw the drawing')
 assert.equal(nodes(node => node.props['aria-label'] === '查找图纸文字').length, 1)
 assert.equal(nodes(node => node.props['aria-label'] === '查找图纸文字' && node.type === 'aside').length, 0, 'search starts collapsed')
 one(node => node.type === 'button' && node.props['aria-label'] === '查找图纸文字', 'search toggle').props.onClick()

@@ -160,7 +160,7 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing { display:flex; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; }
 .wb-drawing-stage { position:relative; display:flex; flex:1; min-width:0; min-height:0; background:#23272e; }
 .wb-drawing-controls { position:absolute; z-index:3; top:12px; left:12px; right:12px; display:flex; align-items:flex-start; flex-wrap:wrap; gap:8px; pointer-events:none; }
-.cdv-body-adapted > .wb-drawing-controls { position:static; grid-column:1/-1; grid-row:1; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
+.cdv-body-adapted > .wb-drawing-controls { position:relative; z-index:6; top:auto; left:auto; right:auto; grid-column:1/-1; grid-row:1; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
 .cdv-body-adapted > .wb-drawing-annotations { grid-column:2; grid-row:2; max-width:none; }
 .wb-drawing-tools { display:flex; align-items:center; gap:2px; padding:4px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 2px 8px #0002; pointer-events:auto; }
 .wb-drawing-tools button,.wb-drawing-tools summary { display:flex; align-items:center; justify-content:center; width:34px; height:34px; padding:7px; cursor:pointer; border-radius:6px; }
@@ -1370,7 +1370,7 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     if (!viewport || !controller) return
     const main = viewport.closest('.wb-main'), conversation = main?.closest('[data-conversation-content]')
     const observerRoot = conversation ?? main
-    let observedComposer = null
+    let observedComposer = null, lastInsets = null
     const update = () => {
       const composer = observerRoot?.querySelector('.wb-floating-composer') ?? null
       if (composer !== observedComposer) {
@@ -1386,7 +1386,10 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
       const composerVisible = composerRect && composerRect.width > 0 && composerRect.height > 0
         && composerRect.top < rect.bottom && composerRect.bottom > rect.top && !composer.classList.contains('wb-composer-muted')
       const bottom = composerVisible ? Math.min(rect.height / 3, Math.max(16, rect.bottom - composerRect.top + 16)) : 16
-      controller.setViewportInsets({ top, right: 0, bottom, left: 0 })
+      const next = { top, right: 0, bottom, left: 0 }
+      if (lastInsets && lastInsets.top === next.top && lastInsets.right === next.right && lastInsets.bottom === next.bottom && lastInsets.left === next.left) return
+      controller.setViewportInsets(next)
+      lastInsets = next
     }
     const resize = new ResizeObserver(update)
     resize.observe(viewport)
