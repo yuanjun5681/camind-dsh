@@ -187,3 +187,21 @@ await fifth
 assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3], 'deselection invalidates a pending verification')
 deferred = null
 console.log('ok - deselection or source invalidation cancels pending insertions')
+
+deferred = claimed => {
+  if (claimed.target.id === 6) return Promise.reject(new Error('旧引用失效'))
+  return new Promise(resolve => {
+    pending.set(claimed.target.id, () => resolve({
+      ok: true,
+      json: async () => ({ reference: claimed, targetContent: {} }),
+    }))
+  })
+}
+const sixth = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 6 } })
+const seventh = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 7 } })
+pending.get(7)()
+await seventh
+await sixth
+assert.deepEqual(state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).target.id), [7], 'superseded verification failures cannot overwrite the current selection')
+deferred = null
+console.log('ok - superseded verification failures are suppressed')

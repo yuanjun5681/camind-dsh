@@ -46,6 +46,7 @@ export function DrawingPreview({ descriptor, onReference }: { descriptor: Drawin
             })()
             return
           }
+          if (msg.targets.length) setError('')
           for (const reference of drawingReferences(descriptor, msg.targets)) {
             void (async () => {
               try { await callback.current?.(reference) }

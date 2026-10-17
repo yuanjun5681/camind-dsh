@@ -837,7 +837,14 @@ async function addDrawingReferenceToDraft(sessionId, reference) {
   let crossedBoundary = false
   const unsubscribe = input.state.subscribe?.(() => { if (input.state.getSnapshot().phase !== 'plain') crossedBoundary = true }) ?? (() => {})
   try {
-    const { reference: verified } = await verifyDrawingReference(sessionId, reference)
+    let verified
+    try {
+      const result = await verifyDrawingReference(sessionId, reference)
+      verified = result.reference
+    } catch (error) {
+      if (drawingReferenceSelections.get(sessionId) !== ticket || crossedBoundary || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
+      throw error
+    }
     if (crossedBoundary || drawingReferenceSelections.get(sessionId) !== ticket || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
     const state = input.state.getSnapshot()
     if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')

@@ -2598,6 +2598,7 @@ function DrawingPreview({ descriptor, onReference }) {
             })();
             return;
           }
+          if (msg.targets.length) setError("");
           for (const reference of drawingReferences(descriptor, msg.targets)) {
             void (async () => {
               try {
