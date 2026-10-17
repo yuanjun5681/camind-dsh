@@ -127,7 +127,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
       visibleDegraded?.skippedTypes.length ? h('span', { className: 'cdv-badge' }, `跳过未知类型：${visibleDegraded.skippedTypes.join('、')}`) : null),
     descriptor.missing?.length ? h('div', { className: 'cdv-missing' }, `缺失信息：${descriptor.missing.join('、')}`) : null,
     error ? h('div', { className: 'cdv-error', role: 'alert' }, error) : null,
-    h('div', { className: 'cdv-body' },
+    h('div', { className: adapter ? 'cdv-body cdv-body-adapted' : 'cdv-body' },
       h('div', {
         ref: host, className: 'cdv-canvas', tabIndex: 0, role: 'region',
         'aria-label': '二维图纸画布，拖动平移，滚轮缩放，F 适配全图',

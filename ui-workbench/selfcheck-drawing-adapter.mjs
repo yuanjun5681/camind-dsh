@@ -13,7 +13,7 @@ function domFor(className = '') {
   return {
     className,
     getBoundingClientRect: () => className === 'wb-drawing-controls'
-      ? { left: 0, top: 12, right: 700, bottom: 60, width: 700, height: 48 }
+      ? { left: 0, top: -48, right: 700, bottom: 0, width: 700, height: 48 }
       : { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 },
   }
 }
@@ -92,7 +92,11 @@ const controller = new Proxy({}, {
     return (...args) => { calls.push([key, args]) }
   },
 })
-const entities = Array.from({ length: 105 }, (_, index) => ({ id: index, type: 'mtext', layer: 'NOTES', text: `技术要求 ${index + 1}` }))
+const entities = [
+  ...Array.from({ length: 105 }, (_, index) => ({ id: index, type: 'mtext', layer: 'NOTES', text: `技术要求 ${index + 1}` })),
+  { id: 200, type: 'mtext', layer: 'DIM', text: 'Ø13', dim_id: 'D1' },
+  { id: 201, type: 'mleader', layer: 'DIM', text: { p: [100, -20], h: 3.5, text: '4×Ø8 通孔' } },
+]
 const descriptor = {
   name: 'part.dwg',
   packText: JSON.stringify({
@@ -149,10 +153,10 @@ const callsOf = name => JSON.parse(JSON.stringify(calls.filter(([method]) => met
 
 render()
 assert.equal(callsOf('setColorMode')[0][1][0], 'readable')
-assert.deepEqual(callsOf('setViewportInsets')[0][1][0], { top: 72, right: 0, bottom: 16, left: 0 })
+assert.deepEqual(callsOf('setViewportInsets')[0][1][0], { top: 16, right: 0, bottom: 16, left: 0 })
 hasComposer = true
 for (const observer of mutationObservers) observer.fn()
-assert.deepEqual(callsOf('setViewportInsets').at(-1)[1][0], { top: 72, right: 0, bottom: 116, left: 0 }, 'a late-mounted composer must be included in safe insets')
+assert.deepEqual(callsOf('setViewportInsets').at(-1)[1][0], { top: 16, right: 0, bottom: 116, left: 0 }, 'a late-mounted composer must be included in safe insets')
 assert.equal(nodes(node => node.props['aria-label'] === '查找图纸文字').length, 1)
 assert.equal(nodes(node => node.props['aria-label'] === '查找图纸文字' && node.type === 'aside').length, 0, 'search starts collapsed')
 one(node => node.type === 'button' && node.props['aria-label'] === '查找图纸文字', 'search toggle').props.onClick()
@@ -178,6 +182,7 @@ console.log('ok - search count, incremental results and keyboard browsing')
 
 one(node => node.props['aria-label'] === '搜索图纸文字', 'search input').props.onChange({ target: { value: 'Ø13' } })
 render()
+assert.equal(nodes(node => node.props['data-drawing-result']).length, 1, 'dimension child text must collapse into its canonical dimension target')
 one(node => node.props['data-drawing-result'] === 'dim:D1', 'dimension result').props.onClick()
 assert.deepEqual(callsOf('locateTarget').at(-1)[1], [{ type: 'dim', id: 'D1' }, true])
 props = { ...props, selection: [{ type: 'dim', id: 'D1' }] }
@@ -191,7 +196,12 @@ assert.equal(callsOf('clearSelection').length, 1)
 assert.equal(drawingDimensionComparison({ display_text: '50', measured: 51, dimlfac: 1 }), 'mismatch')
 assert.equal(drawingDimensionComparison({ display_text: '50' }), 'no-measured')
 assert.equal(drawingToleranceText({ tolerance: { upper: 0.02, lower: -0.01 } }), '+0.02/−0.01')
-console.log('ok - locateTarget, native selection clearing and dimension detail parity')
+props = { ...props, selection: [] }
+one(node => node.props['aria-label'] === '搜索图纸文字', 'search input').props.onChange({ target: { value: '4×Ø8' } })
+render()
+const leader = one(node => node.props['data-drawing-result'] === 'entity:201', 'nested leader text')
+assert.ok(text(leader).includes('4×Ø8 通孔'))
+console.log('ok - locateTarget, canonical dimensions, nested leader text and native selection clearing')
 
 const color = one(node => node.type === 'input' && node.props.type === 'checkbox', 'original color checkbox')
 color.props.onChange({ target: { checked: true } })
@@ -231,6 +241,7 @@ assert.equal(nodes(node => node.props.className === 'wb-drawing-box-surface').le
 console.log('ok - fit, zoom, rubber-band zoomToRect and Escape')
 
 const adapterSource = DrawingWorkbenchAdapter.toString()
+assert.ok(source.includes('.cdv-body-adapted > .wb-drawing-controls'), 'adapter toolbar must occupy its own grid row outside pane chrome')
 for (const forbidden of ['DraftPane', 'currentPane', 'glCanvas', 'detailBody', 'contextSnapshot', 'dangerouslySetInnerHTML', 'wb-drawing-selected']) {
   assert.equal(adapterSource.includes(forbidden), false, `adapter must not access or reimplement private renderer detail: ${forbidden}`)
 }

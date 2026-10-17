@@ -153,16 +153,18 @@ freshPreview()
 const controllerReferences = []
 const adapter = () => null
 const renderAdapter = () => { cursor = 0; tree = DrawingPreview({ descriptor: baseDescriptor, onReference: reference => { controllerReferences.push(reference) }, adapter }) }
-const adapterNode = root => {
-  if (root?.type === adapter) return root
+const findNode = (root, predicate) => {
+  if (predicate(root)) return root
   for (const child of root?.children ?? []) {
-    const found = adapterNode(child)
+    const found = findNode(child, predicate)
     if (found) return found
   }
   return null
 }
+const adapterNode = root => findNode(root, node => node?.type === adapter)
 renderAdapter()
 renderAdapter()
+assert.ok(findNode(tree, node => node?.props?.className?.includes('cdv-body-adapted')), 'adapter controls must use the separate grid row rather than covering pane chrome')
 let controls = adapterNode(tree).props
 assert.ok(controls.controller)
 assert.equal(controls.viewportRef.current, container)

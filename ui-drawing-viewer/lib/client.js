@@ -2641,6 +2641,8 @@ var drawingCss = `
   color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); background:var(--camind-surface-warning, transparent); }
 .cdv-missing { margin:0 8px 6px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
 .cdv-body { position:relative; display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
+.cdv-body-adapted { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto minmax(0,1fr); }
+.cdv-body-adapted > .cdv-canvas { grid-column:1; grid-row:2; }
 .cdv-canvas { position:relative; flex:1; min-height:240px; min-width:0; overflow:hidden; }
 .cdv-canvas:focus-visible { outline:2px solid var(--camind-color-primary, var(--dsw-alias-state-business-primary)); outline-offset:-2px; }
 /* The mirrored DraftPane uses fixed-dark panels; keep a fixed light foreground in both themes. */
@@ -2778,7 +2780,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
     error ? h("div", { className: "cdv-error", role: "alert" }, error) : null,
     h(
       "div",
-      { className: "cdv-body" },
+      { className: adapter ? "cdv-body cdv-body-adapted" : "cdv-body" },
       h("div", {
         ref: host,
         className: "cdv-canvas",

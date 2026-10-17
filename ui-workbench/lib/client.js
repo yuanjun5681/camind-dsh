@@ -160,6 +160,8 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing { display:flex; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; }
 .wb-drawing-stage { position:relative; display:flex; flex:1; min-width:0; min-height:0; background:#23272e; }
 .wb-drawing-controls { position:absolute; z-index:3; top:12px; left:12px; right:12px; display:flex; align-items:flex-start; flex-wrap:wrap; gap:8px; pointer-events:none; }
+.cdv-body-adapted > .wb-drawing-controls { position:static; grid-column:1/-1; grid-row:1; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
+.cdv-body-adapted > .wb-drawing-annotations { grid-column:2; grid-row:2; }
 .wb-drawing-tools { display:flex; align-items:center; gap:2px; padding:4px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 2px 8px #0002; pointer-events:auto; }
 .wb-drawing-tools button,.wb-drawing-tools summary { display:flex; align-items:center; justify-content:center; width:34px; height:34px; padding:7px; cursor:pointer; border-radius:6px; }
 .wb-drawing-tools svg { width:20px; height:20px; }
@@ -1341,6 +1343,12 @@ function drawingToleranceText(dim) {
   if (lower !== undefined) return `−${Math.abs(lower)}`
   return ''
 }
+function drawingEntityText(entity) {
+  const nested = entity.text && typeof entity.text === 'object' ? entity.text.text : ''
+  const direct = typeof entity.text === 'string' ? entity.text : typeof nested === 'string' ? nested : ''
+  const cells = (entity.cells ?? []).map(cell => typeof cell?.text === 'string' ? cell.text : '').filter(Boolean)
+  return [direct, ...cells].filter(Boolean).join(' ').trim()
+}
 function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef }) {
   const [query, setQuery] = useState(''), [limit, setLimit] = useState(100), [open, setOpen] = useState(false)
   const [originalColors, setOriginalColors] = useState(false), [boxMode, setBoxMode] = useState(false), [boxRect, setBoxRect] = useState(null)
@@ -1389,15 +1397,18 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
   const pack = React.useMemo(() => {
     try { return JSON.parse(descriptor.packText) } catch { return null }
   }, [descriptor])
-  const targets = React.useMemo(() => [
-    ...(pack?.dims ?? []).map(dim => ({ type: 'dim', id: dim.id, entity: dim, display_text: dim.display_text })),
-    ...(pack?.entities ?? []).filter(entity => entity.text?.trim() || entity.cells?.length || entity.nominal !== undefined)
-      .map(entity => ({ type: 'entity', id: entity.id, entity })),
-  ], [pack])
+  const targets = React.useMemo(() => {
+    const dims = pack?.dims ?? [], dimIds = new Set(dims.map(dim => dim.id))
+    return [
+      ...dims.map(dim => ({ type: 'dim', id: dim.id, entity: dim, display_text: dim.display_text })),
+      ...(pack?.entities ?? []).filter(entity => !dimIds.has(entity.dim_id) && (drawingEntityText(entity) || entity.nominal !== undefined))
+        .map(entity => ({ type: 'entity', id: entity.id, entity })),
+    ]
+  }, [pack])
   const labelOf = target => {
     if (target.type === 'dim') return target.display_text || `尺寸 ${target.id}`
     const entity = target.entity
-    return entity.text?.trim() || entity.cells?.map(cell => cell.text).filter(Boolean).join(' ') || `图纸标称 ${entity.nominal ?? entity.type}`
+    return drawingEntityText(entity) || `图纸标称 ${entity.nominal ?? entity.type}`
   }
   const filtered = React.useMemo(() => query.trim()
     ? targets.filter(target => `${labelOf(target)} ${target.entity.layer ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
@@ -1475,7 +1486,7 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
           h('dt', null, '比对'), h('dd', { 'data-compare': comparison, className: comparison === 'mismatch' ? 'wb-drawing-dim-mismatch' : '' }, { match: '显示值与实测值一致', mismatch: '显示值与实测值不一致', 'no-measured': '缺少实测值，无法比对', unparseable: '显示值无法解析，无法比对' }[comparison]),
           h('dt', null, '公差'), h('dd', null, drawingToleranceText(selected.entity) || '未标注'),
           h('dt', null, '来源'), h('dd', null, `${selected.entity.id}${selected.entity.inferred ? ' · 自动推算显示文字' : ''}`))
-          : h('p', null, `${selected.entity.text || `图纸标称 ${selected.entity.nominal ?? '未读取'}`} · 图层 ${selected.entity.layer || '未标注'} · 来源 ${selected.entity.id}`),
+          : h('p', null, `${drawingEntityText(selected.entity) || `图纸标称 ${selected.entity.nominal ?? '未读取'}`} · 图层 ${selected.entity.layer || '未标注'} · 来源 ${selected.entity.id}`),
         h('p', null, '已设为当前提问对象，可直接输入问题。'),
         h(Button, { onClick: () => controller?.clearSelection() }, '清除当前提问对象'))))
 }
