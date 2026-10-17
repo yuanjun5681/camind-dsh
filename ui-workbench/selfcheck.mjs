@@ -50,7 +50,7 @@ services.set('inputTriggers', { registerSource: definition => { codec = definiti
 async function load(file) {
   let plugin
   let code = await fs.readFile(new URL(file, import.meta.url), 'utf8')
-  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { submitWorkbenchRequest, composerViewportRect, confirmedScheme, SchemeWorkflow, TaskOperations, TaskAnswer, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
+  if (file === './lib/client.js') code = code.replace('exports.apply = apply', 'exports.taskComponents = { DrawingPreviewStatus, DrawingConversionDetails, drawingDisplayColor, drawingAnnotationLabel, submitWorkbenchRequest, composerViewportRect, confirmedScheme, SchemeWorkflow, TaskOperations, TaskAnswer, PlanReview, DeliverablesTab, TaskWizard, WizardQuestion, TaskRequirements, RequirementList }; exports.apply = apply')
   vm.runInNewContext(code, {
     window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : { Button: 'button', Tooltip: 'tooltip', MarkdownText: 'markdown', IconGaugeOutlineRegular: 'icon' }) } } },
     Blob, URL, URLSearchParams, AbortController, document: { body: {} },
@@ -64,6 +64,19 @@ async function load(file) {
 }
 await load('../ui-preview/lib/client.js')
 await load('./lib/client.js')
+assert.notEqual(taskComponents.drawingDisplayColor('rgb(0, 0, 255)'), 'rgb(0, 0, 255)', 'Unreadable blue is brightened')
+assert.equal(taskComponents.drawingDisplayColor('rgb(255, 255, 255)'), 'rgb(255, 255, 255)')
+assert.equal(taskComponents.drawingDisplayColor('none'), 'none')
+assert.equal(taskComponents.drawingAnnotationLabel({ text: '{\\A1;A}' }), 'A')
+assert.equal(taskComponents.drawingAnnotationLabel({ text: '', nominal: 85 }), '图纸标称 85')
+const previewInfo = { status: 'ready', messages: [], omissions: ['已省略 167 个标注辅助点，不作为图纸内容显示。'], diagnostics: 'ignored_dimension_defpoint: 167' }
+assert.equal(taskComponents.DrawingPreviewStatus({ info: previewInfo }), null, 'Known helper omissions do not create a warning badge')
+const missingInfo = { ...previewInfo, status: 'partial', messages: ['2 个图片对象未能显示，请打开原图核对。'] }
+const previewStatus = JSON.stringify(taskComponents.DrawingPreviewStatus({ info: missingInfo, showDetails: () => {} }))
+assert(previewStatus.includes('预览有缺失')); assert(previewStatus.includes('图片')); assert(!previewStatus.includes('ignored_dimension_defpoint'))
+assert(JSON.stringify(taskComponents.DrawingPreviewStatus({ info: { ...missingInfo, status: 'fallback' } })).includes('已使用兼容预览'))
+const previewDetails = JSON.stringify(taskComponents.DrawingConversionDetails({ info: previewInfo }))
+assert(previewDetails.includes('标注辅助点')); assert(previewDetails.includes('转换详情')); assert(previewDetails.includes('readOnly'))
 const canvasRect = { left: 280, right: 885, bottom: 820, width: 605, height: 686 }
 const collapsedStage = { left: 280, right: 280, bottom: 407, width: 0, height: 0 }
 assert.equal(taskComponents.composerViewportRect(canvasRect, collapsedStage, false), canvasRect, 'Collapsed model viewport must not collapse composer or approval')

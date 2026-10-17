@@ -1,0 +1,29 @@
+{
+  "name": "camind-service-draft-converter",
+  "version": "0.1.0",
+  "description": "DWG/DXF → camind-draft-pack v1 converter (draftConverter Cordis service; TS-port of CAM-Agent dwg_to_draft_v1.py, runtime dep = external dwg2dxf CLI only).",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./convert": "./lib/convert.js",
+    "./packcheck": "./lib/packcheck.js",
+    "./svg": "./lib/svg.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cli.mjs",
+    "selfcheck.mjs",
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -71,6 +71,10 @@ service-git-repository/ 通用 Cordis `gitRepository` 服务（`camind-service-g
 service-machine/    机床档案注册表（`camind-service-machine`）：只读 `machineRegistry`
                     Cordis 服务（list/get/snapshot，数据源 .dsh/machines/*.yaml）+
                     list_machines/read_machine 工具；headless/web 全局加载
+service-draft-converter/ DWG/DXF → camind-draft-pack v1 图纸包转换服务
+                    （`camind-service-draft-converter`）：CAM-Agent `dwg_to_draft_v1.py`
+                    的纯 JS 移植（draftConverter Cordis 服务 + CLI；运行时唯一外部依赖
+                    = 用户自装的 dwg2dxf CLI，GPL 铁律不进安装包）；headless/web/desktop 全局加载
 tool-upload/        通用上传工具集：当前 session 的上传文件列表与分段读取；所有模式全局加载
 tool-cam/           CAM 加工插件（`camind-tool-cam`，设计稿 docs/cam-machining-design.md）：
                     camPipeline 服务（CAM-Agent proxy 客户端：连接配置 + ping +
@@ -151,7 +155,7 @@ npm run check:dsh-version
 
 一个 bundle = 带 `dsh.bundle` 声明的 npm 包，三个文件：`package.json`、`cordis.patch.yml`、`index.js`。照抄现有示例的结构即可，要点：
 
-- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有十四个：`camind-ui-shell`（ui-shell/）、`camind-ui-foundation`（ui-foundation/）、`camind-ui-preview`（ui-preview/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-ui-model-viewer`（ui-model-viewer/）、`camind-ui-workbench`（ui-workbench/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）、`camind-service-machine`（service-machine/）。
+- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有十五个：`camind-ui-shell`（ui-shell/）、`camind-ui-foundation`（ui-foundation/）、`camind-ui-preview`（ui-preview/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-ui-model-viewer`（ui-model-viewer/）、`camind-ui-workbench`（ui-workbench/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）、`camind-service-machine`（service-machine/）、`camind-service-draft-converter`（service-draft-converter/）。
 - 插件是导出 `apply(ctx)` 的 ESM 模块；`export const inject = ['tools', 'commands', ...]` 声明消费的服务，Cordis 等其就绪后才运行 `apply`。通过 `ctx` 注册的一切都是可逆 effect，卸载自动回收；手动资源用 `ctx.effect(() => disposer)`。
 - `package.json` 声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`；有浏览器代码时再加 `"dsh": { "client": { "platform": "web" } }` 并导出 `./client`。
 - `cordis.patch.yml` 的插件行按**包名**引用（`- insert: [{ id: ..., name: <包名> }]`），Node 解析到安装后的代码。
@@ -163,7 +167,7 @@ npm run check:dsh-version
 
 ## 测试策略
 
-本项目没有统一测试框架；文件预览引用边界有 assert 自检：`node ui-preview/selfcheck.mjs`，三维模型插件自检：`node ui-model-viewer/selfcheck.mjs`（先 `node ui-model-viewer/build.mjs`；构建复用 ui-shell 的 esbuild）。其余主要验证手段是手动冒烟：
+本项目没有统一测试框架；文件预览引用边界有 assert 自检：`node ui-preview/selfcheck.mjs`，三维模型插件自检：`node ui-model-viewer/selfcheck.mjs`（先 `node ui-model-viewer/build.mjs`；构建复用 ui-shell 的 esbuild），图纸转换器自检：`node service-draft-converter/selfcheck.mjs`（合成 DXF 用例常开；黄金对照需 `DRAFT_GOLDEN_DWG` + `DRAFT_GOLDEN_PY` 两个环境变量指向本地真图与 Python 版包，敏感图纸不入库）。其余主要验证手段是手动冒烟：
 
 1. `--dump-config`（无需 API key）：确认插件行出现在组合后的配置里。
 2. `http://127.0.0.1:3080/`（302 到 `/camind/`）：验证自定义前端（需先在 `ui-shell/` 执行 `npm install && npm run build`）。新会话页 `/` 显示 Camind 品牌区（CAM 虎钳工匠 mascot + 字标 + Harness 徽章）、紧随其下的示例卡片，与官方工作区行/输入卡组成一个整体居中组，官方鱼标/「探索未至之境」/预览徽章不再出现（ui-home 叠加 + CSS 隐藏）；点示例直接写入输入框草稿（无会话时先自动接最近工作区的 blank 会话再预填）。侧栏顶部显示同一 mascot + 字标（ui-brand 占 `sidebar.brand.mark`/`sidebar.brand.name` 席位；折叠 rail 只剩 mascot），底部「设置」上方显示「记忆库」（page-memory），点击进入 `/camind/pages/memory`：知识/经验双 tab 列表、搜索与 chip 过滤、上传 .md/.txt 后元数据自动生成（「生成中」→ 自动填好或「生成失败」可编辑手填）、编辑/删除、经验采纳/弃用，详情深链接刷新保持。Composer 加号打开斜杠命令列表（含命令与技能），输入 `/` 同样弹出。官方壳由 `http://127.0.0.1:3080/web`（302 到 `/index.html`）访问，保持原生品牌与布局。

@@ -9,7 +9,7 @@ export function createTaskRoute(ctx, tasks) {
       const url = new URL(req.url, 'http://localhost'), match = /^\/camind\/api\/cam\/tasks\/([A-Za-z0-9][A-Za-z0-9_-]{0,160})(?:\/(drawing|collect|answer|finish-review|authorize|stop|revise|reference|operations|release))?$/.exec(url.pathname)
       if (!match) return send(res, 404, { ok: false, message: '任务接口不存在' })
       const [, sid, action] = match
-      if (req.method === 'GET' && (!action || action === 'drawing')) return send(res, 200, { ok: true, data: action ? await tasks.drawing(sid) : await tasks.read(sid) })
+      if (req.method === 'GET' && (!action || action === 'drawing')) return send(res, 200, { ok: true, data: action ? await tasks.drawing(sid, { preview: true }) : await tasks.read(sid) })
       if (req.method !== 'POST' || !action || action === 'drawing') return send(res, 405, { ok: false, message: '方法不支持' })
       if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 415, { ok: false, message: '仅接受 application/json' })
       const chunks = []; let length = 0

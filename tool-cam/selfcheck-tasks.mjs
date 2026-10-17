@@ -24,13 +24,21 @@ try {
   const drawing = { readable: true, units: 'mm', preview_partial: true, annotations: [{ id: 'a1', text: '材料6061' }], svg: '<svg/>', note: 'fixture only' }
   const options = { home, resolve: async (sid, ref) => { assert.equal(sid, 'session-a'); if (!['prt', 'dwg'].includes(ref)) throw new Error('not owned'); return { file: ref === 'prt' ? prt : dwg } },
     machineRegistry: { snapshot: id => { assert.equal(id, 'machine-a'); return { id, version: 1, spindle: { rpm_min: 50, rpm_max: 12000 }, kinematics: { max_cut_feed_mm_min: 10000 } } } },
-    geometry: async () => ({ state: 'ready', geometry_sha256: 'a'.repeat(64), manifest: { units: 'mm' } }), drawingReader: async () => drawing }
+    geometry: async () => ({ state: 'ready', geometry_sha256: 'a'.repeat(64), manifest: { units: 'mm' } }), drawingReader: async () => drawing,
+    drawingPreview: async () => ({ svg: '<svg>updated display</svg>', preview_partial: false, note: '', preview_info: { status: 'ready', messages: [], omissions: ['辅助点'], diagnostics: '' } }) }
   let service = createCamTasks(options), task = await service.read('session-a')
   assert.equal(task.version, 0); assert(task.blockers.length)
   await assert.rejects(service.collect('../escape', 0, { prt: 'prt' }))
   await assert.rejects(service.collect('session-b', 0, { prt: 'prt' }))
   task = await service.collect('session-a', 0, { prt: 'prt', dwg: 'dwg' })
   assert.equal(task.inputs.prt.sha256, digest('synthetic NX fixture'))
+  const frozenDrawing = await service.drawing('session-a'), beforeDisplay = await service.read('session-a')
+  const displays = await Promise.all([service.drawing('session-a', { preview: true }), service.drawing('session-a', { preview: true })])
+  assert.equal(displays[0].svg, '<svg>updated display</svg>')
+  assert.equal(displays[0].preview_info.status, 'ready', 'Display status must reach the drawing route')
+  assert.deepEqual(displays[0].annotations, frozenDrawing.annotations)
+  assert.deepEqual(await service.drawing('session-a'), frozenDrawing, 'Display refresh must not rewrite frozen evidence')
+  assert.deepEqual(await service.read('session-a'), beforeDisplay, 'Display refresh must not alter task version or authorization')
   await assert.rejects(service.finishReview('session-a', task.version, task.review.fingerprint), /对应/)
   await assert.rejects(service.answer('session-a', task.version, 'input_pair', '暂不确定', true), /尚未确认/)
   task = await service.answer('session-a', task.version, 'input_pair', '暂不确定', false)

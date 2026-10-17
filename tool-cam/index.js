@@ -30,6 +30,7 @@ import z from '@deepseek-ai/schemastery'
 import os from 'node:os'
 import path from 'node:path'
 import { createCamTasks } from './lib/tasks.js'
+import { readDrawing, readDrawingPreview } from './lib/drawing.js'
 import { registerTaskRoute } from './lib/task-route.js'
 import { registerCamTask } from './lib/tools/task.js'
 import { validateTaskReferences } from './lib/task-references.js'
@@ -79,6 +80,9 @@ export function apply(ctx, config) {
   const camTasks = createCamTasks({
     home: process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh'),
     machineRegistry: ctx.machineRegistry,
+    // 当前预览与冻结标注证据分离;转换失败时明确回退兼容预览。
+    drawingReader: (file) => readDrawing(file, { converter: ctx.get('draftConverter') }),
+    drawingPreview: (file) => readDrawingPreview(file, { converter: ctx.get('draftConverter') }),
     async resolve(sid, reference, exec) {
       if (reference.startsWith('task-input://')) throw new Error('接件请选择原始会话文件；归档快照用于读件/引用')
       const preview = ctx.get('previewFiles')

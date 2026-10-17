@@ -158,17 +158,46 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-review-foot span { font-size:12px; color:var(--dsw-alias-label-secondary); }
 .wb-notice { margin:12px; font-size:13px; color:var(--dsw-alias-state-warn-primary); overflow-wrap:anywhere; }
 .wb-drawing { display:flex; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; }
-.wb-drawing-stage { display:flex; flex:1; min-width:0; flex-direction:column; background:#fff; color:#202833; }
-.wb-drawing-stage > p { margin:10px 14px!important; font-size:12px; flex:none; }
-.wb-drawing-controls { display:flex; flex:none; flex-wrap:wrap; align-items:center; gap:6px; padding:0 12px 8px; font-size:12px; }
-.wb-drawing-controls small { color:#59616c; }
-.wb-drawing-svg { touch-action:none; cursor:grab; flex:1; min-height:0; padding:12px; overflow:hidden; }
-.wb-drawing-svg svg { width:100%; height:100%; display:block; }
-.wb-drawing-svg svg [stroke]:not([stroke="none"]) { stroke-width:1px; vector-effect:non-scaling-stroke; }
-.wb-drawing-annotations { flex:none; width:280px; max-width:40%; overflow:auto; padding:12px; border-left:1px solid var(--dsw-alias-border-l2); }
-.wb-drawing-annotations h3 { font-size:14px; margin:0 0 12px; }
-.wb-drawing-annotations > p { font-size:12px; color:var(--dsw-alias-label-tertiary); }
-.wb-drawing-annotations > button { padding:8px!important; margin:3px 0; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); background:transparent; color:inherit; font:inherit; font-size:12px; cursor:pointer; }
+.wb-drawing-stage { position:relative; display:flex; flex:1; min-width:0; min-height:0; background:#23272e; }
+.wb-drawing-controls { position:absolute; z-index:3; top:12px; left:12px; right:12px; display:flex; align-items:flex-start; flex-wrap:wrap; gap:8px; pointer-events:none; }
+.wb-drawing-tools { display:flex; align-items:center; gap:2px; padding:4px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 2px 8px #0002; pointer-events:auto; }
+.wb-drawing-tools button,.wb-drawing-tools summary { display:flex; align-items:center; justify-content:center; width:34px; height:34px; padding:7px; cursor:pointer; border-radius:6px; }
+.wb-drawing-tools svg { width:20px; height:20px; }
+.wb-drawing-tools button[aria-pressed="true"] { background:var(--dsw-alias-interactive-bg-hover); color:var(--dsw-alias-state-business-primary); }
+.wb-drawing-tools details { position:relative; }
+.wb-drawing-tools summary { list-style:none; }
+.wb-drawing-tools summary::-webkit-details-marker { display:none; }
+.wb-drawing-menu { position:absolute; top:42px; left:0; width:240px; max-width:calc(100vw - 100px); padding:12px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); box-shadow:0 4px 16px #0003; font-size:12px; }
+.wb-drawing-menu label { display:flex; gap:8px; align-items:center; }
+.wb-drawing-menu p { margin:10px 0 0; color:var(--dsw-alias-label-secondary); }
+.wb-main-head { position:relative; z-index:4; }
+.wb-preview-status { position:relative; flex:none; font-size:12px; font-weight:400; }
+.wb-preview-status > summary { display:flex; align-items:center; gap:4px; padding:3px 7px; border:1px solid currentColor; border-radius:6px; color:var(--dsw-alias-state-warn-primary); cursor:pointer; list-style:none; white-space:nowrap; }
+.wb-preview-status > summary::-webkit-details-marker { display:none; }
+.wb-preview-popover { position:absolute; top:calc(100% + 8px); right:0; z-index:20; width:320px; max-width:calc(100vw - 32px); padding:12px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 4px 16px #0003; }
+.wb-preview-popover p { margin:0 0 10px; overflow-wrap:anywhere; }
+.wb-drawing-tools .wb-conversion-details summary { display:block; width:auto; height:auto; padding:8px 0; }
+.wb-conversion-details { margin-top:8px; border-top:1px solid var(--dsw-alias-border-l2); }
+.wb-conversion-details textarea { width:100%; min-height:100px; max-height:180px; padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:4px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-secondary); font:11px/1.5 monospace; resize:vertical; }
+.wb-drawing-menu { max-height:calc(100vh - 260px); overflow:auto; }
+.wb-drawing-stage > .wb-notice { position:absolute; left:12px; bottom:80px; z-index:3; background:var(--dsw-alias-bg-base); padding:8px; }
+.wb-drawing-svg { position:relative; touch-action:none; user-select:none; -webkit-user-select:none; cursor:grab; flex:1; min-width:0; min-height:0; overflow:hidden; }
+.wb-drawing-svg:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:-2px; }
+.wb-drawing-svg[data-dragging="true"] { cursor:grabbing; }
+.wb-drawing-svg[data-box="true"] { cursor:crosshair; }
+.wb-drawing-svg > svg { width:100%; height:100%; display:block; }
+.wb-drawing-selection { position:absolute; pointer-events:none; border:1px solid #91bfff; background:#91bfff22; }
+.wb-drawing-annotations { display:flex; flex-direction:column; flex:none; width:300px; max-width:45%; min-height:0; padding:12px; border-left:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
+.wb-drawing-annotations header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
+.wb-drawing-annotations h3 { font-size:14px; margin:0; }
+.wb-drawing-annotations > p { font-size:12px; color:var(--dsw-alias-label-tertiary); margin:8px 0; }
+.wb-drawing-annotation-list { overflow:auto; min-height:0; flex:1; }
+.wb-drawing-annotation-list > button { display:block; text-align:left; width:100%; padding:10px 8px; margin:2px 0; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); border-radius:4px; background:transparent; color:inherit; font:inherit; font-size:13px; cursor:pointer; overflow-wrap:anywhere; white-space:pre-wrap; }
+.wb-drawing-annotation-list > button[aria-pressed="true"] { background:var(--dsw-alias-interactive-bg-hover); box-shadow:inset 3px 0 var(--dsw-alias-state-business-primary); }
+.wb-drawing-annotations small { display:block; color:var(--dsw-alias-label-tertiary); font-size:11px; margin-top:4px; }
+.wb-drawing-annotation-detail { flex:none; max-height:45%; overflow:auto; padding:12px 0 0; border-top:1px solid var(--dsw-alias-border-l2); font-size:12px; }
+.wb-drawing-annotation-detail p { white-space:pre-wrap; overflow-wrap:anywhere; }
+@container (max-width:736px) { .wb-drawing-annotations { position:absolute; right:0; top:0; bottom:0; width:300px; max-width:85%; z-index:4; } }
 .wb-agent .wb-response { max-height:120px; }
 @container (max-width:900px) { .wb-context { position:absolute; inset:0 48px 0 auto; width:340px; max-width:75%; z-index:8; box-shadow:-4px 0 16px #0002; } .wb-review-scrim { padding:16px; } .wb-review-head { padding:12px; flex-wrap:wrap; } .wb-review-body { padding:12px; } }
 
@@ -820,7 +849,7 @@ function AgentPanel({ sessionId }) {
     seat.classList.toggle('wb-composer-confirmation', state.pending)
     const measure = () => {
       const canvas = main.querySelector('.wb-canvas')
-      const stage = canvas?.querySelector('.wb-preview-stage:not([hidden]) .cmv-stage')
+      const stage = canvas?.querySelector('.wb-preview-stage:not([hidden]) .cmv-stage, .wb-preview-stage:not([hidden]) .wb-drawing-stage')
       const rect = composerViewportRect((canvas || content).getBoundingClientRect(), stage?.getBoundingClientRect(), state.pending)
       const side = main.querySelector('.wb-context')?.getBoundingClientRect()
       const right = side && side.left > rect.left && side.left < rect.right ? side.left : rect.right
@@ -984,7 +1013,7 @@ function sanitizeDwgSvg(text) {
   const doc = new DOMParser().parseFromString(text, 'image/svg+xml')
   if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'svg') throw new Error('SVG 转换结果不合法')
   const tags = new Set(['svg', 'g', 'defs', 'symbol', 'use', 'path', 'line', 'polyline', 'polygon', 'circle', 'ellipse', 'rect', 'text', 'tspan', 'title', 'desc'])
-  const attrs = new Set(['id', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'fill-rule', 'font-size', 'font-family', 'text-anchor', 'dominant-baseline', 'preserveAspectRatio'])
+  const attrs = new Set(['id', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'fill-rule', 'font-size', 'font-family', 'text-anchor', 'dominant-baseline', 'preserveAspectRatio'])
   let count = 0
   function clean(node) {
     if (++count > 20000) throw new Error('图纸预览节点超过 20000，暂不显示')
@@ -1004,65 +1033,206 @@ function sanitizeDwgSvg(text) {
   doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   return new XMLSerializer().serializeToString(doc.documentElement)
 }
-function DwgPane({ sessionId, record }) {
-  const [data, setData] = useState(null), [error, setError] = useState(''), [selected, setSelected] = useState(null), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
-  const drawingHost = useRef(null)
-  const fit = (all = false) => {
-    const svg = drawingHost.current?.querySelector('svg')
-    if (!svg) return
+// Brighten only unreadable colors; raw attributes remain available for original-color mode.
+function drawingDisplayColor(value) {
+  const rgb = value.match(/^rgb\(\s*(\d+)[, ]+\s*(\d+)[, ]+\s*(\d+)\s*\)$/)?.slice(1).map(Number)
+  if (!rgb) return value
+  const luminance = values => values.map(v => { const s = v / 255; return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4 }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0)
+  const background = luminance([35, 39, 46])
+  let result = rgb
+  for (let step = 0; step <= 20; step++) {
+    result = rgb.map(v => Math.round(v + (255 - v) * step / 20))
+    if ((luminance(result) + .05) / (background + .05) >= 4.5) break
+  }
+  return `rgb(${result.join(', ')})`
+}
+function drawingAnnotationLabel(entity) {
+  // shortcut: strip known inline display codes only; full MTEXT layout remains in the converter.
+  const text = String(entity.text || '').replace(/\\[ACFHQTWacfhqtw][^;\\{}]*;/g, '').replace(/\\[LlOoKk]/g, '')
+  return text.replace(/[{}]/g, '').trim() || `图纸标称 ${entity.nominal ?? '未读取'}`
+}
+function DrawingIcon({ name }) {
+  const paths = { minus: 'M5 12h14', plus: 'M5 12h14M12 5v14', fit: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M7 7h10v10H7z', box: 'M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M8 12h8M12 8v8', annotations: 'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5', more: 'M5 12h.01M12 12h.01M19 12h.01' }
+  return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: paths[name] }))
+}
+function DrawingTool({ name, label, ...props }) {
+  return h(Tooltip, { label, delayMs: 400 }, h(Button, { ...props, 'aria-label': label }, h(DrawingIcon, { name })))
+}
+// ViewBox always matches the viewport aspect ratio: screen/world transforms stay exact.
+function mountDrawingViewport(host, onBoxMode, onError) {
+  const svg = host.querySelector('svg'), selection = document.createElement('div')
+  selection.className = 'wb-drawing-selection'; selection.hidden = true; host.append(selection)
+  const oldBackground = svg.querySelector(':scope > rect[fill="#23272e"]')
+  if (oldBackground && oldBackground.getAttribute('x') === svg.getAttribute('viewBox')?.split(/\s+/)[0]) oldBackground.remove()
+  for (const node of svg.querySelectorAll('[stroke-width]')) {
+    const width = Number(node.getAttribute('stroke-width'))
+    if (Number.isFinite(width) && width > 0) node.style.strokeWidth = `max(${width}px, var(--wb-min-stroke, 0px))`
+  }
+  const colors = [...svg.querySelectorAll('[fill],[stroke]')].flatMap(node => ['fill', 'stroke'].filter(attr => node.hasAttribute(attr) && node.getAttribute(attr) !== 'none').map(attr => ({ node, attr, raw: node.getAttribute(attr), readable: drawingDisplayColor(getComputedStyle(node)[attr]) })))
+  let bounds, drag, boxMode = false, fitted = false, size
+  const view = () => { const b = svg.viewBox.baseVal; return { x: b.x, y: b.y, width: b.width, height: b.height } }
+  const set = b => {
+    if (!Object.values(b).every(Number.isFinite) || b.width <= 0 || b.height <= 0) return
+    svg.setAttribute('viewBox', `${b.x} ${b.y} ${b.width} ${b.height}`)
+    // Keep fine lines legible without converting world-space dash lengths into screen pixels.
+    const matrix = svg.getScreenCTM(), scale = Math.hypot(matrix.a, matrix.b)
+    if (scale > 0) svg.style.setProperty('--wb-min-stroke', `${.85 / scale}px`)
+  }
+  const screenPoint = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; return p.matrixTransform(svg.getScreenCTM().inverse()) }
+  const setBox = value => { boxMode = value; host.dataset.box = String(value); onBoxMode(value) }
+  const finish = () => { const pointer = drag?.pointerId; drag = null; selection.hidden = true; host.dataset.dragging = 'false'; if (pointer !== undefined && host.hasPointerCapture(pointer)) host.releasePointerCapture(pointer) }
+  const fitBox = (b, safe = true) => {
+    const r = host.getBoundingClientRect(); if (!r.width || !r.height) return
+    const toolbar = host.parentElement.querySelector('.wb-drawing-controls')?.getBoundingClientRect()
+    const top = safe ? Math.min(toolbar ? toolbar.bottom - r.top + 16 : 64, r.height / 3) : 16
+    const composer = host.closest('.wb-main')?.querySelector('.wb-floating-composer')?.getBoundingClientRect()
+    const bottom = safe ? Math.min(r.height / 3, Math.max(72, composer?.height + 32 || 0)) : 16
+    const scale = Math.max(Math.max(b.width, .001) / Math.max(1, r.width - 32), Math.max(b.height, .001) / Math.max(1, r.height - top - bottom)) * 1.04
+    const width = r.width * scale, height = r.height * scale
+    set({ x: b.x + b.width / 2 - width / 2, y: b.y + b.height / 2 - (top + (r.height - top - bottom) / 2) * scale, width, height })
+    fitted = true; size = { width: r.width, height: r.height }
+  }
+  const fit = () => {
     try {
-      // LibreDWG block inserts may carry paper-space offsets. The default
-      // explicitly fits direct model-space geometry; full extents remain available.
-      const nodes = [...svg.children].filter(n => ['path', 'circle', 'ellipse', 'line', 'polyline', 'polygon'].includes(n.localName))
-      let box = svg.getBBox()
-      if (!all && nodes.length) {
-        const inverse = svg.getCTM().inverse(), points = []
-        for (const node of nodes) {
-          const b = node.getBBox(), matrix = inverse.multiply(node.getCTM())
-          for (const [x, y] of [[b.x,b.y],[b.x+b.width,b.y],[b.x,b.y+b.height],[b.x+b.width,b.y+b.height]]) {
-            const point = svg.createSVGPoint(); point.x=x; point.y=y; points.push(point.matrixTransform(matrix))
-          }
-        }
-        const x = Math.min(...points.map(p=>p.x)), y = Math.min(...points.map(p=>p.y))
-        box = { x, y, width: Math.max(...points.map(p=>p.x))-x, height: Math.max(...points.map(p=>p.y))-y }
+      // SVG text metrics can round differently at different zoom levels; fit uses one stable extent.
+      bounds ||= svg.getBBox()
+      if (!(bounds.width > 0 || bounds.height > 0)) throw new Error('图纸没有可显示的内容')
+      fitBox(bounds); onError('')
+    } catch (error) { onError(error.message) }
+  }
+  const zoom = (factor, clientX, clientY) => {
+    if (!fitted) return
+    const r = host.getBoundingClientRect(), b = view()
+    const p = screenPoint(clientX ?? r.left + r.width / 2, clientY ?? r.top + r.height / 2)
+    const min = Math.max(bounds.width, bounds.height, 1) / 10000, max = Math.max(bounds.width, bounds.height, 1) * 100
+    factor = Math.max(min / b.width, Math.min(max / b.width, factor))
+    set({ x: p.x - (p.x - b.x) * factor, y: p.y - (p.y - b.y) * factor, width: b.width * factor, height: b.height * factor })
+  }
+  const down = e => {
+    if (![0, 1].includes(e.button) || drag || !fitted) return
+    e.preventDefault(); host.focus({ preventScroll: true })
+    drag = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, point: screenPoint(e.clientX, e.clientY), b: view(), box: boxMode && e.button === 0 }
+    host.dataset.dragging = String(!drag.box); host.setPointerCapture(e.pointerId)
+  }
+  const move = e => {
+    if (!drag || drag.pointerId !== e.pointerId) return
+    e.preventDefault()
+    const r = host.getBoundingClientRect()
+    if (drag.box) {
+      Object.assign(selection.style, { left: `${Math.min(e.clientX, drag.x) - r.left}px`, top: `${Math.min(e.clientY, drag.y) - r.top}px`, width: `${Math.abs(e.clientX - drag.x)}px`, height: `${Math.abs(e.clientY - drag.y)}px` }); selection.hidden = false
+    } else {
+      const scale = drag.b.width / r.width
+      set({ ...drag.b, x: drag.b.x - (e.clientX - drag.x) * scale, y: drag.b.y - (e.clientY - drag.y) * scale })
+    }
+  }
+  const up = e => {
+    if (!drag || drag.pointerId !== e.pointerId) return
+    if (drag.box) {
+      if (Math.abs(e.clientX - drag.x) > 6 && Math.abs(e.clientY - drag.y) > 6) {
+        const p = screenPoint(e.clientX, e.clientY)
+        fitBox({ x: Math.min(p.x, drag.point.x), y: Math.min(p.y, drag.point.y), width: Math.abs(p.x - drag.point.x), height: Math.abs(p.y - drag.point.y) }, false)
       }
-      if (!(box.width > 0 && box.height > 0)) throw new Error('图纸预览没有可显示的实体')
-      const margin = Math.max(box.width, box.height) * 0.05
-      svg.setAttribute('viewBox', `${box.x-margin} ${box.y-margin} ${box.width+2*margin} ${box.height+2*margin}`)
-      setError('')
-    } catch (e) { setError(e.message) }
+      setBox(false)
+    }
+    finish()
   }
-  const zoom = factor => {
-    const svg = drawingHost.current?.querySelector('svg'); if (!svg) return
-    const b=svg.viewBox.baseVal, w=b.width*factor, h=b.height*factor
-    svg.setAttribute('viewBox', `${b.x+(b.width-w)/2} ${b.y+(b.height-h)/2} ${w} ${h}`)
+  const cancel = () => { finish(); setBox(false) }
+  const wheel = e => { e.preventDefault(); if (drag) return; const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? host.clientHeight : 1); zoom(Math.exp(Math.max(-.5, Math.min(.5, delta * (e.ctrlKey ? .01 : .002)))), e.clientX, e.clientY) }
+  const key = e => {
+    if (e.target !== host) return
+    if (e.key === 'Escape') { e.preventDefault(); cancel() }
+    else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (['f', 'F', '+', '=', '-'].includes(e.key)) { e.preventDefault(); if (e.key.toLowerCase() === 'f') fit(); else zoom(e.key === '-' ? 1.3 : 1 / 1.3) }
+      else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && fitted) {
+        e.preventDefault(); const b = view(), step = b.width / host.clientWidth * (e.shiftKey ? 120 : 40)
+        set({ ...b, x: b.x + (e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0), y: b.y + (e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0) })
+      }
+    }
   }
+  let lastMiddle = 0
+  const middle = e => { if (e.button !== 1) return; e.preventDefault(); const now = Date.now(); if (now - lastMiddle < 350) { cancel(); fit(); lastMiddle = 0 } else lastMiddle = now }
+  const events = { pointerdown: down, pointermove: move, pointerup: up, pointercancel: cancel, lostpointercapture: cancel, wheel, keydown: key, auxclick: middle }
+  for (const [name, handler] of Object.entries(events)) host.addEventListener(name, handler, { passive: false })
+  const observer = new ResizeObserver(() => {
+    const r = host.getBoundingClientRect(); if (!r.width || !r.height) return
+    if (!fitted) { fit(); return }
+    if (size && (size.width !== r.width || size.height !== r.height)) {
+      const b = view(), scale = b.width / size.width, width = r.width * scale, height = r.height * scale
+      set({ x: b.x + (b.width - width) / 2, y: b.y + (b.height - height) / 2, width, height }); size = { width: r.width, height: r.height }
+    }
+  })
+  observer.observe(host)
+  return { fit, zoom, box: () => { finish(); setBox(!boxMode); host.focus() },
+    colors: original => colors.forEach(({ node, attr, raw, readable }) => node.setAttribute(attr, original ? raw : readable)),
+    dispose: () => { finish(); observer.disconnect(); selection.remove(); for (const [name, handler] of Object.entries(events)) host.removeEventListener(name, handler) } }
+}
+function DrawingPreviewStatus({ info, showDetails }) {
+  if (info.status === 'ready') return null
+  return h('details', { className: 'wb-preview-status', onToggle: e => {
+    if (!e.currentTarget.open) return
+    const panel = e.currentTarget.querySelector('.wb-preview-popover'), anchor = e.currentTarget.getBoundingClientRect(), main = e.currentTarget.closest('.wb-main').getBoundingClientRect()
+    const width = Math.min(320, main.width - 24)
+    panel.style.width = `${width}px`; panel.style.right = 'auto'
+    panel.style.left = `${Math.max(main.left + 12, Math.min(anchor.left, main.right - width - 12)) - anchor.left}px`
+  }, onKeyDown: e => { if (e.key === 'Escape') { e.preventDefault(); e.currentTarget.open = false; e.currentTarget.querySelector('summary').focus() } } },
+    h('summary', null, h('span', { 'aria-hidden': true }, '⚠'), info.status === 'fallback' ? '已使用兼容预览' : '预览有缺失'),
+    h('div', { className: 'wb-preview-popover' }, info.messages.map((text, i) => h('p', { key: i }, text)),
+      h(Button, { onClick: e => { e.currentTarget.closest('details').open = false; showDetails() } }, '查看转换详情')))
+}
+function DrawingConversionDetails({ info, detailsRef }) {
+  return h('details', { ref: detailsRef, className: 'wb-conversion-details' }, h('summary', null, '转换详情'),
+    info.status === 'ready' && !info.omissions.length && h('p', null, '已完成图纸预览转换。'),
+    [...info.messages, ...info.omissions].map((text, i) => h('p', { key: i }, text)),
+    info.diagnostics && h('details', null, h('summary', null, '诊断信息'), h('textarea', { readOnly: true, 'aria-label': '转换诊断信息，可复制', value: info.diagnostics })))
+}
+function DwgPane({ sessionId, record, statusTarget }) {
+  const [data, setData] = useState(null), [error, setError] = useState(''), [selected, setSelected] = useState(null), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
+  const [annotationsOpen, setAnnotationsOpen] = useState(false), [boxMode, setBoxMode] = useState(false), [originalColors, setOriginalColors] = useState(false)
+  const drawingHost = useRef(null), viewport = useRef(null), annotationsButton = useRef(null), drawingMenu = useRef(null), conversionDetails = useRef(null)
   useEffect(() => {
-    fit()
-    const host = drawingHost.current, svg = host?.querySelector('svg')
-    if (!svg) return
-    let drag
-    const down = e => { if (e.button !== 0) return; const b=svg.viewBox.baseVal; drag={ x:e.clientX,y:e.clientY,b:{x:b.x,y:b.y,width:b.width,height:b.height} }; host.setPointerCapture(e.pointerId) }
-    const move = e => { if (!drag) return; const rect=svg.getBoundingClientRect(), scale=Math.max(drag.b.width/rect.width,drag.b.height/rect.height); svg.setAttribute('viewBox', `${drag.b.x-(e.clientX-drag.x)*scale} ${drag.b.y-(e.clientY-drag.y)*scale} ${drag.b.width} ${drag.b.height}`) }
-    const up = () => { drag=null }
-    const wheel = e => { e.preventDefault(); zoom(e.deltaY>0 ? 1.12 : 1/1.12) }
-    host.addEventListener('pointerdown',down); host.addEventListener('pointermove',move); host.addEventListener('pointerup',up); host.addEventListener('pointercancel',up); host.addEventListener('wheel',wheel,{passive:false})
-    return () => { host.removeEventListener('pointerdown',down); host.removeEventListener('pointermove',move); host.removeEventListener('pointerup',up); host.removeEventListener('pointercancel',up); host.removeEventListener('wheel',wheel) }
+    if (!data || !drawingHost.current) return
+    const controls = mountDrawingViewport(drawingHost.current, setBoxMode, setError)
+    viewport.current = controls
+    return () => { controls.dispose(); viewport.current = null }
   }, [data])
-  useEffect(() => { let alive = true; setData(null); setError(''); void taskApi(sessionId, 'drawing').then(next => { if (alive) setData({ ...next, safeSvg: sanitizeDwgSvg(next.svg) }) }).catch(e => { if (alive) setError(e.message) }); return () => { alive = false } }, [sessionId, record.task?.inputs.dwg?.sha256])
-  if (!data) return h('div', { className: 'wb-empty' }, error || '读取本地图纸转换…')
+  useEffect(() => { viewport.current?.colors(originalColors) }, [data, originalColors])
+  useEffect(() => {
+    let alive = true; setData(null); setError(''); setSelected(null); setQuery(''); setLimit(100); setBoxMode(false)
+    void taskApi(sessionId, 'drawing').then(next => { if (alive) setData({ ...next, safeSvg: sanitizeDwgSvg(next.svg) }) }).catch(e => { if (alive) setError(e.message) })
+    return () => { alive = false }
+  }, [sessionId, record.task?.inputs.dwg?.sha256])
+  if (!data) return h('div', { className: 'wb-empty', role: 'status' }, error || '正在读取图纸…')
+  const filtered = data.annotations.filter(entity => `${entity.id} ${entity.text} ${drawingAnnotationLabel(entity)} ${entity.layer}`.toLowerCase().includes(query.toLowerCase()))
+  const closeAnnotations = () => { setAnnotationsOpen(false); annotationsButton.current?.querySelector('button')?.focus() }
+  const info = data.preview_info || { status: data.preview_partial ? 'partial' : 'ready',
+    messages: data.preview_partial ? ['部分图纸内容可能未显示，请打开原图核对。'] : [], omissions: [], diagnostics: data.preview_details || '' }
+  const showDetails = () => { drawingMenu.current.open = true; conversionDetails.current.open = true; conversionDetails.current.querySelector('summary').focus() }
   return h('div', { className: 'wb-drawing' },
+    statusTarget && require('react-dom').createPortal(h(DrawingPreviewStatus, { info, showDetails }), statusTarget),
     h('div', { className: 'wb-drawing-stage' },
-      h('p', { style: { margin: 8 } }, data.note),
-      h('div', { className: 'wb-drawing-controls' }, h(Button, { onClick: () => fit() }, '适配零件区域'), h(Button, { onClick: () => fit(true) }, '查看全部实体'), h(Button, { onClick: () => zoom(1/1.3) }, '放大图纸'), h(Button, { onClick: () => zoom(1.3) }, '缩小图纸'), h('small', null, '默认显示模型空间直接实体；拖动平移，滚轮缩放')),
-      h('div', { ref: drawingHost, className: 'wb-drawing-svg', dangerouslySetInnerHTML: { __html: data.safeSvg } }), error && h('p', { className: 'wb-notice', role: 'alert' }, error)),
-    h('aside', { className: 'wb-drawing-annotations' }, h('h3', null, '图纸标注'), h('input', { 'aria-label': '搜索图纸标注', placeholder: '搜索文字、图层或句柄', value: query, onChange: e => setQuery(e.target.value) }),
-      h('p', null, '原始尺寸属性不等于 NX 实测；格式化尺寸与视图关系需核对原图。'),
-      selected && h('section', null, h('p', null, `${selected.id} · ${selected.layer} · ${selected.text || `图纸标称 ${selected.nominal ?? '未读取'}`}`), h('button', { onClick: () => void addTaskObjectToDraft(sessionId, { kind: 'drawing', source_sha256: data.source_sha256, ids: [selected.id] }, `图纸 ${selected.id}`).catch(e => setError(e.message)) }, '添加标注到提问')),
-      data.annotations.filter(entity => `${entity.id} ${entity.text} ${entity.layer}`.toLowerCase().includes(query.toLowerCase())).slice(0, limit).map(entity => h('button', { key: entity.id, style: { display: 'block', width: '100%', textAlign: 'left' }, onClick: () => setSelected({ id: entity.id, type: entity.type, layer: entity.layer, text: entity.text, nominal: entity.nominal }) }, `${entity.id} · ${entity.text || `原始标称 ${entity.nominal ?? '未读取'}`}`)),
-      h('p', null, `共 ${data.annotations.filter(entity => `${entity.id} ${entity.text} ${entity.layer}`.toLowerCase().includes(query.toLowerCase())).length} 条标注`),
-      data.annotations.filter(entity => `${entity.id} ${entity.text} ${entity.layer}`.toLowerCase().includes(query.toLowerCase())).length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多标注'),
-      error && h('p', { role: 'alert' }, error)))
+      h('div', { className: 'wb-drawing-controls' },
+        h('div', { className: 'wb-drawing-tools', role: 'group', 'aria-label': '图纸视图工具' },
+          h(DrawingTool, { name: 'minus', label: '缩小图纸', onClick: () => viewport.current?.zoom(1.3) }),
+          h(DrawingTool, { name: 'plus', label: '放大图纸', onClick: () => viewport.current?.zoom(1 / 1.3) }),
+          h(DrawingTool, { name: 'fit', label: '适配全图 (F)', onClick: () => viewport.current?.fit() }),
+          h(DrawingTool, { name: 'box', label: '框选放大', 'aria-pressed': boxMode, onClick: () => viewport.current?.box() }),
+          h('span', { ref: annotationsButton, tabIndex: -1 }, h(DrawingTool, { name: 'annotations', label: '图纸标注', 'aria-pressed': annotationsOpen, onClick: () => setAnnotationsOpen(old => !old) })),
+          h('details', { ref: drawingMenu, onKeyDown: e => { if (e.key === 'Escape') { e.preventDefault(); e.currentTarget.open = false; e.currentTarget.querySelector('summary').focus() } } },
+            h('summary', { 'aria-label': '更多图纸选项', title: '更多图纸选项' }, h(DrawingIcon, { name: 'more' })),
+            h('div', { className: 'wb-drawing-menu' }, h('label', null, h('input', { type: 'checkbox', checked: originalColors, onChange: e => setOriginalColors(e.target.checked) }), '原始配色'),
+              h('p', null, '默认提亮低对比度颜色，不改变原文件。'), h('p', null, '拖动或方向键平移 · 滚轮或 +/− 缩放 · F 适配全图 · Esc 取消框选'), h('p', null, '图纸为转换预览，不提供精确量测。'),
+              h(DrawingConversionDetails, { info, detailsRef: conversionDetails }))))),
+      h('div', { ref: drawingHost, className: 'wb-drawing-svg', tabIndex: 0, role: 'region', 'aria-label': '二维图纸画布，拖动平移，滚轮缩放，F 适配全图', dangerouslySetInnerHTML: { __html: data.safeSvg } }),
+      error && h('p', { className: 'wb-notice', role: 'alert' }, error)),
+    annotationsOpen && h('aside', { className: 'wb-drawing-annotations', 'aria-label': '图纸标注', onKeyDown: e => { if (e.key === 'Escape') { e.stopPropagation(); closeAnnotations() } } },
+      h('header', null, h('h3', null, '图纸标注'), h(Button, { 'aria-label': '收起图纸标注', onClick: closeAnnotations }, '收起')),
+      h('input', { 'aria-label': '搜索图纸标注', placeholder: '搜索标注文字', value: query, onChange: e => { setQuery(e.target.value); setLimit(100) } }),
+      h('p', { role: 'status' }, `共 ${filtered.length} 条标注`),
+      h('div', { className: 'wb-drawing-annotation-list' }, filtered.slice(0, limit).map(entity => h('button', { key: entity.id, 'aria-pressed': selected?.id === entity.id, onClick: () => setSelected(entity) }, drawingAnnotationLabel(entity), h('small', null, `图层 ${entity.layer || '未命名'} · ${entity.id}`))),
+        !filtered.length && h('p', null, '没有匹配的标注'), filtered.length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多标注')),
+      selected && h('section', { className: 'wb-drawing-annotation-detail' }, h('strong', null, drawingAnnotationLabel(selected)),
+        h('details', null, h('summary', null, '查看标注原文'), h('p', null, selected.text || `图纸标称 ${selected.nominal ?? '未读取'}`), h('small', null, `句柄 ${selected.id} · ${selected.type}`)),
+        h(Button, { onClick: () => void addTaskObjectToDraft(sessionId, { kind: 'drawing', source_sha256: data.source_sha256, ids: [selected.id] }, `图纸 ${selected.id}`).catch(e => setError(e.message)) }, '添加标注到提问'))))
 }
 async function addTaskObjectToDraft(sessionId, reference, label) {
   const checked = await taskApi(sessionId, 'reference', { reference: { ...reference, session_id: sessionId } })
@@ -1317,7 +1487,7 @@ function WorkbenchView({ sessionId }) {
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addSelectionToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        mode === 'drawing' && h(DwgPane, { sessionId, record }),
+        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, h(DwgPane, { sessionId, record, statusTarget: mode === 'drawing' ? heading : null })),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
       panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },

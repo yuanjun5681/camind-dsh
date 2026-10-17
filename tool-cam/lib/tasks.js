@@ -72,8 +72,9 @@ export function validateOperations(ops) {
     op.sequence = index + 1
   }
 }
-export function createCamTasks({ home, resolve, machineRegistry, geometry, drawingReader = readDrawing }) {
+export function createCamTasks({ home, resolve, machineRegistry, geometry, drawingReader = readDrawing, drawingPreview }) {
   const root = path.join(home, 'cam-tasks')
+  const previews = new Map()
   const dirOf = sid => path.join(root, checkId(sid))
   async function safeDir(sid, create = false) {
     const dir = dirOf(sid)
@@ -211,13 +212,25 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
         task.setup = {}; task.operations = []
       })
     },
-    async drawing(sid) {
+    async drawing(sid, { preview = false } = {}) {
       const task = await read(sid), input = await inputFile(sid, 'dwg')
       const file = path.join(await safeDir(sid), `${input.sha256}.drawing.json`), stat = await fs.lstat(file)
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024) fail('图纸数据类型/大小不合法')
       const encoded = await fs.readFile(file, 'utf8')
       if (digest(encoded) !== task.drawing.data_sha256) fail('图纸解析缓存已变更，需重新接件')
-      return { ...JSON.parse(encoded), source_sha256: task.inputs.dwg.sha256 }
+      let display = {}
+      if (preview && drawingPreview) {
+        const key = `${sid}/${input.sha256}`
+        if (!previews.has(key)) {
+          if (previews.size >= 4) previews.delete(previews.keys().next().value)
+          const pending = Promise.resolve().then(() => drawingPreview(input.file))
+          previews.set(key, pending)
+          pending.catch(() => { if (previews.get(key) === pending) previews.delete(key) })
+        }
+        const { svg, preview_partial, note, preview_info } = await previews.get(key)
+        display = { svg, preview_partial, note, preview_info }
+      }
+      return { ...JSON.parse(encoded), ...display, source_sha256: task.inputs.dwg.sha256 }
     },
     async recordSurvey(sid, sha256, data) {
       return transact(sid, undefined, 'nx', 'survey', async (task, dir) => {
