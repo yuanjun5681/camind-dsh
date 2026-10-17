@@ -6,6 +6,12 @@ import { basename } from 'node:path'
 import { convertDxfText } from './convert.js'
 import { dwgToDxfText, libredwgVersion, DWG2DXF_TIMEOUT_MS } from './dwg.js'
 
+let activeWorkers = 0
+
+export function activeConversionWorkers() {
+  return activeWorkers
+}
+
 function runConversion(kind, payload, options) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./worker.js', import.meta.url), {
@@ -15,6 +21,7 @@ function runConversion(kind, payload, options) {
         maxYoungGenerationSizeMb: options.maxYoungGenerationSizeMb ?? 128,
       },
     })
+    activeWorkers++
     let settled = false
     const cleanup = () => {
       clearTimeout(timer)
@@ -34,19 +41,20 @@ function runConversion(kind, payload, options) {
       void worker.terminate()
       finish(reject, new Error('图纸转换已取消'))
     }
-    if (options.signal?.aborted) {
-      onAbort()
-      return
-    }
-    options.signal?.addEventListener('abort', onAbort, { once: true })
     worker.once('message', result => {
       if (result.error) finish(reject, Object.assign(new Error(result.error.message), { checkErrors: result.error.checkErrors }))
       else finish(resolve, result.pack)
     })
     worker.once('error', error => finish(reject, error))
     worker.once('exit', code => {
+      activeWorkers = Math.max(0, activeWorkers - 1)
       if (code !== 0) finish(reject, new Error(`图纸转换进程异常退出(${code})`))
     })
+    if (options.signal?.aborted) {
+      onAbort()
+      return
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 

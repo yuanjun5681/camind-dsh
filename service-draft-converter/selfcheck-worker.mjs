@@ -1,7 +1,15 @@
 // M2-03 worker isolation: real parsing work is offloaded, abort/timeout terminate
 // the worker and release it, and the host event loop remains responsive.
 import assert from 'node:assert/strict'
-import { convertDxfAsync } from './lib/worker.js'
+import { activeConversionWorkers, convertDxfAsync } from './lib/worker.js'
+
+async function waitWorkerExit() {
+  for (let i = 0; i < 200; i++) {
+    if (activeConversionWorkers() === 0) return
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  throw new Error('转换 worker 未在期限内退出')
+}
 
 const HEADER = `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n`
 const TABLES = `0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n0\nTABLE\n2\nLTYPE\n70\n1\n0\nLTYPE\n2\nContinuous\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n0\nTABLE\n2\nSTYLE\n70\n1\n0\nSTYLE\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n0\nENDTAB\n0\nENDSEC\n`
@@ -22,13 +30,11 @@ const controller = new AbortController()
 const pending = convertDxfAsync(large, { signal: controller.signal, ...options(large) })
 controller.abort()
 await assert.rejects(pending, /取消/)
-await new Promise(resolve => setTimeout(resolve, 20))
+await waitWorkerExit()
 assert.ok(ticks > 0, 'host event loop should continue ticking while worker parses')
-assert.equal(process._getActiveHandles().some(handle => handle.constructor.name === 'Worker'), false, 'aborted worker must be terminated')
 console.log('ok - AbortSignal terminates the actual worker without host starvation')
 
 await assert.rejects(convertDxfAsync(large, { timeoutMs: 1, ...options(large) }), /超时/)
-await new Promise(resolve => setTimeout(resolve, 20))
-assert.equal(process._getActiveHandles().some(handle => handle.constructor.name === 'Worker'), false, 'timeout must terminate the actual worker')
+await waitWorkerExit()
 clearInterval(timer)
 console.log('ok - timeout terminates the actual worker and releases resources')

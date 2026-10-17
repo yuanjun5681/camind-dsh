@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { apply as applyConverter } from '../service-draft-converter/index.js'
+import { activeConversionWorkers } from '../service-draft-converter/lib/worker.js'
 import { createJobQueue } from './lib/jobs.js'
 import { createDrawingPreviewService } from './lib/service.js'
 import { createDrawingReferenceVerifier } from './lib/reference.js'
@@ -205,8 +206,7 @@ try {
   const cancelledJob = await waitJob(large.json.jobId)
   assert.equal(cancelledJob.state, 'error')
   assert.equal(cancelledJob.error.code, 'cancelled')
-  await sleep(50)
-  assert.equal(process._getActiveHandles().some(handle => handle.constructor.name === 'Worker'), false)
+  await waitUntil(() => activeConversionWorkers() === 0, '取消后转换 worker 未在期限内退出')
   console.log('ok - real cancellation terminates conversion work')
 
   const cacheFile = path.join(dshHome, 'draft-previews', 's1', `${packKey}.json`)
