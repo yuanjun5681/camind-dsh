@@ -41,7 +41,7 @@ function pythonExecutable() {
     return candidates.find(existsSync) ?? "python3";
 }
 
-function runPython(profile) {
+function runPython(profile, inputPacks = packs) {
     const parserDir = join(CAM_AGENT, "Drawing_parser");
     const code = `
 import json, sys
@@ -54,12 +54,12 @@ for pack in payload:
     raw = checker.check(pack, profile)
     results.append({
         "errors": [e for e in raw if not e.startswith("skipped:")],
-        "skipped": [e[len("skipped:"):] for e in raw if e.startswith("skipped:")],
+        "skipped": sorted([e[len("skipped:"):] for e in raw if e.startswith("skipped:")]),
     })
 print(json.dumps(results, ensure_ascii=False))
 `;
     const run = spawnSync(pythonExecutable(), ["-c", code, profile], {
-        input: JSON.stringify(packs), encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+        input: JSON.stringify(inputPacks), encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
     });
     if (run.status !== 0) throw new Error(`Python ${profile} 差分执行失败:\n${run.stderr || run.stdout}`);
     return JSON.parse(run.stdout);
@@ -96,4 +96,26 @@ for (const profile of ["writer", "reader"]) {
     console.log(`ok - ${profile}: ${entries.length} 个包 × Python/JS/TS 错误码与 skipped 一致`);
 }
 
-console.log(`三方差分完成：${entries.length * 2} 个包/档位组合，${assertions} 项断言通过；不代表图纸已审或尺寸正确。`);
+// 多个未知类型按非字母序出现时，三方 skipped 语义仍一致；排序只为消除实体顺序差，不去重。
+const forward = structuredClone(packs[0]);
+for (const [id, type] of [[0, "ZFuture"], [14, "AFuture"]]) {
+    const previous = forward.entities[id].type;
+    const histogram = forward.coverage.entities_by_type;
+    histogram[previous]--;
+    if (histogram[previous] === 0) delete histogram[previous];
+    forward.entities[id].type = type;
+    histogram[type] = 1;
+}
+const forwardActual = {
+    python: runPython("reader", [forward])[0],
+    js: normalizeJs(checkJs(forward, "reader")),
+    ts: normalizeTs(checkTs(forward, "reader")),
+};
+for (const [implementation, result] of Object.entries(forwardActual)) {
+    assert.deepEqual(codes(result.errors), [], `reader 多未知类型 ${implementation} 应零拒绝`);
+    assert.deepEqual(result.skipped, ["AFuture", "ZFuture"], `reader 多未知类型 ${implementation} skipped 排序/内容不一致`);
+    assertions += 2;
+}
+console.log("ok - reader: ZFuture + AFuture 非字母序 skipped 归一化一致");
+
+console.log(`三方差分完成：${entries.length * 2} 个包/档位组合 + 多未知类型守卫，${assertions} 项断言通过；不代表图纸已审或尺寸正确。`);
