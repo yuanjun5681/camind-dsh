@@ -126,6 +126,18 @@ export function createDraftCache({ home, maxEntries = 32, maxBytes = 256 * 1024 
   }
   return {
     put,
+    async peek(sessionId, key, { name, sourceUri = name, resolve }) {
+      validIdentity(key)
+      sessionDir(sessionId)
+      const cleanup = cleanups.get(sessionId)
+      if (cleanup) await cleanup
+      const version = versions.get(sessionId) ?? 0
+      await resolve(sessionId, sourceUri)
+      assertVersion(sessionId, version)
+      const cached = await readValid(sessionId, key)
+      assertVersion(sessionId, version)
+      return { ...cached, name }
+    },
     async get(sessionId, key, { name, sourceUri = name, resolve, build }) {
       validIdentity(key)
       sessionDir(sessionId)

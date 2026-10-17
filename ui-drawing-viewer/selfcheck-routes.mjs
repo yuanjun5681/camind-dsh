@@ -153,5 +153,26 @@ await waitUntil(() => conversions === 4, '释放用例未进入转换')
 await service.dispose()
 assert.equal(service.status('s1', disposing.jobId), null)
 assert.throws(() => service.prepare('s1', 'part.dxf'), /已释放/)
+console.log('ok - dispose aborts owned work and rejects new jobs')
+
+let enterProbe, releaseProbe, raceConverted = false
+const probeEntered = new Promise(resolve => { enterProbe = resolve })
+const probeGate = new Promise(resolve => { releaseProbe = resolve })
+const raceCache = {
+  async peek() { enterProbe(); await probeGate; throw Object.assign(new Error('missing'), { code: 'ENOENT' }) },
+  async get() { throw new Error('释放期间不得发布') },
+}
+const raceService = createDrawingPreviewService({
+  home: path.join(home, 'dispose-race'), resolve,
+  draftConverter: { ...converter, convertDxf: async () => { raceConverted = true; throw new Error('释放期间不得转换') } },
+  cache: raceCache,
+})
+raceService.prepare('s1', 'part.dxf')
+await probeEntered
+const raceDisposal = raceService.dispose()
+releaseProbe()
+await raceDisposal
+await new Promise(resolve => setTimeout(resolve, 10))
+assert.equal(raceConverted, false, '释放中的缓存探测不得再创建转换生产者')
 await fs.rm(home, { recursive: true, force: true })
-console.log('ok - dispose aborts owned work and drawing route selfcheck complete')
+console.log('ok - disposal prevents late producers and drawing route selfcheck complete')

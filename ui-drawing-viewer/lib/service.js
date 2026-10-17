@@ -47,7 +47,9 @@ export function createDrawingPreviewService({
     home,
     check: (pack, profile) => draftConverter.check(pack, profile),
   })
+  if (typeof draftCache.peek !== 'function') throw new Error('drawingPreview 需要只读缓存接口')
   const flights = new Map(), producers = new Set()
+  let disposing = false
   const snapshotSource = (sessionId, uri) => snapshotDrawingSource({ sessionId, requested: uri, resolve })
 
   async function convertSnapshot(snapshot, signal) {
@@ -66,12 +68,17 @@ export function createDrawingPreviewService({
   }
 
   async function readCached(sessionId, key, snapshot, requested, includeText, displayName) {
-    const cached = await draftCache.get(sessionId, key, {
-      name: displayName ?? snapshot.name,
-      sourceUri: requested,
-      resolve,
-      build: async () => { throw notReady() },
-    })
+    let cached
+    try {
+      cached = await draftCache.peek(sessionId, key, {
+        name: displayName ?? snapshot.name,
+        sourceUri: requested,
+        resolve,
+      })
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'CACHE_CORRUPT') throw notReady()
+      throw error
+    }
     const descriptor = descriptorFor({
       sessionId,
       source: { uri: requested, sha256: snapshot.sha256, name: displayName ?? snapshot.name },
@@ -108,6 +115,7 @@ export function createDrawingPreviewService({
   }
 
   function joinFlight(id, signal, produce) {
+    if (disposing || signal?.aborted) throw new Error('图纸转换已取消')
     let flight = flights.get(id)
     if (flight?.controller.signal.aborted) {
       flights.delete(id)
@@ -176,9 +184,12 @@ export function createDrawingPreviewService({
   }
 
   async function dispose() {
+    disposing = true
+    for (const flight of producers) flight.controller.abort()
+    await queue.dispose()
     for (const flight of producers) flight.controller.abort()
     const pending = [...producers].map(flight => flight.promise.catch(() => {}))
-    await Promise.all([queue.dispose(), ...pending])
+    await Promise.all(pending)
   }
 
   return {
