@@ -288,7 +288,11 @@ async function drawingJson(url, options = {}) {
     headers: { Accept: 'application/json', ...(options.body ? { 'content-type': 'application/json' } : {}), ...options.headers },
   })
   const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(typeof body?.message === 'string' ? body.message : `HTTP ${response.status}`)
+  if (!response.ok) {
+    const error = new Error(typeof body?.message === 'string' ? body.message : `HTTP ${response.status}`)
+    error.status = response.status
+    throw error
+  }
   return body
 }
 
@@ -313,10 +317,30 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
   const [state, setState] = useState({ stage: 'idle' })
   const runtime = useRef(null)
   useEffect(() => {
-    let cancelled = false, timer = null, jobId = null
+    let cancelled = false, cancelPending = false, timer = null, jobId = null
     const base = drawingPacksUrl(sessionId)
     const cancelRequest = () => jobId ? drawingJson(`${base}/${jobId}/cancel`, { method: 'POST' }) : Promise.resolve(null)
+    const publishJob = async job => {
+      if (job.state === 'ready') {
+        const key = job.result?.key ?? job.result?.descriptor?.pack?.identity
+        if (!key) throw new Error('转换作业就绪但缺少图纸包身份')
+        const descriptor = await drawingJson(`${base}/${key}?path=${encodeURIComponent(path)}`)
+        if (runtime.current) setState({ stage: 'ready', descriptor })
+        return true
+      }
+      if (job.state === 'error') {
+        if (runtime.current) {
+          setState(job.error?.code === 'cancelled'
+            ? { stage: 'cancelled', message: job.error?.message ?? '图纸转换已取消' }
+            : { stage: 'error', message: job.error?.message ?? '图纸转换失败' })
+        }
+        return true
+      }
+      return false
+    }
     const cancel = async () => {
+      if (cancelPending) return
+      cancelPending = true
       cancelled = true
       if (timer !== null) clearTimeout(timer)
       if (!jobId) {
@@ -325,9 +349,15 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
       }
       try {
         const job = await cancelRequest()
-        if (runtime.current) setState({ stage: 'cancelled', message: job?.error?.message ?? '图纸转换已取消' })
+        await publishJob(job)
       } catch (error) {
-        if (runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+        try {
+          const job = await drawingJson(`${base}/${jobId}/status`)
+          const terminal = await publishJob(job)
+          if (!terminal && runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+        } catch {
+          if (runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+        }
       }
     }
     runtime.current = { cancel }
@@ -349,17 +379,7 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
         if (cancelled) return
         const job = await drawingJson(`${base}/${jobId}/status`)
         if (cancelled) return
-        if (job.state === 'ready') {
-          const key = job.result?.key ?? job.result?.descriptor?.pack?.identity
-          if (!key) throw new Error('转换作业就绪但缺少图纸包身份')
-          const descriptor = await drawingJson(`${base}/${key}?path=${encodeURIComponent(path)}`)
-          if (!cancelled) setState({ stage: 'ready', descriptor })
-          return
-        }
-        if (job.state === 'error') {
-          setState({ stage: 'error', message: job.error?.message ?? '图纸转换失败' })
-          return
-        }
+        if (await publishJob(job)) return
         setState({ stage: job.state === 'queued' ? 'queued' : 'running' })
         timer = setTimeout(poll, 250)
       } catch (error) {
@@ -371,7 +391,7 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
       cancelled = true
       if (timer !== null) clearTimeout(timer)
       runtime.current = null
-      if (jobId) void cancelRequest().catch(() => {})
+      if (jobId && !cancelPending) void cancelRequest().catch(() => {})
     }
   }, [sessionId, path, attempt, enabled])
   return { state, cancel: () => runtime.current?.cancel?.() }
@@ -392,7 +412,7 @@ function DrawingBody({ sessionId, preview, onReference }) {
       h('p', null, '当前环境无法创建 WebGL2 上下文，未启动图纸转换；这不是转换失败。请下载后用外部 CAD 工具打开。'), download)
   }
   if (state.stage === 'ready') {
-    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor, onReference }))
+    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor }))
   }
   if (state.stage === 'error') {
     return h('div', { className: 'campv-binary', role: 'alert' },

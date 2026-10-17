@@ -79,6 +79,7 @@ const { DrawingBody } = loaded.__drawingTest
 
 const calls = []
 const identity = '4'.repeat(64)
+let raceCancelled = false
 async function fetch(url, options = {}) {
   calls.push({ url, options })
   let body
@@ -88,8 +89,13 @@ async function fetch(url, options = {}) {
   } else if (url.endsWith('/status')) {
     if (url.includes('bad.dxf')) body = { state: 'error', error: { message: '坏包' } }
     else if (url.includes('cancel.dxf')) body = { state: 'running' }
+    else if (url.includes('race.dxf')) body = raceCancelled ? { state: 'ready', result: { key: identity } } : { state: 'running' }
     else body = { state: 'ready', result: { key: identity } }
   } else if (url.endsWith('/cancel')) {
+    if (url.includes('race.dxf')) {
+      raceCancelled = true
+      return { ok: false, status: 404, json: async () => ({ message: '转换作业不存在或已结束' }) }
+    }
     body = { state: 'error', error: { code: 'cancelled', message: '图纸转换已取消' } }
   } else if (url.includes(`/packs/${identity}`)) {
     body = {
@@ -139,6 +145,7 @@ render()
 const ready = find(tree, node => node.type === Viewer)
 assert.ok(ready, `ready descriptor must reach the keyed drawing viewer: ${text(tree)} ${JSON.stringify(calls)}`)
 assert.equal(ready.props.descriptor.packText, '{"ok":true}')
+assert.equal(ready.props.onReference, undefined, 'drawing selections must not enter the model-only callback')
 console.log('ok - start, status polling and ready pack dispatch')
 
 fresh()
@@ -159,11 +166,27 @@ render()
 const cancelButton = find(tree, node => node.type === 'button' && text(node) === '取消转换')
 assert.ok(cancelButton)
 await cancelButton.props.onClick()
+await cancelButton.props.onClick()
 await sleep(10)
 render()
 assert.match(text(tree), /图纸转换已取消/)
-assert.ok(calls.some(call => call.url.endsWith('/cancel') && call.options.method === 'POST'))
-console.log('ok - user cancellation calls the job cancel route')
+assert.equal(calls.filter(call => call.url.includes('cancel.dxf-job') && call.url.endsWith('/cancel') && call.options.method === 'POST').length, 1, 'cancellation must be idempotent')
+console.log('ok - user cancellation calls the job cancel route once')
+
+fresh()
+render({ name: 'race.dxf', path: 'race.dxf' })
+await sleep(20)
+render()
+await sleep(20)
+render()
+const raceButton = find(tree, node => node.type === 'button' && text(node) === '取消转换')
+await raceButton.props.onClick()
+await sleep(20)
+render()
+const reconciled = find(tree, node => node.type === Viewer)
+assert.ok(reconciled, 'cancel-vs-completion must reconcile and show the ready drawing')
+assert.equal(text(tree).includes('图纸转换失败'), false)
+console.log('ok - cancellation reconciles terminal ready instead of failing')
 
 fresh()
 webgl = false
