@@ -10,7 +10,13 @@ const notReady = () => Object.assign(new Error('图纸包尚未转换，请先�
 
 function missingEntries(pack) {
   return Object.entries(pack.missing ?? {}).flatMap(([kind, values]) =>
-    Array.isArray(values) ? values.map(value => `${kind}:${String(value)}`) : [])
+    Array.isArray(values) ? values.map(value => {
+      if (value && typeof value === 'object') {
+        const detail = [value.handle, value.kind, value.reason].filter(item => item !== undefined && item !== null && item !== '')
+        return `${kind}:${detail.length ? detail.map(String).join(':') : JSON.stringify(value)}`
+      }
+      return `${kind}:${String(value)}`
+    }) : [])
 }
 
 function descriptorFor({ sessionId, source, key, cached, packText, includeText }) {
@@ -135,7 +141,8 @@ export function createDrawingPreviewService({
     }
     flight.consumers++
     return new Promise((resolveFlight, rejectFlight) => {
-      let localSettled = false
+      let localSettled = false, cancelled = false
+      const cancellation = () => new Error('图纸转换已取消')
       const finish = (fn, value) => {
         if (localSettled) return
         localSettled = true
@@ -147,10 +154,21 @@ export function createDrawingPreviewService({
         }
         fn(value)
       }
-      const onAbort = () => finish(rejectFlight, new Error('图纸转换已取消'))
+      const onAbort = () => {
+        cancelled = true
+        if (!flight.settled && flight.consumers === 1) {
+          flight.controller.abort()
+          if (flights.get(id) === flight) flights.delete(id)
+          return
+        }
+        finish(rejectFlight, cancellation())
+      }
       if (signal?.aborted) return onAbort()
       signal?.addEventListener('abort', onAbort, { once: true })
-      flight.promise.then(value => finish(resolveFlight, value), error => finish(rejectFlight, error))
+      flight.promise.then(
+        value => finish(cancelled ? rejectFlight : resolveFlight, cancelled ? cancellation() : value),
+        error => finish(rejectFlight, cancelled ? cancellation() : error),
+      )
     })
   }
 

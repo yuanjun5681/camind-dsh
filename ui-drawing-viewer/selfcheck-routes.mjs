@@ -27,7 +27,7 @@ const converter = {
     conversions++
     if (options.sourceName === 'cancel.dxf') {
       await new Promise((_, reject) => {
-        const abort = () => reject(new Error('图纸转换已取消'))
+        const abort = () => setTimeout(() => reject(new Error('图纸转换已取消')), 30)
         if (options.signal.aborted) return abort()
         options.signal.addEventListener('abort', abort, { once: true })
       })
@@ -39,7 +39,8 @@ const converter = {
       source_file: options.sourceName, source_sha256: source,
       origin: { channel: 'autocad' }, conversion: { tool: 'stub', commit: 'test', libredwg: 'n/a', ezdxf: 'n/a' },
       rules_version: 'sem-rules-0', view_rule_version: 'view-rules-0',
-      entities: [{ id: 0, type: 'line' }], dims: [{ id: 'dim-1' }], missing: {},
+      entities: [{ id: 0, type: 'line' }], dims: [{ id: 'dim-1' }],
+      missing: { xref: [{ handle: 'AB1', kind: 'XREF', reason: '外部参照未展开' }] },
       self_check: { dropped: { by_type: {} } },
     }
   },
@@ -136,20 +137,22 @@ assert.equal(pack.headers['cache-control'], 'no-store')
 assert.equal(pack.json.source.sha256, sourceSha)
 assert.equal(pack.json.pack.identity, key)
 assert.equal(pack.json.packText.includes(sourceFile), false, 'descriptor 不得泄露 Host 临时路径')
-console.log('ok - authorized pack read, no-store and independent SHA header')
+assert.deepEqual(pack.json.missing, ['xref:AB1:XREF:外部参照未展开'])
+console.log('ok - authorized pack read, no-store, SHA header and structured missing diagnostics')
 
 const oldJob = service.prepare('s1', 'cancel.dxf')
 await waitUntil(() => conversions === 3, '取消用例未进入转换')
 const cancelled = await request('POST', `${DRAWING_ROUTE_PREFIX}/s1/packs/${oldJob.jobId}/cancel`)
 assert.equal(cancelled.status, 200)
 assert.equal(cancelled.json.error.code, 'cancelled')
+const disposing = service.prepare('s1', 'cancel.dxf')
+assert.equal(disposing.state, 'queued', '生产者清理前不得释放并发与内存额度')
 await waitUntil(() => service.status('s1', oldJob.jobId)?.state === 'error')
+await waitUntil(() => conversions === 4, '后续作业未在生产者落幕后再启动')
 const otherCancel = await request('POST', `${DRAWING_ROUTE_PREFIX}/other/packs/${oldJob.jobId}/cancel`)
 assert.equal(otherCancel.status, 404)
-console.log('ok - cancellation aborts conversion and remains session scoped')
+console.log('ok - cancellation retains resources until producer settlement and stays session scoped')
 
-const disposing = service.prepare('s1', 'cancel.dxf')
-await waitUntil(() => conversions === 4, '释放用例未进入转换')
 await service.dispose()
 assert.equal(service.status('s1', disposing.jobId), null)
 assert.throws(() => service.prepare('s1', 'part.dxf'), /已释放/)
