@@ -2548,8 +2548,8 @@ var drawingCss = `
   color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); background:var(--camind-surface-warning, transparent); }
 .cdv-missing { margin:0 8px 6px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
 .cdv-canvas { position:relative; flex:1; min-height:240px; min-width:0; overflow:hidden; }
-/* The mirrored DraftPane uses dark overlay panels; give all of them a contrasting foreground. */
-.cdv-canvas > div:not(canvas) { color:var(--camind-color-on-strong, var(--dsw-alias-label-primary-inverted, #fff)); }
+/* The mirrored DraftPane uses fixed-dark panels; keep a fixed light foreground in both themes. */
+.cdv-canvas > div:not(canvas) { color:#f5f5f5; }
 `;
 
 // ui-drawing-viewer/src/client.ts
