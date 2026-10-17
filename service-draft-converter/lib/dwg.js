@@ -2,10 +2,13 @@
 // 纪律:LibreDWG 只以命令行子进程跑、永不进安装包(GPL 铁律);dwg2dxf 路径可配,
 // 缺二进制/超时/非零退出全部响亮报错;临时 DXF 即用即删。
 
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export const DWG2DXF_TIMEOUT_MS = 300_000;
 
@@ -52,6 +55,23 @@ export function libredwgVersion(opts = {}) {
         const line = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().split("\n")[0];
         return line ? line.slice(0, 80) : "unknown";
     } catch {
+        return "unknown";
+    }
+}
+
+/** Host 侧异步版本探测:超时/取消终止子进程,不阻塞事件循环。 */
+export async function libredwgVersionAsync(opts = {}) {
+    try {
+        const { stdout, stderr } = await execFileAsync(resolveDwg2dxf(opts.dwg2dxfPath), ["--version"], {
+            timeout: 10_000,
+            encoding: "utf8",
+            maxBuffer: 64 * 1024,
+            signal: opts.signal,
+        });
+        const line = `${stdout ?? ""}${stderr ?? ""}`.trim().split("\n")[0];
+        return line ? line.slice(0, 80) : "unknown";
+    } catch {
+        if (opts.signal?.aborted) throw new Error("图纸转换已取消");
         return "unknown";
     }
 }

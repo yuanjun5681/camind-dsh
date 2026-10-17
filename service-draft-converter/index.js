@@ -15,7 +15,7 @@ import z from '@deepseek-ai/schemastery'
 import { convertDxfText, PIPELINE_VERSION, RULES_VERSION, VIEW_RULE_VERSION } from './lib/convert.js'
 import { checkDraftPack } from './lib/packcheck.js'
 import { svgFromPack, drawingTargetsFromPack } from './lib/svg.js'
-import { libredwgVersion, resolveDwg2dxf } from './lib/dwg.js'
+import { libredwgVersionAsync, resolveDwg2dxf } from './lib/dwg.js'
 import { convertDwgAsync, convertDxfAsync } from './lib/worker.js'
 import { converterRelease, converterBuildFingerprint, conversionFingerprint, packIdentity } from './lib/identity.js'
 
@@ -30,11 +30,14 @@ export function apply(ctx, config) {
   const dwg2dxfPath = () => cellValue(config?.dwg2dxfPath) || undefined
   const release = converterRelease()
   const buildFingerprint = converterBuildFingerprint()
-  const conversionIdentity = (options = {}) => conversionFingerprint({
-    buildFingerprint,
-    libredwgVersion: options.libredwgVersion ?? libredwgVersion({ dwg2dxfPath: dwg2dxfPath() }),
-    ...options,
-  })
+  const conversionIdentity = async (options = {}) => {
+    const { signal, ...identityOptions } = options
+    return conversionFingerprint({
+      buildFingerprint,
+      libredwgVersion: options.libredwgVersion ?? await libredwgVersionAsync({ dwg2dxfPath: dwg2dxfPath(), signal }),
+      ...identityOptions,
+    })
+  }
 
   const draftConverter = {
     convertDwg(absPath, opts = {}) {
@@ -58,12 +61,12 @@ export function apply(ctx, config) {
       return checkDraftPack(pack, profile)
     },
     conversionIdentity,
-    identity(pack, options = {}) {
-      return packIdentity(pack, { conversionFingerprint: conversionIdentity(options) })
+    async identity(pack, options = {}) {
+      return packIdentity(pack, { conversionFingerprint: await conversionIdentity(options) })
     },
-    identities(sourceSha256, options = {}) {
+    async identities(sourceSha256, options = {}) {
       if (!/^[0-9a-f]{64}$/i.test(sourceSha256)) throw new Error('源 SHA256 非法')
-      const fingerprint = conversionIdentity(options)
+      const fingerprint = await conversionIdentity(options)
       return ['autocad', 'nx', 'unknown'].map(channel => ({
         channel,
         ...packIdentity({
@@ -75,10 +78,14 @@ export function apply(ctx, config) {
         }, { conversionFingerprint: fingerprint }),
       }))
     },
-    info() {
+    async info() {
       const bin = resolveDwg2dxf(dwg2dxfPath())
-      return { dwg2dxf: bin, libredwg: libredwgVersion({ dwg2dxfPath: dwg2dxfPath() }), converter: release,
-        conversionFingerprint: conversionIdentity() }
+      return {
+        dwg2dxf: bin,
+        libredwg: await libredwgVersionAsync({ dwg2dxfPath: dwg2dxfPath() }),
+        converter: release,
+        conversionFingerprint: await conversionIdentity(),
+      }
     },
   }
   ctx.provide('draftConverter', draftConverter)

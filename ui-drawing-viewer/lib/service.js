@@ -88,7 +88,7 @@ export function createDrawingPreviewService({
       if (snapshot.sha256 !== expectedSha) throw new Error('源文件变更：转换前快照已不一致')
       const pack = await convertSnapshot(snapshot, signal)
       if (snapshot.sha256 !== pack.source_sha256) throw new Error('源件改变：转换包与稳定快照不一致')
-      const { identity: key } = draftConverter.identity(pack)
+      const { identity: key } = await draftConverter.identity(pack, { signal })
       const packText = JSON.stringify(pack)
       await draftCache.get(sessionId, key, {
         name: snapshot.name,
@@ -104,6 +104,10 @@ export function createDrawingPreviewService({
 
   function joinFlight(id, signal, produce) {
     let flight = flights.get(id)
+    if (flight?.controller.signal.aborted) {
+      flights.delete(id)
+      flight = undefined
+    }
     if (!flight) {
       flight = { controller: new AbortController(), consumers: 0, settled: false, promise: null }
       flight.promise = (async () => produce(flight.controller.signal))()
@@ -122,7 +126,10 @@ export function createDrawingPreviewService({
         localSettled = true
         signal?.removeEventListener('abort', onAbort)
         flight.consumers--
-        if (!flight.settled && flight.consumers === 0) flight.controller.abort()
+        if (!flight.settled && flight.consumers === 0) {
+          flight.controller.abort()
+          if (flights.get(id) === flight) flights.delete(id)
+        }
         fn(value)
       }
       const onAbort = () => finish(rejectFlight, new Error('图纸转换已取消'))
@@ -135,7 +142,7 @@ export function createDrawingPreviewService({
   async function build(sessionId, requested, signal) {
     const snapshot = await snapshotSource(sessionId, requested)
     try {
-      const candidates = await draftConverter.identities(snapshot.sha256)
+      const candidates = await draftConverter.identities(snapshot.sha256, { signal })
       if (!Array.isArray(candidates) || !candidates.length) throw new Error('转换器未提供六项身份候选')
       for (const { identity: key } of candidates) {
         try { return await readCached(sessionId, key, snapshot, requested, false) }
