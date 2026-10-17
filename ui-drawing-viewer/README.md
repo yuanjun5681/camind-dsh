@@ -21,6 +21,8 @@ URL 会话、授权源快照 SHA、实际 pack 字节 SHA、六项转换身份�
 ```sh
 node ui-drawing-viewer/selfcheck-routes.mjs
 node ui-drawing-viewer/selfcheck-reference.mjs
+# 实际 converter + HTTP + curl 的 M2 集成验收（不替代 dsh-app:// 桌面冒烟）
+node ui-drawing-viewer/acceptance-host.mjs
 ```
 
 ## 构建与检查
