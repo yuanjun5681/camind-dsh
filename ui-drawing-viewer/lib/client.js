@@ -1203,7 +1203,7 @@ var DraftView = class {
   verts;
   pointScratch;
   grid;
-  /** 抽稀收集缓冲(每段 2 顶点 × 8 floats;容量 = 上限段数,大包不再整帧全量开) */
+  /** 抽稀收集缓冲(每段 2 顶点 × 8 floats;容量 = max(上限段数, 当前选中段数),大包不再整帧全量开) */
   scratch;
   /** 图层可见态(初始 = layers 表 off/frozen 取反;不在表内的层名兜底可见) */
   layerVis = /* @__PURE__ */ new Map();
@@ -1564,14 +1564,10 @@ var DraftView = class {
     }
     const step = vis > this.opts.targetSegs ? Math.ceil(vis / this.opts.targetSegs) : 1;
     const STRIDE = FLOATS_PER_VERT * 2;
-    const scratch = this.scratch;
+    let scratch = this.scratch;
     const verts = this.verts;
     let n = 0, seen = 0;
-    for (let i = 0; i < nSeg; ++i) {
-      if (this.segHidden[i]) continue;
-      if (bb[i * 4 + 2] < vx0 - pad || bb[i * 4] > vx1 + pad || bb[i * 4 + 3] < vy0 - pad || bb[i * 4 + 1] > vy1 + pad)
-        continue;
-      if (++seen % step !== 0) continue;
+    const emit = (i) => {
       scratch.set(verts.subarray(i * STRIDE, i * STRIDE + STRIDE), n);
       if (this.selectedEnts.has(segs[i].entId)) {
         for (const off of [2, 10]) {
@@ -1581,7 +1577,29 @@ var DraftView = class {
         }
       }
       n += STRIDE;
+    };
+    const visible = (i) => {
+      if (this.segHidden[i]) return false;
+      return bb[i * 4 + 2] >= vx0 - pad && bb[i * 4] <= vx1 + pad && bb[i * 4 + 3] >= vy0 - pad && bb[i * 4 + 1] <= vy1 + pad;
+    };
+    const selected = [];
+    for (let i = 0; i < nSeg; ++i) {
+      if (visible(i) && this.selectedEnts.has(segs[i].entId)) selected.push(i);
     }
+    const requiredScratch = (Math.max(this.opts.targetSegs, selected.length) + 2) * STRIDE;
+    if (scratch.length < requiredScratch) {
+      this.scratch = new Float32Array(requiredScratch);
+      scratch = this.scratch;
+    }
+    const ordinaryVis = vis - selected.length;
+    const ordinaryBudget = Math.max(0, this.opts.targetSegs - selected.length);
+    const sampleStep = ordinaryBudget > 0 && ordinaryVis > ordinaryBudget ? Math.ceil(ordinaryVis / ordinaryBudget) : 1;
+    for (let i = 0; i < nSeg; ++i) {
+      if (!visible(i) || this.selectedEnts.has(segs[i].entId) || ordinaryBudget === 0) continue;
+      if (++seen % sampleStep !== 0) continue;
+      emit(i);
+    }
+    for (const i of selected) emit(i);
     this.stats.lastDrawn = n / STRIDE;
     this.stats.lastStep = step;
     this.stats.lastCullMs = performance.now() - t0;
@@ -1597,12 +1615,12 @@ var DraftView = class {
         if (this.pointHidden[i]) continue;
         const p = pts[i];
         if (p.x < vx0 - pad || p.x > vx1 + pad || p.y < vy0 - pad || p.y > vy1 + pad) continue;
-        const selected = this.selectedEnts.has(p.entId);
+        const selected2 = this.selectedEnts.has(p.entId);
         ps[pn++] = p.x;
         ps[pn++] = p.y;
-        ps[pn++] = selected ? 1 : p.r;
-        ps[pn++] = selected ? 0.82 : p.g;
-        ps[pn++] = selected ? 0.2 : p.b;
+        ps[pn++] = selected2 ? 1 : p.r;
+        ps[pn++] = selected2 ? 0.82 : p.g;
+        ps[pn++] = selected2 ? 0.2 : p.b;
         ps[pn++] = 0;
         ps[pn++] = 0;
         ps[pn++] = 0;
@@ -1634,15 +1652,11 @@ var DraftView = class {
     const [vx1, vy1] = this.screenToWorld(vp.x + vp.width, vp.y);
     let drawn = 0, overflow = 0;
     const drawnList = [];
-    for (const t of this.draft.texts) {
-      if (!this.isLayerVisible(t.layer)) continue;
-      if (t.x < vx0 || t.x > vx1 || t.y < vy0 || t.y > vy1) continue;
+    const emitText = (t) => {
+      if (!this.isLayerVisible(t.layer)) return;
+      if (t.x < vx0 || t.x > vx1 || t.y < vy0 || t.y > vy1) return;
       const px = t.h * scale;
-      if (px < 3) continue;
-      if (drawn >= this.opts.maxTexts) {
-        ++overflow;
-        continue;
-      }
+      if (px < 3) return;
       const [sx, sy] = this.worldToScreen(t.x, t.y);
       ctx.save();
       ctx.translate(sx, sy);
@@ -1657,7 +1671,22 @@ var DraftView = class {
       ctx.restore();
       drawnList.push({ sx, sy, entId: t.entId, layer: t.layer });
       ++drawn;
+    };
+    const eligible = (t) => {
+      if (!this.isLayerVisible(t.layer)) return false;
+      if (t.x < vx0 || t.x > vx1 || t.y < vy0 || t.y > vy1) return false;
+      return t.h * scale >= 3;
+    };
+    const selected = this.draft.texts.filter((t) => this.selectedEnts.has(t.entId) && eligible(t));
+    for (const t of this.draft.texts) {
+      if (this.selectedEnts.has(t.entId) || !eligible(t)) continue;
+      if (drawn + selected.length >= this.opts.maxTexts) {
+        ++overflow;
+        continue;
+      }
+      emitText(t);
     }
+    for (const t of selected) emitText(t);
     ctx.restore();
     this.stats.textsDrawn = drawn;
     this.stats.textsOverflow = overflow;
@@ -1680,12 +1709,13 @@ var DraftView = class {
     return n;
   }
   /** 标注文字优先拾取(4B-4):末帧实画文字的屏幕锚点,半径 10 物理像素内最近;
-   *  候选集与绘制同口径(微小/超上限文字不参与)。-1 无命中。 */
+   *  候选集与绘制同口径(微小/超上限文字不参与),同距时后绘制的顶层文字优先。-1 无命中。 */
   pickText(sx, sy) {
     const vp = this.viewport;
     if (sx < vp.x || sx > vp.x + vp.width || sy < vp.y || sy > vp.y + vp.height) return -1;
     let best = -1, bestD = 100;
-    for (const t of this.drawnTexts) {
+    for (let i = this.drawnTexts.length - 1; i >= 0; --i) {
+      const t = this.drawnTexts[i];
       const d2 = (t.sx - sx) * (t.sx - sx) + (t.sy - sy) * (t.sy - sy);
       if (d2 < bestD) {
         bestD = d2;

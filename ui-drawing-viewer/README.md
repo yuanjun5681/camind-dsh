@@ -38,8 +38,8 @@ ui-shell/node_modules/typescript/bin/tsc -p ui-drawing-viewer/tsconfig.json
 ## Draft 核心镜像来源
 
 - 上游仓库：相邻 `Camind-desktop`
-- 上游 commit：`703ce90efb1c15c53997e07141671f31ad955dec`
-- 同步日期：2026-10-17
+- 上游 commit：`83b6e2e31c031de95c4f411906e674f2cbf66e1d`
+- 同步日期：2026-10-18
 - 上游目录：`packages/viewer/src/draft/`
 - 本地目录：`ui-drawing-viewer/src/draft/`
 - 完整性：`mirror-manifest.json` 记录逐文件 SHA256；本次复制另经 `diff -qr` 验证完全一致。

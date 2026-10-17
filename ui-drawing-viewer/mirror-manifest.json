@@ -1,8 +1,8 @@
 {
   "sourceRepository": "Camind-desktop",
-  "sourceCommit": "703ce90efb1c15c53997e07141671f31ad955dec",
+  "sourceCommit": "83b6e2e31c031de95c4f411906e674f2cbf66e1d",
   "sourceRoot": "packages/viewer/src/draft",
-  "syncedAt": "2026-10-17",
+  "syncedAt": "2026-10-18",
   "files": [
     { "path": "aci.ts", "sha256": "a013381f8a83147c45bf308788a71b6b7e72ec7019e4ede0cf9bebbc43375d61" },
     { "path": "draft_camera.ts", "sha256": "f5eec8772b476a9ecf9591b073160c5c91bdc181ecef7a24cf0302abac39a1ad" },
@@ -10,7 +10,7 @@
     { "path": "draft_loader.ts", "sha256": "154252b1932d0934c662bebf12bc621f3e4116f014afb9f0c3a542d964d69af9" },
     { "path": "draft_pane.ts", "sha256": "f2ad7744e1034c7d14b6ec771e9c3319c25589db4934f12e8f3cfdddd144d2b8" },
     { "path": "draft_pick.ts", "sha256": "e9e35cf297a44eca20a297b5eafd4481c004b77c585e90386a6c5757e6571bdc" },
-    { "path": "draft_view.ts", "sha256": "7398e1f98bec062e8f1fe3ad5901dfc979863ac9cc8805eae5b7cacd26aad52d" },
+    { "path": "draft_view.ts", "sha256": "a9b995baf08b8a71116f25b50b38c38ea49cddea5b272a3bc6dfe5946c37f281" },
     { "path": "packcheck.ts", "sha256": "ca0d0f05da38a6ea7659fe3def0ba9c747c2bc04de1545a02c3c633c419afe6a" }
   ]
 }
