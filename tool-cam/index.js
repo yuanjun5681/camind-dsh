@@ -83,6 +83,7 @@ export function apply(ctx, config) {
     // 当前预览与冻结标注证据分离;转换失败时明确回退兼容预览。
     drawingReader: (file) => readDrawing(file, { converter: ctx.get('draftConverter') }),
     drawingPreview: (file) => readDrawingPreview(file, { converter: ctx.get('draftConverter') }),
+    getDrawingPreview: () => ctx.get('drawingPreview'),
     async resolve(sid, reference, exec) {
       if (reference.startsWith('task-input://')) throw new Error('接件请选择原始会话文件；归档快照用于读件/引用')
       const preview = ctx.get('previewFiles')

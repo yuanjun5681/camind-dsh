@@ -5,6 +5,7 @@ import { constants } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { readDrawing } from './drawing.js'
+import { adaptDrawingReference } from './task-references.js'
 import { requirementDraft } from './requirement-summary.js'
 import { planningFields, reviewChanges, schemeChanges, taskPhase, SETUP_LABELS } from './task-presentation.js'
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,160}$/
@@ -72,7 +73,7 @@ export function validateOperations(ops) {
     op.sequence = index + 1
   }
 }
-export function createCamTasks({ home, resolve, machineRegistry, geometry, drawingReader = readDrawing, drawingPreview }) {
+export function createCamTasks({ home, resolve, machineRegistry, geometry, drawingReader = readDrawing, drawingPreview, getDrawingPreview }) {
   const root = path.join(home, 'cam-tasks')
   const previews = new Map()
   const dirOf = sid => path.join(root, checkId(sid))
@@ -416,25 +417,28 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
       })
     },
     async validateReference(sid, reference) {
+      const claim = reference?.kind === 'camind-drawing-ref' ? reference : reference?.kind === 'drawing-target' ? reference.drawing_reference : null
+      if (claim) reference = adaptDrawingReference(claim)
       if (reference?.session_id !== sid || !Array.isArray(reference.ids) || reference.ids.length < 1 || reference.ids.length > 100 || reference.ids.some(id => typeof id !== 'string')) fail('对象引用归属/标识不合法')
       const task = await read(sid)
+      if (claim) {
+        const frozenUri = task.inputs.dwg?.uri
+        if (!frozenUri || claim.source?.uri !== frozenUri) fail('任务图纸引用必须使用当前冻结的 task-input:// URI')
+        const service = getDrawingPreview?.() ?? (typeof drawingPreview === 'object' ? drawingPreview : null)
+        if (!service || typeof service.verifyReference !== 'function') fail('图纸引用核验服务不可用，不能发送未核验引用')
+        const verified = await service.verifyReference(sid, claim)
+        const adapted = adaptDrawingReference(verified?.reference)
+        const checked = adapted.drawing_reference
+        const sameHash = (left, right) => typeof left === 'string' && typeof right === 'string' && left.toLowerCase() === right.toLowerCase()
+        if (adapted.session_id !== reference.session_id || adapted.ids[0] !== reference.ids[0] || checked.source?.uri !== claim.source?.uri
+          || !sameHash(adapted.source_sha256, reference.source_sha256) || !sameHash(adapted.pack_sha256, reference.pack_sha256)
+          || !sameHash(adapted.conversion_identity, reference.conversion_identity)) fail('图纸引用核验结果与请求不符')
+        if (checked.source?.uri !== frozenUri || checked.source?.sha256 !== task.inputs.dwg?.sha256) fail('图纸已换版或来源不是当前冻结输入，请重新选择')
+        return { ...adapted, session_id: sid, source_sha256: task.inputs.dwg.sha256,
+          entities: verified.targetContent === undefined ? [] : [verified.targetContent] }
+      }
+      if (reference.kind === 'drawing-target' || reference.kind === 'drawing') fail('旧图纸引用未经过 /refs/verify 核验，请重新选择')
       await sourcesFresh(task)
-      if (reference.kind === 'drawing-target') {
-        if (reference.source_sha256 !== task.inputs.dwg?.sha256) fail('图纸已换版，请重新选择')
-        const data = await this.drawing(sid, { preview: true })
-        if (!data.preview_sha256 || reference.preview_sha256 !== data.preview_sha256) fail('图纸预览已更新，请重新选择')
-        const targets = reference.ids.map(id => data.targets?.find(target => target.id === id))
-        if (targets.some(target => !target)) fail('图纸对象不存在或不支持定位，请重新选择')
-        return { kind: 'drawing-target', session_id: sid, source_sha256: data.source_sha256, preview_sha256: data.preview_sha256,
-          ids: [...reference.ids], entities: targets.map(({ id, kind, text, source_id, layer }) => ({ id, kind, text, source_id, layer })) }
-      }
-      if (reference.kind === 'drawing') {
-        if (reference.source_sha256 !== task.inputs.dwg?.sha256) fail('图纸已换版，请重新选择标注')
-        const data = await this.drawing(sid)
-        const entities = reference.ids.map(id => data.annotations.find(entity => entity.id === id))
-        if (entities.some(entity => !entity)) fail('图纸标注不存在，请重新选择')
-        return { ...reference, entities: entities.map(({ id, type, text, nominal, layer }) => ({ id, type, text, nominal, layer })) }
-      }
       if (reference.kind !== 'operation' || reference.revision !== task.revision || reference.plan_sha256 !== project(task).operation_fingerprint) fail('工序方案已变更，请重新选择工序')
       const operations = reference.ids.map(id => task.operations.find(op => op.id === id))
       if (operations.some(op => !op)) fail('工序已删除，请重新选择')

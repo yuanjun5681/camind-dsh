@@ -36,12 +36,8 @@ try {
   const displays = await Promise.all([service.drawing('session-a', { preview: true }), service.drawing('session-a', { preview: true })])
   assert.equal(displays[0].svg, '<svg>updated display</svg>')
   assert.equal(displays[0].preview_info.status, 'ready', 'Display status must reach the drawing route')
-  const targetReference = { session_id: 'session-a', kind: 'drawing-target', source_sha256: task.inputs.dwg.sha256, preview_sha256: 'c'.repeat(64), ids: ['d:0'] }
-  const checkedTarget = await service.validateReference('session-a', { ...targetReference, entities: [{ text: 'forged' }] })
-  assert.equal(checkedTarget.entities[0].text, 'Ø10', 'Prompt facts must come from the current server target index')
-  await assert.rejects(service.validateReference('session-a', { ...targetReference, preview_sha256: 'old' }), /预览已更新/)
-  await assert.rejects(service.validateReference('session-a', { ...targetReference, ids: ['missing'] }), /不存在/)
-  await assert.rejects(service.validateReference('session-a', { ...targetReference, session_id: 'foreign' }), /归属/)
+  const legacyTarget = { session_id: 'session-a', kind: 'drawing-target', source_sha256: task.inputs.dwg.sha256, preview_sha256: 'c'.repeat(64), ids: ['d:0'] }
+  await assert.rejects(service.validateReference('session-a', legacyTarget), /\/refs\/verify/, 'SVG targets cannot bypass DrawingReference verification')
   assert.deepEqual(displays[0].annotations, frozenDrawing.annotations)
   assert.deepEqual(await service.drawing('session-a'), frozenDrawing, 'Display refresh must not rewrite frozen evidence')
   assert.deepEqual(await service.read('session-a'), beforeDisplay, 'Display refresh must not alter task version or authorization')
