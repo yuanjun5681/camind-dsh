@@ -9,7 +9,7 @@ const converter = services.get('draftConverter')
 const HEADER = `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n`
 const TABLES = `0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n0\nTABLE\n2\nLTYPE\n70\n1\n0\nLTYPE\n2\nContinuous\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n0\nTABLE\n2\nSTYLE\n70\n1\n0\nSTYLE\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n0\nENDTAB\n0\nENDSEC\n`
 const dxf = `${HEADER}${TABLES}0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n100\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n30\n0.0\n11\n100.0\n21\n0.0\n31\n0.0\n0\nENDSEC\n0\nEOF\n`
-const pack = converter.convertDxf(dxf, { sourceName: 'identity.dxf', sourceBytes: Buffer.from(dxf) })
+const pack = await converter.convertDxf(dxf, { sourceName: 'identity.dxf', sourceBytes: Buffer.from(dxf) })
 const info = converter.info()
 assert.match(info.converter, /^[0-9a-f]{40}$/i)
 assert.equal(pack.conversion.commit, info.converter)
