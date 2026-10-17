@@ -79,6 +79,7 @@ try {
   assert.equal(summary.canvases, 2, 'DraftPane should create WebGL2 + Canvas2D layers')
   assert.match(summary.meta, /16 实体 · 2 尺寸/)
   assert.ok(summary.clip, '缺少合成截图区域')
+  await evaluate(`document.querySelectorAll('.cdv-canvas > div:not(canvas)').forEach(el => { el.dataset.acceptanceDisplay = el.style.display; el.style.display = 'none' })`)
   const screenshot = await send('Page.captureScreenshot', {
     format: 'png', fromSurface: true, captureBeyondViewport: false, clip: summary.clip,
   })
@@ -93,11 +94,12 @@ try {
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
     const colors = new Set()
     for (let i = 0; i < pixels.length; i += 4) {
-      colors.add(String(pixels[i]) + ',' + String(pixels[i + 1]) + ',' + String(pixels[i + 2])
+      colors.add(String(pixels[i]) + ',' + String(pixels[i + 1]) + ',' + String(pixels[i + 2]))
       if (colors.size > 16) break
     }
     return colors.size
   })()`)
+  await evaluate(`document.querySelectorAll('.cdv-canvas > div:not(canvas)').forEach(el => { el.style.display = el.dataset.acceptanceDisplay ?? '' })`)
   assert.ok(colors > 1, `合成截图为空或单色：${colors}`)
   assert.deepEqual(pageErrors, [])
   console.log(`dsh-app:// 合成图验收通过：${JSON.stringify(summary)}`)
