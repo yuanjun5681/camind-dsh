@@ -2537,16 +2537,19 @@ function drawingReferences(descriptor, targets) {
 // ui-drawing-viewer/src/styles.ts
 var drawingCss = `
 .cdv { position:relative; display:flex; flex-direction:column; width:100%; height:100%; min-height:0;
-  color:var(--camind-text-primary, var(--dsw-alias-text-primary)); background:var(--camind-bg-base, var(--dsw-alias-bg-base)); }
+  color:var(--camind-color-text, var(--dsw-alias-label-primary));
+  background:var(--camind-surface-page, var(--dsw-alias-background-base)); }
 .cdv-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:6px 8px;
-  font:12px/1.4 var(--camind-font-family, var(--dsw-alias-font-family)); color:var(--camind-text-secondary, var(--dsw-alias-text-secondary)); }
-.cdv-meta strong { color:var(--camind-text-primary, var(--dsw-alias-text-primary)); font-weight:600; }
-.cdv-badge { display:inline-flex; align-items:center; border:1px solid var(--camind-border-default, var(--dsw-alias-border-default));
-  border-radius:4px; padding:1px 5px; color:var(--camind-text-warning, var(--dsw-alias-text-warning)); }
-.cdv-error { margin:6px 8px; padding:8px; border:1px solid var(--camind-border-danger, var(--dsw-alias-border-danger));
-  color:var(--camind-text-danger, var(--dsw-alias-text-danger)); background:var(--camind-bg-danger-subtle, var(--dsw-alias-bg-danger-subtle)); }
-.cdv-missing { margin:0 8px 6px; color:var(--camind-text-warning, var(--dsw-alias-text-warning)); }
+  font-size:12px; line-height:1.4; color:var(--camind-color-text-secondary, var(--dsw-alias-label-secondary)); }
+.cdv-meta strong { color:var(--camind-color-text, var(--dsw-alias-label-primary)); font-weight:600; }
+.cdv-badge { display:inline-flex; align-items:center; border:1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
+  border-radius:4px; padding:1px 5px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
+.cdv-error { margin:6px 8px; padding:8px; border:1px solid var(--camind-color-danger, var(--dsw-alias-state-error-primary));
+  color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); background:var(--camind-surface-warning, transparent); }
+.cdv-missing { margin:0 8px 6px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
 .cdv-canvas { position:relative; flex:1; min-height:240px; min-width:0; overflow:hidden; }
+/* The mirrored DraftPane uses dark overlay panels; give all of them a contrasting foreground. */
+.cdv-canvas > div:not(canvas) { color:var(--camind-color-on-strong, var(--dsw-alias-label-primary-inverted, #fff)); }
 `;
 
 // ui-drawing-viewer/src/client.ts
@@ -2556,37 +2559,57 @@ function DrawingPreview({ descriptor, onReference }) {
   const callback = (0, import_react.useRef)(onReference);
   callback.current = onReference;
   const [loaded, setLoaded] = (0, import_react.useState)(null);
+  const [degraded, setDegraded] = (0, import_react.useState)(null);
   const [error, setError] = (0, import_react.useState)("");
   (0, import_react.useEffect)(() => {
     setLoaded(null);
+    setDegraded(null);
     setError("");
     const container = host.current;
     if (!container) return;
+    let disposed = false;
     container.textContent = "";
     let pane = null;
     try {
       validateDescriptor(descriptor);
       const provenance = descriptorProvenance(descriptor);
-      const fail = (message) => setError(message instanceof Error ? message.message : String(message));
+      const fail = (message) => {
+        if (!disposed) setError(message instanceof Error ? message.message : String(message));
+      };
       pane = new DraftPane(container, (msg) => {
-        if (msg.type === "loaded") setLoaded(msg);
+        if (disposed) return;
+        if (msg.type === "loaded") {
+          setLoaded(msg);
+          setDegraded(msg.degraded);
+        } else if (msg.type === "stats") setDegraded((previous) => ({
+          geometryDecimated: msg.stats.lastStep > 1,
+          textTruncated: msg.stats.textsOverflow > 0,
+          skippedTypes: previous?.skippedTypes ?? []
+        }));
         else if (msg.type === "error") fail(msg.message);
         else if (msg.type === "selectionChanged") {
           for (const reference of drawingReferences(descriptor, msg.targets)) {
-            void Promise.resolve(callback.current?.(reference)).catch(fail);
+            void (async () => {
+              try {
+                await callback.current?.(reference);
+              } catch (e) {
+                fail(e);
+              }
+            })();
           }
         }
       });
       pane.handle({ type: "load", messageVersion: 2, packText: descriptor.packText, name: descriptor.name, provenance });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!disposed) setError(e instanceof Error ? e.message : String(e));
     }
     return () => {
+      disposed = true;
       pane?.dispose();
       container.textContent = "";
     };
   }, [descriptor]);
-  const degraded = loaded?.degraded;
+  const visibleDegraded = degraded ?? loaded?.degraded;
   return h(
     "section",
     { className: "cdv", "data-testid": "drawing-preview" },
@@ -2596,9 +2619,9 @@ function DrawingPreview({ descriptor, onReference }) {
       h("strong", null, loaded?.name ?? descriptor.name),
       loaded ? h("span", null, `${loaded.entities} \u5B9E\u4F53 \xB7 ${loaded.dims} \u5C3A\u5BF8`) : null,
       loaded?.pack ? h("span", { title: loaded.pack.identity }, `pack ${loaded.pack.sha256.slice(0, 12)}\u2026`) : h("span", null, "\u5185\u5BB9\u6A21\u5F0F \xB7 \u53EA\u8BFB"),
-      degraded?.geometryDecimated ? h("span", { className: "cdv-badge" }, "\u51E0\u4F55\u5DF2\u62BD\u7A00") : null,
-      degraded?.textTruncated ? h("span", { className: "cdv-badge" }, "\u6587\u5B57\u6709\u622A\u65AD") : null,
-      degraded?.skippedTypes.length ? h("span", { className: "cdv-badge" }, `\u8DF3\u8FC7\u672A\u77E5\u7C7B\u578B\uFF1A${degraded.skippedTypes.join("\u3001")}`) : null
+      visibleDegraded?.geometryDecimated ? h("span", { className: "cdv-badge" }, "\u51E0\u4F55\u5DF2\u62BD\u7A00") : null,
+      visibleDegraded?.textTruncated ? h("span", { className: "cdv-badge" }, "\u6587\u5B57\u6709\u622A\u65AD") : null,
+      visibleDegraded?.skippedTypes.length ? h("span", { className: "cdv-badge" }, `\u8DF3\u8FC7\u672A\u77E5\u7C7B\u578B\uFF1A${visibleDegraded.skippedTypes.join("\u3001")}`) : null
     ),
     descriptor.missing?.length ? h("div", { className: "cdv-missing" }, `\u7F3A\u5931\u4FE1\u606F\uFF1A${descriptor.missing.join("\u3001")}`) : null,
     error ? h("div", { className: "cdv-error", role: "alert" }, error) : null,
