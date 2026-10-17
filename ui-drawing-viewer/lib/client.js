@@ -2588,6 +2588,16 @@ function DrawingPreview({ descriptor, onReference }) {
         }));
         else if (msg.type === "error") fail(msg.message);
         else if (msg.type === "selectionChanged") {
+          if (msg.targets.length === 0) {
+            void (async () => {
+              try {
+                await callback.current?.(null);
+              } catch (e) {
+                fail(e);
+              }
+            })();
+            return;
+          }
           for (const reference of drawingReferences(descriptor, msg.targets)) {
             void (async () => {
               try {
@@ -2605,6 +2615,12 @@ function DrawingPreview({ descriptor, onReference }) {
     }
     return () => {
       disposed = true;
+      void (async () => {
+        try {
+          await callback.current?.(null);
+        } catch {
+        }
+      })();
       pane?.dispose();
       container.textContent = "";
     };

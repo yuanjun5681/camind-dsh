@@ -28,17 +28,29 @@ const input = {
   },
   focus: () => { events.push('focus') },
   insertReference(ref, span) {
-    const expected = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
-    assert.equal(span.start, expected)
-    assert.equal(span.end, expected)
     assert.equal(span.draftRev, state.draftRev)
     events.push('insert')
     inserted.push(ref)
+    const ownedIndex = state.occurrences.findIndex(item => item.source === 'cam-drawing-ref')
+    if (ownedIndex >= 0) {
+      const previous = state.occurrences[ownedIndex]
+      const before = state.occurrences.filter(item => item.offset < previous.offset)
+      const expectedStart = previous.offset - before.reduce((sum, item) => sum + item.length - 1, 0)
+      assert.equal(span.start, expectedStart)
+      assert.equal(span.end, expectedStart + 1)
+      const occurrences = [...state.occurrences]
+      occurrences[ownedIndex] = { ...ref, offset: previous.offset, length: ref.clipboardText.length }
+      state = { ...state, occurrences, draftRev: state.draftRev + 1 }
+      return true
+    }
+    const expected = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
+    assert.equal(span.start, expected)
+    assert.equal(span.end, expected)
     state = {
       ...state,
       draft: `${state.draft}${ref.clipboardText} `,
       draftRev: state.draftRev + 1,
-      occurrences: [...state.occurrences, { ...ref, length: ref.clipboardText.length }],
+      occurrences: [...state.occurrences, { ...ref, offset: state.draft.length, length: ref.clipboardText.length }],
     }
     return true
   },
@@ -123,7 +135,10 @@ assert.equal(sourceDefinition.openReference({ sessionId: 's1' }, { ref: JSON.str
 assert.deepEqual(previewCalls, [['s1', reference.source.uri]])
 console.log('ok - openReference returns to the authorized drawing preview')
 
-state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [] }
+state = {
+  draft: '问题[FILE]', phase: 'plain', draftRev: 1,
+  occurrences: [{ source: 'file', ref: 'manual', label: 'keep', clipboardText: '[FILE]', offset: 2, length: 6 }],
+}
 inserted.length = 0
 const pending = new Map()
 deferred = claimed => new Promise(resolve => {
@@ -138,15 +153,17 @@ pending.get(2)()
 await second
 pending.get(1)()
 await first
-assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2], 'an older verification cannot supersede the latest pick')
+assert.deepEqual(state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).target.id), [2], 'an older verification cannot supersede the latest pick')
 const third = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 3 } })
 state = { ...state, draft: `${state.draft}新文字`, draftRev: state.draftRev + 1 }
 pending.get(3)()
 await third
 assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3])
+assert.deepEqual(state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).target.id), [3], 'a new pick replaces the owned occurrence')
+assert.equal(state.occurrences[0].source, 'file', 'unrelated references are preserved during replacement')
 assert.ok(state.draft.includes('新文字'), 'verification re-reads and preserves the latest draft snapshot')
 deferred = null
-console.log('ok - concurrent picks are sequenced and draft snapshots refresh after verification')
+console.log('ok - concurrent picks replace one owned occurrence and preserve unrelated content')
 
 deferred = claimed => new Promise(resolve => {
   pending.set(claimed.target.id, () => resolve({
@@ -161,5 +178,12 @@ pending.get(4)()
 await fourth
 assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3], 'a pending pick cannot cross a submit/reset boundary into a new question')
 assert.equal(stateListeners.size, 0, 'verification subscriptions are always released')
-deferred = null
 console.log('ok - pending references are discarded across submit/reset boundaries')
+
+const fifth = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 5 } })
+api.addPreviewReferenceToDraft('s1', null)
+pending.get(5)()
+await fifth
+assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3], 'deselection invalidates a pending verification')
+deferred = null
+console.log('ok - deselection or source invalidation cancels pending insertions')

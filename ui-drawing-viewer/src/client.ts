@@ -5,7 +5,7 @@ import { descriptorProvenance, drawingReferences, validateDescriptor, type Drawi
 import { drawingCss } from './styles.ts'
 
 const h = React.createElement
-type ReferenceHandler = (reference: DrawingReferenceCandidate) => void | Promise<void>
+type ReferenceHandler = (reference: DrawingReferenceCandidate | null) => void | Promise<void>
 type Loaded = Extract<PaneViewerMessage, { type: 'loaded' }>
 
 export function DrawingPreview({ descriptor, onReference }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler }): React.ReactElement {
@@ -39,6 +39,13 @@ export function DrawingPreview({ descriptor, onReference }: { descriptor: Drawin
         }))
         else if (msg.type === 'error') fail(msg.message)
         else if (msg.type === 'selectionChanged') {
+          if (msg.targets.length === 0) {
+            void (async () => {
+              try { await callback.current?.(null) }
+              catch (e) { fail(e) }
+            })()
+            return
+          }
           for (const reference of drawingReferences(descriptor, msg.targets)) {
             void (async () => {
               try { await callback.current?.(reference) }
@@ -51,7 +58,12 @@ export function DrawingPreview({ descriptor, onReference }: { descriptor: Drawin
     } catch (e) {
       if (!disposed) setError(e instanceof Error ? e.message : String(e))
     }
-    return () => { disposed = true; pane?.dispose(); container.textContent = '' }
+    return () => {
+      disposed = true
+      void (async () => { try { await callback.current?.(null) } catch { /* Disposal ignores stale invalidation failures. */ } })()
+      pane?.dispose()
+      container.textContent = ''
+    }
   }, [descriptor])
 
   const visibleDegraded = degraded ?? loaded?.degraded

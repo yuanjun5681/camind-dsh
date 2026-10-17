@@ -138,3 +138,13 @@ render(denseDescriptor)
 assert.match(text(tree), /几何已抽稀/)
 assert.match(text(tree), /文字有截断/)
 console.log('ok - degradation badges follow subsequent stats')
+
+freshPreview()
+const invalidations = []
+render(baseDescriptor, reference => { invalidations.push(reference) })
+clickEntity0()
+await sleep(250)
+for (const cleanup of cleanups) if (typeof cleanup === 'function') cleanup()
+assert.ok(invalidations.some(reference => reference?.kind === 'camind-drawing-ref'))
+assert.equal(invalidations.at(-1), null, 'unmount must invalidate pending references')
+console.log('ok - deselection and disposal invalidate pending drawing references')
