@@ -45,7 +45,7 @@ const input = {
 }
 function publish(patch) {
   state = { ...state, ...patch, draftRev: state.draftRev + 1 }
-  for (const listener of stateListeners) listener(state)
+  for (const listener of stateListeners) listener()
 }
 async function fetch(url, options = {}) {
   if (!url.includes('/refs/verify')) throw new Error(`unexpected fetch: ${url}`)
