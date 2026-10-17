@@ -27,7 +27,7 @@ window.__ModuleLoader__.load({ id: 'camind-ui-preview', factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
 
 const React = require('react')
-const { createElement: h, useEffect, useState, useSyncExternalStore } = React
+const { createElement: h, useEffect, useRef, useState, useSyncExternalStore } = React
 const { MarkdownText } = require('@deepseek-ai/dsh-client-ui-primitives')
 
 // --- stylesheet (dsw-alias tokens; no ui-shell vars) ----------------------------
@@ -69,6 +69,8 @@ const previewCss = `
 .campv-pdf { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
 .campv-binary { padding: 48px 24px; color: var(--camind-color-text-secondary, var(--dsw-alias-label-secondary)); font-size: 13px; text-align: center; }
 .campv-binary a { color: var(--camind-color-accent, var(--dsw-alias-state-business-primary)); }
+.campv-drawing-actions { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.campv-drawing-actions button { padding: 6px 12px; border: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2)); border-radius: 8px; background: var(--camind-surface-hover, var(--dsw-alias-interactive-bg-hover)); color: var(--camind-color-text, var(--dsw-alias-label-primary)); cursor: pointer; }
 .campv-truncated { flex: none; padding: 8px 16px; border-top: 1px solid var(--camind-border-default, var(--dsw-alias-border-l2)); color: var(--camind-color-warning, var(--dsw-alias-state-warn-label)); font-size: 12px; }
 /* Hide the composer while the preview tab is the active view: the official
    conversation root carries [data-phase] and the composer seat
@@ -276,16 +278,147 @@ function NcRawBody({ sessionId, preview }) {
   return h(NcOrText, { name: preview.name, text })
 }
 
+function drawingPacksUrl(sessionId) {
+  return `/camind/api/drawings/sessions/${encodeURIComponent(sessionId)}/packs`
+}
+
+async function drawingJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: { Accept: 'application/json', ...(options.body ? { 'content-type': 'application/json' } : {}), ...options.headers },
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(typeof body?.message === 'string' ? body.message : `HTTP ${response.status}`)
+  return body
+}
+
+function useDrawingViewer() {
+  const [component, setComponent] = useState(null)
+  useEffect(() => {
+    const update = () => {
+      const entry = slotsRef?.entriesOfSlot('cam.drawing.preview').find(item => item.options?.key === 'drawing-viewer')
+      setComponent(() => entry?.component ?? null)
+    }
+    update()
+    return slotsRef?.subscribe('cam.drawing.preview', update)
+  }, [])
+  return component
+}
+
+function webgl2Available() {
+  try { return Boolean(document.createElement('canvas').getContext('webgl2')) } catch { return false }
+}
+
+function useDrawingJob(sessionId, path, attempt, enabled) {
+  const [state, setState] = useState({ stage: 'idle' })
+  const runtime = useRef(null)
+  useEffect(() => {
+    let cancelled = false, timer = null, jobId = null
+    const base = drawingPacksUrl(sessionId)
+    const cancelRequest = () => jobId ? drawingJson(`${base}/${jobId}/cancel`, { method: 'POST' }) : Promise.resolve(null)
+    const cancel = async () => {
+      cancelled = true
+      if (timer !== null) clearTimeout(timer)
+      if (!jobId) {
+        if (runtime.current) setState({ stage: 'cancelled', message: '图纸转换已取消' })
+        return
+      }
+      try {
+        const job = await cancelRequest()
+        if (runtime.current) setState({ stage: 'cancelled', message: job?.error?.message ?? '图纸转换已取消' })
+      } catch (error) {
+        if (runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    runtime.current = { cancel }
+    if (!enabled) {
+      setState({ stage: 'unsupported' })
+      return () => { runtime.current = null }
+    }
+    setState({ stage: 'starting' })
+    const poll = async () => {
+      try {
+        if (!jobId) {
+          const started = await drawingJson(base, { method: 'POST', body: JSON.stringify({ path }) })
+          jobId = started.jobId
+          if (cancelled) {
+            await cancelRequest().catch(() => {})
+            return
+          }
+        }
+        if (cancelled) return
+        const job = await drawingJson(`${base}/${jobId}/status`)
+        if (cancelled) return
+        if (job.state === 'ready') {
+          const key = job.result?.key ?? job.result?.descriptor?.pack?.identity
+          if (!key) throw new Error('转换作业就绪但缺少图纸包身份')
+          const descriptor = await drawingJson(`${base}/${key}?path=${encodeURIComponent(path)}`)
+          if (!cancelled) setState({ stage: 'ready', descriptor })
+          return
+        }
+        if (job.state === 'error') {
+          setState({ stage: 'error', message: job.error?.message ?? '图纸转换失败' })
+          return
+        }
+        setState({ stage: job.state === 'queued' ? 'queued' : 'running' })
+        timer = setTimeout(poll, 250)
+      } catch (error) {
+        if (!cancelled) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    void poll()
+    return () => {
+      cancelled = true
+      if (timer !== null) clearTimeout(timer)
+      runtime.current = null
+      if (jobId) void cancelRequest().catch(() => {})
+    }
+  }, [sessionId, path, attempt, enabled])
+  return { state, cancel: () => runtime.current?.cancel?.() }
+}
+
+function DrawingBody({ sessionId, preview, onReference }) {
+  const Viewer = useDrawingViewer()
+  const [webgl2] = useState(webgl2Available)
+  const [attempt, setAttempt] = useState(0)
+  const enabled = Boolean(Viewer) && webgl2
+  const { state, cancel } = useDrawingJob(sessionId, preview.path, attempt, enabled)
+  const raw = rawFileUrl(sessionId, preview.path)
+  const download = h('a', { href: raw, target: '_blank', rel: 'noreferrer' }, '下载原始图纸')
+  const restart = h('button', { type: 'button', onClick: () => setAttempt(value => value + 1) }, '重新转换')
+  if (!Viewer) return h('div', { className: 'campv-binary' }, h('p', null, '2D 图纸查看器未加载。'), download)
+  if (!webgl2) {
+    return h('div', { className: 'campv-binary' },
+      h('p', null, '当前环境无法创建 WebGL2 上下文，未启动图纸转换；这不是转换失败。请下载后用外部 CAD 工具打开。'), download)
+  }
+  if (state.stage === 'ready') {
+    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor, onReference }))
+  }
+  if (state.stage === 'error') {
+    return h('div', { className: 'campv-binary', role: 'alert' },
+      h('p', null, `图纸转换失败：${state.message}`), h('div', { className: 'campv-drawing-actions' }, restart, download))
+  }
+  if (state.stage === 'cancelled') {
+    return h('div', { className: 'campv-binary' },
+      h('p', null, '图纸转换已取消。'), h('div', { className: 'campv-drawing-actions' }, restart, download))
+  }
+  const label = state.stage === 'queued' ? '图纸转换正在排队…'
+    : state.stage === 'running' ? '正在转换图纸…'
+      : state.stage === 'cancelling' ? '正在取消图纸转换…' : '正在启动图纸转换…'
+  return h('div', { className: 'campv-binary' },
+    h('p', null, label),
+    state.stage === 'cancelling' ? null : h('div', { className: 'campv-drawing-actions' },
+      h('button', { type: 'button', onClick: () => { void cancel() } }, '取消转换'), download))
+}
+
 function FilePreviewBody({ sessionId, preview, error, onReference }) {
   const ModelViewer = useModelViewer()
   if (error) return h('div', { className: 'campv-error' }, error)
   if (!preview) return h('div', { className: 'campv-empty' }, '正在读取文件…')
   const raw = rawFileUrl(sessionId, preview.path)
   const ncName = isNcName(preview.name)
-  if (/\.dwg$/i.test(preview.name)) {
-    return h('div', { className: 'campv-binary' }, h('h3', null, 'CAD 图纸预览待接入'),
-      h('p', null, 'DWG 已列为输入文件，但尚不能读取图层、尺寸或公差；不能据此视为已审图。'),
-      h('a', { href: raw, target: '_blank', rel: 'noreferrer' }, '下载原始 DWG'))
+  if (/\.(?:dwg|dxf)$/i.test(preview.name)) {
+    return h(DrawingBody, { sessionId, preview, onReference })
   }
   if (/\.prt$/i.test(preview.name) && ModelViewer) {
     return h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId, path: preview.path, onReference }))
@@ -424,6 +557,7 @@ function apply(ctx) {
   }, FilePreviewView))
 }
 
+exports.__drawingTest = { DrawingBody }
 exports.name = 'camind-ui-preview'
 exports.inject = ['slots', 'sessions']
 exports.apply = apply
