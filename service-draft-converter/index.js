@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs'
 import z from '@deepseek-ai/schemastery'
 
-import { convertDxfText } from './lib/convert.js'
+import { convertDxfText, PIPELINE_VERSION, RULES_VERSION, VIEW_RULE_VERSION } from './lib/convert.js'
 import { checkDraftPack } from './lib/packcheck.js'
 import { svgFromPack, drawingTargetsFromPack } from './lib/svg.js'
 import { libredwgVersion, resolveDwg2dxf } from './lib/dwg.js'
@@ -60,6 +60,20 @@ export function apply(ctx, config) {
     conversionIdentity,
     identity(pack, options = {}) {
       return packIdentity(pack, { conversionFingerprint: conversionIdentity(options) })
+    },
+    identities(sourceSha256, options = {}) {
+      if (!/^[0-9a-f]{64}$/i.test(sourceSha256)) throw new Error('源 SHA256 非法')
+      const fingerprint = conversionIdentity(options)
+      return ['autocad', 'nx', 'unknown'].map(channel => ({
+        channel,
+        ...packIdentity({
+          source_sha256: sourceSha256,
+          pipeline_version: PIPELINE_VERSION,
+          origin: { channel },
+          rules_version: RULES_VERSION,
+          view_rule_version: VIEW_RULE_VERSION,
+        }, { conversionFingerprint: fingerprint }),
+      }))
     },
     info() {
       const bin = resolveDwg2dxf(dwg2dxfPath())

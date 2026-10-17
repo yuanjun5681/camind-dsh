@@ -17,6 +17,7 @@ dc.toSvg(pack)                          // → SVG（保留原色与简单虚线
 dc.preview(pack)                        // → { svg, targets }，同源文字/尺寸实体索引
 dc.check(pack, 'writer' | 'reader')    // packcheck 校验（码表与 CAM-Agent draft_packcheck.py 同源）
 dc.info()                              // { dwg2dxf, libredwg, converter } 版本面
+dc.identities(sourceSha256)            // autocad/nx/unknown 三种出身的六项身份候选，供转换前缓存探测
 ```
 
 `dwg2dxf` 路径解析序：条目 config `dwg2dxfPath`（volatile 热更）> 环境变量

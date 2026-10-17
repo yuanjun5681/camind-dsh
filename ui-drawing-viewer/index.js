@@ -14,6 +14,7 @@ export function apply(ctx) {
     draftConverter: ctx.draftConverter,
   })
   ctx.provide('drawingPreview', service)
+  ctx.effect(() => () => service.dispose())
   ctx.webServer.register({
     kind: 'prefix',
     path: DRAWING_ROUTE_PREFIX,

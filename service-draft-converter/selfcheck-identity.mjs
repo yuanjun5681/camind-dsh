@@ -24,6 +24,11 @@ assert.equal(first.fields.length, 6)
 assert.match(first.fields[3], /^[0-9a-f]{64}$/i)
 assert.equal(first.identity.length, 64)
 assert.equal('identity' in pack, false, 'pack.identity 不得写入 pack JSON')
+const candidates = converter.identities(pack.source_sha256)
+assert.equal(candidates.length, 3)
+assert.equal(new Set(candidates.map(item => item.identity)).size, 3)
+assert.equal(candidates.find(item => item.channel === pack.origin.channel).identity, converter.identity(pack).identity,
+  '缓存候选必须包含实际 pack 的六项身份')
 
 const differentOptions = converter.identity(pack, { options: { ltscale: 2 } })
 assert.notEqual(first.identity, differentOptions.identity)

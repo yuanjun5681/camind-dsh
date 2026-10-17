@@ -103,3 +103,18 @@ pendingQueue.deleteSession('s1')
 assert.equal(pendingQueue.status(pendingSlow.id, 's1'), null)
 assert.equal(classifyConversionError(new Error('dwg2dxf 未找到(x)')).code, 'tool_missing')
 console.log('ok - queued cancellation, cleanup and error classification')
+
+const disposable = createJobQueue({ maxGlobal: 1, maxPerSession: 1, maxMemoryMb: 100 })
+let disposeAborted = false, queuedRan = false
+const disposableJob = disposable.submit({ sessionId: 'dispose', estimatedMemoryMb: 100, run: ({ signal }) => new Promise((_, reject) => {
+  signal.addEventListener('abort', () => { disposeAborted = true; reject(new Error('取消')) }, { once: true })
+}) })
+disposable.submit({ sessionId: 'dispose', estimatedMemoryMb: 100, run: async () => { queuedRan = true } })
+await sleep(1)
+await disposable.dispose()
+assert.equal(disposeAborted, true)
+assert.equal(queuedRan, false)
+assert.equal(disposable.status(disposableJob.id, 'dispose'), null)
+assert.equal(disposable.activeMemoryMb, 0)
+assert.throws(() => disposable.submit({ sessionId: 'dispose', run: async () => {} }), /已释放/)
+console.log('ok - dispose aborts active work, drops queued jobs and waits for cleanup')

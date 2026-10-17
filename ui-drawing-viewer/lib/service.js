@@ -1,11 +1,12 @@
-// Local drawingPreview provider: stable source snapshots feed bounded conversion jobs;
-// ready packs are served only through the six-identity cache with fresh authorization.
+// Local drawingPreview provider: authorized snapshots probe all six-identity cache candidates
+// before conversion; cold misses share a cancellable flight and ready reads re-authorize every caller.
 import { createHash } from 'node:crypto'
 import { createJobQueue } from './jobs.js'
 import { createDraftCache } from './cache.js'
 import { decodeDxfSnapshot, snapshotDrawingSource } from './source.js'
 
-const sha256 = text => createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')
+const sha256 = value => createHash('sha256').update(value).digest('hex')
+const notReady = () => Object.assign(new Error('图纸包尚未转换，请先启动转换作业'), { code: 'PACK_NOT_READY' })
 
 function missingEntries(pack) {
   return Object.entries(pack.missing ?? {}).flatMap(([kind, values]) =>
@@ -46,6 +47,7 @@ export function createDrawingPreviewService({
     home,
     check: (pack, profile) => draftConverter.check(pack, profile),
   })
+  const flights = new Map()
   const snapshotSource = (sessionId, uri) => snapshotDrawingSource({ sessionId, requested: uri, resolve })
 
   async function convertSnapshot(snapshot, signal) {
@@ -62,30 +64,87 @@ export function createDrawingPreviewService({
       : draftConverter.convertDxf(decoded.text, options)
   }
 
-  async function build(sessionId, requested, signal) {
+  async function readCached(sessionId, key, snapshot, requested, includeText, displayName) {
+    const cached = await draftCache.get(sessionId, key, {
+      name: displayName ?? snapshot.name,
+      sourceUri: requested,
+      resolve,
+      build: async () => { throw notReady() },
+    })
+    const descriptor = descriptorFor({
+      sessionId,
+      source: { uri: requested, sha256: snapshot.sha256, name: displayName ?? snapshot.name },
+      key,
+      cached,
+      packText: cached.packText,
+      includeText,
+    })
+    return { key, descriptor }
+  }
+
+  async function convertAndPublish(sessionId, requested, expectedSha, signal) {
     const snapshot = await snapshotSource(sessionId, requested)
     try {
+      if (snapshot.sha256 !== expectedSha) throw new Error('源文件变更：转换前快照已不一致')
       const pack = await convertSnapshot(snapshot, signal)
       if (snapshot.sha256 !== pack.source_sha256) throw new Error('源件改变：转换包与稳定快照不一致')
       const { identity: key } = draftConverter.identity(pack)
       const packText = JSON.stringify(pack)
-      const cached = await draftCache.get(sessionId, key, {
+      await draftCache.get(sessionId, key, {
         name: snapshot.name,
         sourceUri: requested,
         resolve,
         build: async () => packText,
       })
-      return {
-        key,
-        descriptor: descriptorFor({
-          sessionId,
-          source: { uri: requested, sha256: snapshot.sha256, name: snapshot.name },
-          key,
-          cached,
-          packText: cached.packText,
-          includeText: false,
-        }),
+      return key
+    } finally {
+      await snapshot.cleanup()
+    }
+  }
+
+  function joinFlight(id, signal, produce) {
+    let flight = flights.get(id)
+    if (!flight) {
+      flight = { controller: new AbortController(), consumers: 0, settled: false, promise: null }
+      flight.promise = (async () => produce(flight.controller.signal))()
+      flights.set(id, flight)
+      const settle = () => {
+        flight.settled = true
+        if (flights.get(id) === flight) flights.delete(id)
       }
+      flight.promise.then(settle, settle)
+    }
+    flight.consumers++
+    return new Promise((resolveFlight, rejectFlight) => {
+      let localSettled = false
+      const finish = (fn, value) => {
+        if (localSettled) return
+        localSettled = true
+        signal?.removeEventListener('abort', onAbort)
+        flight.consumers--
+        if (!flight.settled && flight.consumers === 0) flight.controller.abort()
+        fn(value)
+      }
+      const onAbort = () => finish(rejectFlight, new Error('图纸转换已取消'))
+      if (signal?.aborted) return onAbort()
+      signal?.addEventListener('abort', onAbort, { once: true })
+      flight.promise.then(value => finish(resolveFlight, value), error => finish(rejectFlight, error))
+    })
+  }
+
+  async function build(sessionId, requested, signal) {
+    const snapshot = await snapshotSource(sessionId, requested)
+    try {
+      const candidates = await draftConverter.identities(snapshot.sha256)
+      if (!Array.isArray(candidates) || !candidates.length) throw new Error('转换器未提供六项身份候选')
+      for (const { identity: key } of candidates) {
+        try { return await readCached(sessionId, key, snapshot, requested, false) }
+        catch (error) { if (error.code !== 'PACK_NOT_READY') throw error }
+      }
+      const flightId = `${sessionId}/${sha256(JSON.stringify(candidates.map(item => item.identity).sort()))}`
+      const key = await joinFlight(flightId, signal,
+        flightSignal => convertAndPublish(sessionId, requested, snapshot.sha256, flightSignal))
+      return await readCached(sessionId, key, snapshot, requested, false)
     } finally {
       await snapshot.cleanup()
     }
@@ -96,26 +155,14 @@ export function createDrawingPreviewService({
   async function read(sessionId, key, requested, displayName) {
     if (!/^[0-9a-f]{64}$/i.test(key)) throw new Error('非法图纸包身份')
     const snapshot = await snapshotSource(sessionId, requested)
-    try {
-      const cached = await draftCache.get(sessionId, key, {
-        name: displayName ?? snapshot.name,
-        sourceUri: requested,
-        resolve,
-        build: async () => {
-          throw Object.assign(new Error('图纸包尚未转换，请先启动转换作业'), { code: 'PACK_NOT_READY' })
-        },
-      })
-      return descriptorFor({
-        sessionId,
-        source: { uri: requested, sha256: snapshot.sha256, name: displayName ?? snapshot.name },
-        key,
-        cached,
-        packText: cached.packText,
-        includeText: true,
-      })
-    } finally {
-      await snapshot.cleanup()
-    }
+    try { return (await readCached(sessionId, key, snapshot, requested, true, displayName)).descriptor }
+    finally { await snapshot.cleanup() }
+  }
+
+  async function dispose() {
+    for (const flight of flights.values()) flight.controller.abort()
+    const pending = [...flights.values()].map(flight => flight.promise.catch(() => {}))
+    await Promise.all([queue.dispose(), ...pending])
   }
 
   return {
@@ -140,5 +187,6 @@ export function createDrawingPreviewService({
       queue.deleteSession(sessionId)
       return draftCache.deleteSession(sessionId)
     },
+    dispose,
   }
 }

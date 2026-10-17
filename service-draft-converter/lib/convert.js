@@ -20,8 +20,9 @@ import { checkDraftPack } from "./packcheck.js";
 const INSUNITS = { 0: ["unknown", 1.0], 1: ["inch", 25.4], 2: ["foot", 304.8], 4: ["mm", 1.0],
     5: ["cm", 10.0], 6: ["m", 1000.0], 8: ["microinch", 25.4e-6], 9: ["mil", 0.0254] };
 const NX_VERSION_GUID = "{FAEB1C32-E019-11D5-929B-00C0DF256EC4}";
-const RULES_VERSION = "sem-rules-0";
-const VIEW_RULE_VERSION = "view-rules-0";
+export const PIPELINE_VERSION = "dr-1";
+export const RULES_VERSION = "sem-rules-0";
+export const VIEW_RULE_VERSION = "view-rules-0";
 const TOL_FRAME_H = 6.0, TOL_CELL_W = 10.0;
 
 const round3 = (v) => Math.round(v * 1000) / 1000;
@@ -645,7 +646,7 @@ function buildPack(doc, opts) {
     if (orphans.length) console.error(`[孤儿 dim_id] ${orphans.slice(0, 8).join(",")}`);
 
     const pack = {
-        format: "camind-draft-pack", format_version: 1, pipeline_version: "dr-1",
+        format: "camind-draft-pack", format_version: 1, pipeline_version: PIPELINE_VERSION,
         source_file: opts.sourceName ?? "unknown.dxf",
         source_sha256: opts.sourceBytes
             ? createHash("sha256").update(opts.sourceBytes).digest("hex") : "",

@@ -15,9 +15,9 @@ export function classifyConversionError(error) {
 }
 
 export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb = 1024 } = {}) {
-  const jobs = new Map(), pending = []
+  const jobs = new Map(), pending = [], executions = new Set()
   const activeSessions = new Map()
-  let activeJobs = 0, activeMemory = 0, pumping = false
+  let activeJobs = 0, activeMemory = 0, pumping = false, disposed = false
 
   const info = job => ({
     id: job.id, state: job.state, stage: job.stage,
@@ -28,7 +28,7 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
   })
   const canStart = job => {
     const sessionActive = activeSessions.get(job.sessionId)?.count ?? 0
-    return activeJobs < maxGlobal
+    return !disposed && activeJobs < maxGlobal
       && sessionActive < maxPerSession
       && activeMemory + job.estimatedMemoryMb <= maxMemoryMb
   }
@@ -68,13 +68,16 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
         activeSessions.set(job.sessionId, { count: (activeSessions.get(job.sessionId)?.count ?? 0) + 1 })
         activeMemory += job.estimatedMemoryMb
         job.state = 'running'; job.stage = 'converting'
-        void runJob(job)
+        const execution = runJob(job)
+        executions.add(execution)
+        void execution.then(() => executions.delete(execution))
       }
     } finally {
       pumping = false
     }
   }
   function submit({ sessionId, estimatedMemoryMb = 256, run, retryOf }) {
+    if (disposed) throw new Error('转换作业队列已释放')
     if (typeof run !== 'function') throw new Error('转换任务缺少执行函数')
     if (estimatedMemoryMb > maxMemoryMb) throw new Error('图纸转换超出内存预算')
     const job = {
@@ -132,6 +135,18 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
         }
       }
       if (removed) pump()
+    },
+    async dispose() {
+      disposed = true
+      for (const job of jobs.values()) {
+        if (!['ready', 'error'].includes(job.state)) {
+          job.cancelled = true
+          job.controller.abort()
+        }
+      }
+      jobs.clear()
+      pending.length = 0
+      await Promise.all([...executions])
     },
     get activeMemoryMb() { return activeMemory },
     get pendingCount() { return pending.length },
