@@ -373,6 +373,12 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
           jobId = started.jobId
           if (cancelled) {
             await cancelRequest().catch(() => {})
+            try {
+              const job = await drawingJson(`${base}/${jobId}/status`)
+              await publishJob(job)
+            } catch (error) {
+              if (runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+            }
             return
           }
         }

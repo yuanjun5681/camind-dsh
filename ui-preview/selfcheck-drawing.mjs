@@ -85,6 +85,7 @@ async function fetch(url, options = {}) {
   let body
   if (url.endsWith('/packs') && options.method === 'POST') {
     const requested = JSON.parse(options.body).path
+    if (requested === 'startup.dxf') await new Promise(resolve => setTimeout(resolve, 30))
     body = { jobId: `${requested}-job`, state: 'queued' }
   } else if (url.endsWith('/status')) {
     if (url.includes('bad.dxf')) body = { state: 'error', error: { message: '坏包' } }
@@ -92,8 +93,8 @@ async function fetch(url, options = {}) {
     else if (url.includes('race.dxf')) body = raceCancelled ? { state: 'ready', result: { key: identity } } : { state: 'running' }
     else body = { state: 'ready', result: { key: identity } }
   } else if (url.endsWith('/cancel')) {
-    if (url.includes('race.dxf')) {
-      raceCancelled = true
+    if (url.includes('race.dxf') || url.includes('startup.dxf')) {
+      if (url.includes('race.dxf')) raceCancelled = true
       return { ok: false, status: 404, json: async () => ({ message: '转换作业不存在或已结束' }) }
     }
     body = { state: 'error', error: { code: 'cancelled', message: '图纸转换已取消' } }
@@ -187,6 +188,20 @@ const reconciled = find(tree, node => node.type === Viewer)
 assert.ok(reconciled, 'cancel-vs-completion must reconcile and show the ready drawing')
 assert.equal(text(tree).includes('图纸转换失败'), false)
 console.log('ok - cancellation reconciles terminal ready instead of failing')
+
+fresh()
+render({ name: 'startup.dxf', path: 'startup.dxf' })
+await sleep(10)
+render()
+const startupButton = find(tree, node => node.type === 'button' && text(node) === '取消转换')
+assert.ok(startupButton)
+await startupButton.props.onClick()
+await sleep(50)
+render()
+const startupReady = find(tree, node => node.type === Viewer)
+assert.ok(startupReady, 'cancel during initial POST must reconcile a fast ready job')
+assert.equal(text(tree).includes('图纸转换已取消'), false)
+console.log('ok - cancellation during start also reconciles terminal ready')
 
 fresh()
 webgl = false
