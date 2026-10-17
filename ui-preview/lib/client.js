@@ -356,7 +356,7 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
         update({ stage: job.state === 'queued' ? 'queued' : 'running' })
         timer = setTimeout(poll, 250)
       } catch (error) {
-        if (!cancelled) update({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+        update({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
       }
     }
     async function reconcile(cancelError) {

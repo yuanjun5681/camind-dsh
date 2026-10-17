@@ -85,7 +85,12 @@ async function fetch(url, options = {}) {
   let body
   if (url.endsWith('/packs') && options.method === 'POST') {
     const requested = JSON.parse(options.body).path
-    if (requested === 'startup.dxf' || requested === 'startup-failure.dxf') await new Promise(resolve => setTimeout(resolve, 30))
+    if (requested === 'startup.dxf' || requested === 'startup-failure.dxf' || requested === 'startup-error.dxf') {
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+    if (requested === 'startup-error.dxf') {
+      return { ok: false, status: 503, json: async () => ({ message: '启动服务暂不可用' }) }
+    }
     body = { jobId: `${requested}-job`, state: 'queued' }
   } else if (url.endsWith('/status')) {
     if (url.includes('bad.dxf')) body = { state: 'error', error: { message: '坏包' } }
@@ -222,6 +227,18 @@ const startupFailureReady = find(tree, node => node.type === Viewer)
 assert.ok(startupFailureReady, 'failed startup cancellation must resume polling instead of false confirmation')
 assert.equal(text(tree).includes('图纸转换已取消'), false)
 console.log('ok - unsuccessful startup cancellation resumes status polling')
+
+fresh()
+render({ name: 'startup-error.dxf', path: 'startup-error.dxf' })
+await sleep(10)
+render()
+const startupErrorButton = find(tree, node => node.type === 'button' && text(node) === '取消转换')
+await startupErrorButton.props.onClick()
+await sleep(60)
+render()
+assert.match(text(tree), /图纸转换失败：启动服务暂不可用/)
+assert.ok(find(tree, node => node.type === 'button' && text(node) === '重新转换'))
+console.log('ok - startup failure after cancellation reaches a recoverable error state')
 
 fresh()
 webgl = false
