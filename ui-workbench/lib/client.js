@@ -161,7 +161,7 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing-stage { position:relative; display:flex; flex:1; min-width:0; min-height:0; background:#23272e; }
 .wb-drawing-controls { position:absolute; z-index:3; top:12px; left:12px; right:12px; display:flex; align-items:flex-start; flex-wrap:wrap; gap:8px; pointer-events:none; }
 .cdv-body-adapted > .wb-drawing-controls { position:static; grid-column:1/-1; grid-row:1; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
-.cdv-body-adapted > .wb-drawing-annotations { grid-column:2; grid-row:2; }
+.cdv-body-adapted > .wb-drawing-annotations { grid-column:2; grid-row:2; max-width:none; }
 .wb-drawing-tools { display:flex; align-items:center; gap:2px; padding:4px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 2px 8px #0002; pointer-events:auto; }
 .wb-drawing-tools button,.wb-drawing-tools summary { display:flex; align-items:center; justify-content:center; width:34px; height:34px; padding:7px; cursor:pointer; border-radius:6px; }
 .wb-drawing-tools svg { width:20px; height:20px; }
@@ -190,6 +190,7 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing-svg > svg { width:100%; height:100%; display:block; }
 .wb-drawing-selection { position:absolute; pointer-events:none; border:1px solid #91bfff; background:#91bfff22; }
 .wb-drawing-box-surface { position:absolute; inset:0; z-index:2; cursor:crosshair; touch-action:none; user-select:none; -webkit-user-select:none; }
+.cdv-body-adapted > .wb-drawing-box-surface { grid-column:1; grid-row:2; }
 .wb-drawing-box-rect { position:absolute; pointer-events:none; border:1px solid #91bfff; background:#91bfff22; }
 .wb-drawing-focus { position:absolute; pointer-events:none; border:1px solid #80d8ff; border-radius:3px; }
 .wb-drawing-svg [data-drawing-target] { cursor:pointer; }
@@ -1367,10 +1368,11 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
   useEffect(() => {
     const viewport = viewportRef?.current
     if (!viewport || !controller) return
-    const main = viewport.closest('.wb-main')
+    const main = viewport.closest('.wb-main'), conversation = main?.closest('[data-conversation-content]')
+    const observerRoot = conversation ?? main
     let observedComposer = null
     const update = () => {
-      const composer = main?.querySelector('.wb-floating-composer') ?? null
+      const composer = observerRoot?.querySelector('.wb-floating-composer') ?? null
       if (composer !== observedComposer) {
         if (observedComposer) resize.unobserve(observedComposer)
         if (composer) resize.observe(composer)
@@ -1390,7 +1392,7 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     resize.observe(viewport)
     if (controlsRef.current) resize.observe(controlsRef.current)
     const mutation = new MutationObserver(update)
-    if (main) mutation.observe(main, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style'] })
+    if (observerRoot) mutation.observe(observerRoot, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style'] })
     window.addEventListener('resize', update); update()
     return () => { resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize', update) }
   }, [controller, viewportRef])
@@ -1421,7 +1423,8 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     return { x: event.clientX - rect.left, y: event.clientY - rect.top }
   }
   const cancelBox = () => { boxDrag.current = null; setBoxRect(null); setBoxMode(false) }
-  const boxSurface = boxMode && viewportRef?.current ? require('react-dom').createPortal(h('div', {
+  const portalHost = viewportRef?.current?.parentElement
+  const boxSurface = boxMode && portalHost ? require('react-dom').createPortal(h('div', {
     className: 'wb-drawing-box-surface', role: 'application', 'aria-label': '框选放大区域，Esc 取消',
     onPointerDown: event => {
       if (event.button !== 0) return
@@ -1440,7 +1443,7 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
       if (rect && rect.width >= 4 && rect.height >= 4) controller?.zoomToRect(rect)
     },
     onPointerCancel: cancelBox,
-  }, boxRect && h('div', { className: 'wb-drawing-box-rect', style: { left: boxRect.x, top: boxRect.y, width: boxRect.width, height: boxRect.height } })), viewportRef.current) : null
+  }, boxRect && h('div', { className: 'wb-drawing-box-rect', style: { left: boxRect.x, top: boxRect.y, width: boxRect.width, height: boxRect.height } })), portalHost) : null
   if (!pack) return h('p', { className: 'wb-notice', role: 'alert' }, '图纸包无法解析，不能建立搜索索引')
   return h(React.Fragment, null,
     h('div', { ref: controlsRef, className: 'wb-drawing-controls' },

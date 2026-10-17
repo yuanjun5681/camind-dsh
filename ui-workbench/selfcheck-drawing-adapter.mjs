@@ -45,11 +45,11 @@ const React = {
     return hooks[index].value
   },
 }
-const windowListeners = new Map()
+const windowListeners = new Map(), portalCalls = []
 const window = {
   __ModuleLoader__: { load: definition => { plugin = definition.factory(name => {
     if (name === 'react') return React
-    if (name === 'react-dom') return { createPortal: node => node }
+    if (name === 'react-dom') return { createPortal: (node, container) => { portalCalls.push({ node, container }); return node } }
     return { Button: 'button', Tooltip: 'tooltip', MarkdownText: 'markdown', IconGaugeOutlineRegular: 'icon' }
   }) } },
   addEventListener(type, fn) { windowListeners.set(type, [...(windowListeners.get(type) ?? []), fn]) },
@@ -79,8 +79,11 @@ const composer = {
   getBoundingClientRect: () => ({ left: 100, top: 500, right: 700, bottom: 620, width: 600, height: 120 }),
 }
 let hasComposer = false
-const main = { querySelector: selector => selector === '.wb-floating-composer' && hasComposer ? composer : null }
+const conversation = { querySelector: selector => selector === '.wb-floating-composer' && hasComposer ? composer : null }
+const main = { closest: selector => selector === '[data-conversation-content]' ? conversation : null }
+const portalHost = {}
 const viewport = {
+  parentElement: portalHost,
   closest: selector => selector === '.wb-main' ? main : null,
   getBoundingClientRect: () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 }),
 }
@@ -223,6 +226,8 @@ assert.equal(callsOf('fit').length, 1)
 one(node => node.type === 'button' && node.props['aria-label'] === '框选放大', 'box mode').props.onClick()
 render()
 let surface = one(node => node.props.className === 'wb-drawing-box-surface', 'box surface')
+assert.equal(portalCalls.at(-1).container, portalHost, 'box overlay must be mounted in the React-owned grid body')
+assert.notEqual(portalCalls.at(-1).container, viewport, 'box overlay must not be deleted by DraftPane container cleanup')
 const pointer = (type, x, y) => surface.props[type]({
   button: 0, pointerId: 1, clientX: x, clientY: y, preventDefault() {}, currentTarget: viewport,
 })
