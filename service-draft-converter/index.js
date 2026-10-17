@@ -30,7 +30,11 @@ export function apply(ctx, config) {
   const dwg2dxfPath = () => cellValue(config?.dwg2dxfPath) || undefined
   const release = converterRelease()
   const buildFingerprint = converterBuildFingerprint()
-  const conversionIdentity = (options = {}) => conversionFingerprint({ buildFingerprint, ...options })
+  const conversionIdentity = (options = {}) => conversionFingerprint({
+    buildFingerprint,
+    libredwgVersion: options.libredwgVersion ?? libredwgVersion({ dwg2dxfPath: dwg2dxfPath() }),
+    ...options,
+  })
 
   const draftConverter = {
     convertDwg(absPath, opts = {}) {

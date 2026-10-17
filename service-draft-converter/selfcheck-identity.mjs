@@ -15,6 +15,7 @@ assert.match(info.converter, /^[0-9a-f]{40}$/i)
 assert.equal(pack.conversion.commit, info.converter)
 assert.equal(info.conversionFingerprint, converter.conversionIdentity())
 assert.equal(info.conversionFingerprint.length, 64)
+assert.notEqual(converter.conversionIdentity({ libredwgVersion: 'cli-a' }), converter.conversionIdentity({ libredwgVersion: 'cli-b' }), 'dwg2dxf 版本变化必须改变转换指纹')
 
 const first = converter.identity(pack, { options: { ltscale: 1, nested: { b: 1, a: 2 } } })
 const second = converter.identity(pack, { options: { nested: { a: 2, b: 1 }, ltscale: 1 } })
