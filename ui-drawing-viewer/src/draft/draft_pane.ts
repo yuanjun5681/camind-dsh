@@ -44,7 +44,8 @@ type V2PaneHostMessage =
     | { type: "getCamera"; messageVersion: 2 }
     | { type: "setCamera"; messageVersion: 2; state: DraftCameraState }
     | { type: "setViewportInsets"; messageVersion: 2;
-        top: number; right: number; bottom: number; left: number };
+        top: number; right: number; bottom: number; left: number }
+    | { type: "setColorMode"; messageVersion: 2; mode: "readable" | "original" };
 export type PaneHostMessage = LegacyPaneHostMessage | V2PaneHostMessage;
 
 type WithMessageVersion<T> = T & { messageVersion: 2 };
@@ -89,6 +90,7 @@ export class DraftPane {
     private originNow: DraftOrigin | null = null;
     private provenance: DraftProvenance | null = null;
     private selection: DraftTarget[] = [];
+    private colorMode: "readable" | "original" = "readable";
     private insets: DraftViewportInsets = { top: 0, right: 0, bottom: 0, left: 0 };
     private clickTimer: ReturnType<typeof setTimeout> | null = null;
     private contextSnapshot: {
@@ -140,7 +142,7 @@ export class DraftPane {
             const isV2 = msg.type === "zoomToRect" || msg.type === "locateTarget"
                 || msg.type === "setSelection" || msg.type === "clearSelection"
                 || msg.type === "getCamera" || msg.type === "setCamera"
-                || msg.type === "setViewportInsets";
+                || msg.type === "setViewportInsets" || msg.type === "setColorMode";
             if (isV2 && version !== DRAFT_PANE_MESSAGE_VERSION)
                 throw new Error(`${msg.type} 需要 messageVersion=2`);
             switch (msg.type) {
@@ -199,11 +201,18 @@ export class DraftPane {
                     this.renderNow();
                     return;
                 }
+                case "setColorMode": this.setColorMode(msg.mode); return;
                 default: throw new Error("未知 DraftPane 消息");
             }
         } catch (e) {
             this.emit({ type: "error", message: e instanceof Error ? e.message : String(e) });
         }
+    }
+
+    private setColorMode(mode: "readable" | "original"): void {
+        if (mode !== "readable" && mode !== "original") throw new Error(`未知配色模式:${JSON.stringify(mode)}`);
+        this.colorMode = mode;
+        this.view?.setColorMode(mode);
     }
 
     private load(packText: string, name: string, provenance?: DraftProvenance | null): void {
@@ -219,7 +228,7 @@ export class DraftPane {
         const nextView = new DraftView(gl, c2d, draft, { checkErrors: true });
         nextView.setViewportInsets(this.insets);
         nextView.fit();
-        nextView.render();
+        nextView.setColorMode(this.colorMode);
         this.view?.dispose();
         this.view = nextView;
         this.draft = draft;
@@ -262,7 +271,7 @@ export class DraftPane {
             nextView.setCamera(snapshot.camera);
             nextView.setLayerVisibility(snapshot.layers);
             nextView.setSelectedEntities(snapshot.selection);
-            nextView.render();
+            nextView.setColorMode(this.colorMode);
             this.view = nextView;
             this.renderLayers();
             this.contextSnapshot = null;

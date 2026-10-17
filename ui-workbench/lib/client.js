@@ -187,6 +187,8 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing-svg[data-box="true"] { cursor:crosshair; }
 .wb-drawing-svg > svg { width:100%; height:100%; display:block; }
 .wb-drawing-selection { position:absolute; pointer-events:none; border:1px solid #91bfff; background:#91bfff22; }
+.wb-drawing-box-surface { position:absolute; inset:0; z-index:2; cursor:crosshair; touch-action:none; user-select:none; -webkit-user-select:none; }
+.wb-drawing-box-rect { position:absolute; pointer-events:none; border:1px solid #91bfff; background:#91bfff22; }
 .wb-drawing-focus { position:absolute; pointer-events:none; border:1px solid #80d8ff; border-radius:3px; }
 .wb-drawing-svg [data-drawing-target] { cursor:pointer; }
 .wb-drawing-selected [stroke]:not([stroke="none"]) { stroke:#80d8ff!important; }
@@ -205,6 +207,10 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing-annotations small { display:block; color:var(--dsw-alias-label-tertiary); font-size:11px; margin-top:4px; }
 .wb-drawing-annotation-detail { flex:none; max-height:45%; overflow:auto; padding:12px 0 0; border-top:1px solid var(--dsw-alias-border-l2); font-size:12px; }
 .wb-drawing-annotation-detail p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.wb-drawing-annotation-detail dl { display:grid; grid-template-columns:64px minmax(0,1fr); gap:5px 10px; margin:10px 0; }
+.wb-drawing-annotation-detail dt { color:var(--dsw-alias-label-tertiary); }
+.wb-drawing-annotation-detail dd { margin:0; overflow-wrap:anywhere; }
+.wb-drawing-dim-mismatch { color:var(--dsw-alias-state-error-primary); font-weight:600; }
 @container (max-width:736px) { .wb-drawing-annotations { position:absolute; right:0; top:0; bottom:0; width:300px; max-width:85%; z-index:4; } }
 .wb-agent .wb-response { max-height:120px; }
 @container (max-width:900px) { .wb-context { position:absolute; inset:0 48px 0 auto; width:340px; max-width:75%; z-index:8; box-shadow:-4px 0 16px #0002; } .wb-review-scrim { padding:16px; } .wb-review-head { padding:12px; flex-wrap:wrap; } .wb-review-body { padding:12px; } }
@@ -1319,6 +1325,161 @@ function DrawingConversionDetails({ info, detailsRef }) {
     [...info.messages, ...info.omissions].map((text, i) => h('p', { key: i }, text)),
     info.diagnostics && h('details', null, h('summary', null, '诊断信息'), h('textarea', { readOnly: true, 'aria-label': '转换诊断信息，可复制', value: info.diagnostics })))
 }
+function drawingDimensionComparison(dim) {
+  if (dim.measured === undefined) return 'no-measured'
+  const match = String(dim.display_text ?? '').replace(/[ØRrM°\s]/g, '').match(/-?\d+(?:\.\d+)?/)
+  if (!match) return 'unparseable'
+  const reference = dim.measured * (Number.isFinite(dim.dimlfac) ? dim.dimlfac : 1)
+  const tolerance = Math.max(Math.abs(reference) * 1e-6, 1e-9)
+  return Math.abs(Number(match[0]) - reference) <= tolerance ? 'match' : 'mismatch'
+}
+function drawingToleranceText(dim) {
+  const { upper, lower, fit } = dim.tolerance ?? {}
+  if (fit) return fit
+  if (upper !== undefined && lower !== undefined) return upper === -lower ? `±${Math.abs(upper)}` : `+${upper}/−${Math.abs(lower)}`
+  if (upper !== undefined) return `+${upper}`
+  if (lower !== undefined) return `−${Math.abs(lower)}`
+  return ''
+}
+function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef }) {
+  const [query, setQuery] = useState(''), [limit, setLimit] = useState(100), [open, setOpen] = useState(false)
+  const [originalColors, setOriginalColors] = useState(false), [boxMode, setBoxMode] = useState(false), [boxRect, setBoxRect] = useState(null)
+  const controlsRef = useRef(null), boxDrag = useRef(null)
+  useEffect(() => { controller?.setColorMode(originalColors ? 'original' : 'readable') }, [controller, originalColors])
+  useEffect(() => { setQuery(''); setLimit(100); setBoxMode(false); setBoxRect(null); boxDrag.current = null }, [descriptor])
+  useEffect(() => {
+    if (!boxMode) return
+    const cancel = event => {
+      if (event.key !== 'Escape') return
+      event.preventDefault(); boxDrag.current = null; setBoxRect(null); setBoxMode(false)
+    }
+    window.addEventListener('keydown', cancel)
+    return () => window.removeEventListener('keydown', cancel)
+  }, [boxMode])
+  useEffect(() => {
+    const viewport = viewportRef?.current
+    if (!viewport || !controller) return
+    const main = viewport.closest('.wb-main')
+    let observedComposer = null
+    const update = () => {
+      const composer = main?.querySelector('.wb-floating-composer') ?? null
+      if (composer !== observedComposer) {
+        if (observedComposer) resize.unobserve(observedComposer)
+        if (composer) resize.observe(composer)
+        observedComposer = composer
+      }
+      const rect = viewport.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+      const toolbar = controlsRef.current?.getBoundingClientRect()
+      const top = toolbar ? Math.min(rect.height / 3, Math.max(16, toolbar.bottom - rect.top + 12)) : 16
+      const composerRect = composer?.getBoundingClientRect()
+      const composerVisible = composerRect && composerRect.width > 0 && composerRect.height > 0
+        && composerRect.top < rect.bottom && composerRect.bottom > rect.top && !composer.classList.contains('wb-composer-muted')
+      const bottom = composerVisible ? Math.min(rect.height / 3, Math.max(16, rect.bottom - composerRect.top + 16)) : 16
+      controller.setViewportInsets({ top, right: 0, bottom, left: 0 })
+    }
+    const resize = new ResizeObserver(update)
+    resize.observe(viewport)
+    if (controlsRef.current) resize.observe(controlsRef.current)
+    const mutation = new MutationObserver(update)
+    if (main) mutation.observe(main, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style'] })
+    window.addEventListener('resize', update); update()
+    return () => { resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize', update) }
+  }, [controller, viewportRef])
+  const pack = React.useMemo(() => {
+    try { return JSON.parse(descriptor.packText) } catch { return null }
+  }, [descriptor])
+  const targets = React.useMemo(() => [
+    ...(pack?.dims ?? []).map(dim => ({ type: 'dim', id: dim.id, entity: dim, display_text: dim.display_text })),
+    ...(pack?.entities ?? []).filter(entity => entity.text?.trim() || entity.cells?.length || entity.nominal !== undefined)
+      .map(entity => ({ type: 'entity', id: entity.id, entity })),
+  ], [pack])
+  const labelOf = target => {
+    if (target.type === 'dim') return target.display_text || `尺寸 ${target.id}`
+    const entity = target.entity
+    return entity.text?.trim() || entity.cells?.map(cell => cell.text).filter(Boolean).join(' ') || `图纸标称 ${entity.nominal ?? entity.type}`
+  }
+  const filtered = React.useMemo(() => query.trim()
+    ? targets.filter(target => `${labelOf(target)} ${target.entity.layer ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+    : [], [query, targets])
+  const selected = targets.find(target => selection?.some(item => item.id === target.id && item.type === target.type)) ?? null
+  const comparison = selected?.type === 'dim' ? drawingDimensionComparison(selected.entity) : null
+  const selectTarget = target => { controller?.locateTarget({ type: target.type, id: target.id }, true) }
+  const point = event => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  }
+  const cancelBox = () => { boxDrag.current = null; setBoxRect(null); setBoxMode(false) }
+  const boxSurface = boxMode && viewportRef?.current ? require('react-dom').createPortal(h('div', {
+    className: 'wb-drawing-box-surface', role: 'application', 'aria-label': '框选放大区域，Esc 取消',
+    onPointerDown: event => {
+      if (event.button !== 0) return
+      event.preventDefault(); const start = point(event), rect = { x: start.x, y: start.y, width: 0, height: 0 }
+      boxDrag.current = { start, rect }; setBoxRect(rect); event.currentTarget.setPointerCapture?.(event.pointerId)
+    },
+    onPointerMove: event => {
+      if (!boxDrag.current) return
+      const current = point(event), { start } = boxDrag.current
+      const rect = { x: Math.min(start.x, current.x), y: Math.min(start.y, current.y), width: Math.abs(current.x - start.x), height: Math.abs(current.y - start.y) }
+      boxDrag.current.rect = rect; setBoxRect(rect)
+    },
+    onPointerUp: event => {
+      const rect = boxDrag.current?.rect
+      cancelBox()
+      if (rect && rect.width >= 4 && rect.height >= 4) controller?.zoomToRect(rect)
+    },
+    onPointerCancel: cancelBox,
+  }, boxRect && h('div', { className: 'wb-drawing-box-rect', style: { left: boxRect.x, top: boxRect.y, width: boxRect.width, height: boxRect.height } })), viewportRef.current) : null
+  if (!pack) return h('p', { className: 'wb-notice', role: 'alert' }, '图纸包无法解析，不能建立搜索索引')
+  return h(React.Fragment, null,
+    h('div', { ref: controlsRef, className: 'wb-drawing-controls' },
+      h('div', { className: 'wb-drawing-tools', role: 'group', 'aria-label': '图纸视图工具' },
+        h(DrawingTool, { name: 'minus', label: '缩小图纸', disabled: !controller, onClick: () => controller?.zoom(1 / 1.3) }),
+        h(DrawingTool, { name: 'plus', label: '放大图纸', disabled: !controller, onClick: () => controller?.zoom(1.3) }),
+        h(DrawingTool, { name: 'fit', label: '适配全图 (F)', disabled: !controller, onClick: () => controller?.fit() }),
+        h(DrawingTool, { name: 'box', label: '框选放大', 'aria-pressed': boxMode, disabled: !controller, onClick: () => { boxDrag.current = null; setBoxRect(null); setBoxMode(old => !old) } }),
+        h(DrawingTool, { name: 'annotations', label: '查找图纸文字', 'aria-pressed': open, onClick: () => setOpen(old => !old) }),
+        h('details', null,
+          h('summary', { 'aria-label': '更多图纸选项', title: '更多图纸选项' }, h(DrawingIcon, { name: 'more' })),
+          h('div', { className: 'wb-drawing-menu' },
+            h('label', null, h('input', { type: 'checkbox', checked: originalColors, onChange: event => setOriginalColors(event.target.checked) }), '原始配色'),
+            h('p', null, '默认提亮低对比度颜色，不改变原文件。'),
+            h('p', null, '拖动或方向键平移 · 滚轮或 +/− 缩放 · F 适配全图 · Esc 取消框选'),
+            h('section', { className: 'wb-conversion-details' }, h('strong', null, '转换详情'),
+              h('p', null, `${descriptor.conversion?.tool ?? '未知转换器'} · ${descriptor.conversion?.commit ?? '未知版本'}`),
+              descriptor.degraded?.geometryDecimated && h('p', null, '几何已按帧预算抽稀，完整数据与索引保留。'),
+              descriptor.degraded?.textTruncated && h('p', null, '文字已按帧预算截断，完整数据保留。'),
+              descriptor.degraded?.skippedTypes?.length && h('p', null, `跳过未知类型：${descriptor.degraded.skippedTypes.join('、')}`),
+              descriptor.missing?.length && h('p', null, `缺失信息：${descriptor.missing.join('、')}`),
+              h('textarea', { readOnly: true, 'aria-label': '转换诊断信息，可复制', value: JSON.stringify({ conversion: descriptor.conversion, degraded: descriptor.degraded, missing: descriptor.missing }, null, 2) })))))),
+    boxSurface,
+    open && h('aside', { className: 'wb-drawing-annotations', 'aria-label': '查找图纸文字', onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false) } } },
+      h('header', null, h('h3', null, '查找图纸文字'), h(Button, { 'aria-label': '收起图纸文字搜索', onClick: () => setOpen(false) }, '收起')),
+      h('input', { 'aria-label': '搜索图纸文字', placeholder: '搜索文字、尺寸或技术要求', value: query, onChange: event => { setQuery(event.target.value); setLimit(100) } }),
+      h('p', { role: 'status' }, query.trim() ? `找到 ${filtered.length} 项` : '输入文字、尺寸或技术要求查找'),
+      h('div', { className: 'wb-drawing-annotation-list', onKeyDown: event => {
+        if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
+        const buttons = [...event.currentTarget.querySelectorAll('button')], index = buttons.indexOf(document.activeElement)
+        event.preventDefault(); buttons[Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus()
+      } }, filtered.slice(0, limit).map(target => h('button', {
+        key: `${target.type}:${target.id}`, 'data-drawing-result': `${target.type}:${target.id}`,
+        'aria-pressed': selected?.id === target.id && selected?.type === target.type,
+        onClick: () => selectTarget(target),
+        onKeyDown: event => { if (event.key === 'Enter') selectTarget(target) },
+      }, labelOf(target), h('small', null, target.type === 'dim' ? '尺寸标注' : '图纸文字'))),
+        query.trim() && !filtered.length && h('p', null, '没有匹配的内容'), filtered.length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多结果')),
+      selected && h('section', { className: 'wb-drawing-annotation-detail' }, h('strong', null, labelOf(selected)),
+        selected.type === 'dim' ? h('dl', null,
+          h('dt', null, '显示值'), h('dd', null, selected.entity.display_text || '未读取'),
+          h('dt', null, '实测值'), h('dd', null, selected.entity.measured ?? '未提供'),
+          h('dt', null, '比对'), h('dd', { 'data-compare': comparison, className: comparison === 'mismatch' ? 'wb-drawing-dim-mismatch' : '' }, { match: '显示值与实测值一致', mismatch: '显示值与实测值不一致', 'no-measured': '缺少实测值，无法比对', unparseable: '显示值无法解析，无法比对' }[comparison]),
+          h('dt', null, '公差'), h('dd', null, drawingToleranceText(selected.entity) || '未标注'),
+          h('dt', null, '来源'), h('dd', null, `${selected.entity.id}${selected.entity.inferred ? ' · 自动推算显示文字' : ''}`))
+          : h('p', null, `${selected.entity.text || `图纸标称 ${selected.entity.nominal ?? '未读取'}`} · 图层 ${selected.entity.layer || '未标注'} · 来源 ${selected.entity.id}`),
+        h('p', null, '已设为当前提问对象，可直接输入问题。'),
+        h(Button, { onClick: () => controller?.clearSelection() }, '清除当前提问对象'))))
+}
+
 function DwgPane({ sessionId, record, statusTarget }) {
   const [data, setData] = useState(null), [error, setError] = useState(''), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
   const [question, questionController] = useDrawingQuestion(sessionId)
@@ -1754,7 +1915,7 @@ function WorkbenchView({ sessionId }) {
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
       panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },

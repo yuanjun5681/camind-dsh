@@ -148,3 +148,38 @@ for (const cleanup of cleanups) if (typeof cleanup === 'function') cleanup()
 assert.ok(invalidations.some(reference => reference?.kind === 'camind-drawing-ref'))
 assert.equal(invalidations.at(-1), null, 'unmount must invalidate pending references')
 console.log('ok - deselection and disposal invalidate pending drawing references')
+
+freshPreview()
+const controllerReferences = []
+const adapter = () => null
+const renderAdapter = () => { cursor = 0; tree = DrawingPreview({ descriptor: baseDescriptor, onReference: reference => { controllerReferences.push(reference) }, adapter }) }
+const adapterNode = root => {
+  if (root?.type === adapter) return root
+  for (const child of root?.children ?? []) {
+    const found = adapterNode(child)
+    if (found) return found
+  }
+  return null
+}
+renderAdapter()
+renderAdapter()
+let controls = adapterNode(tree).props
+assert.ok(controls.controller)
+assert.equal(controls.viewportRef.current, container)
+controls.controller.setViewportInsets({ top: 10, right: 20, bottom: 30, left: 40 })
+assert.deepEqual(Array.from(container.children[0].glMocks[0].callsOf('viewport').at(-1).args), [40, 30, 740, 560])
+controls.controller.zoomToRect({ x: 10, y: 20, width: 100, height: 50 })
+controls.controller.zoom(1.3)
+controls.controller.fit()
+controls.controller.setColorMode('original')
+controls.controller.setColorMode('readable')
+controls.controller.setSelection([{ type: 'entity', id: 0 }])
+assert.equal(controllerReferences.at(-1).target.id, 0)
+renderAdapter()
+controls = adapterNode(tree).props
+assert.deepEqual(JSON.parse(JSON.stringify(controls.selection)), [{ type: 'entity', id: 0 }])
+controls.controller.locateTarget({ type: 'dim', id: 'D2A/30' }, true)
+assert.equal(controllerReferences.at(-1).target.id, 'D2A/30')
+controls.controller.clearSelection()
+assert.equal(controllerReferences.at(-1), null)
+console.log('ok - public controller maps CSS controls to pane v2 and restores native selection')

@@ -11,7 +11,9 @@ export const drawingCss = `
 .cdv-error { margin:6px 8px; padding:8px; border:1px solid var(--camind-color-danger, var(--dsw-alias-state-error-primary));
   color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); background:var(--camind-surface-warning, transparent); }
 .cdv-missing { margin:0 8px 6px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
+.cdv-body { position:relative; display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
 .cdv-canvas { position:relative; flex:1; min-height:240px; min-width:0; overflow:hidden; }
+.cdv-canvas:focus-visible { outline:2px solid var(--camind-color-primary, var(--dsw-alias-state-business-primary)); outline-offset:-2px; }
 /* The mirrored DraftPane uses fixed-dark panels; keep a fixed light foreground in both themes. */
 .cdv-canvas > div:not(canvas) { color:#f5f5f5; }
 `

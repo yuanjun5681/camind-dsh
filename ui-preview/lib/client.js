@@ -413,7 +413,7 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
   return { state, cancel: () => runtime.current?.cancel?.() }
 }
 
-function DrawingBody({ sessionId, preview, onReference }) {
+function DrawingBody({ sessionId, preview, onReference, adapter }) {
   const Viewer = useDrawingViewer()
   const [webgl2] = useState(webgl2Available)
   const [attempt, setAttempt] = useState(0)
@@ -428,7 +428,7 @@ function DrawingBody({ sessionId, preview, onReference }) {
       h('p', null, '当前环境无法创建 WebGL2 上下文，未启动图纸转换；这不是转换失败。请下载后用外部 CAD 工具打开。'), download)
   }
   if (state.stage === 'ready') {
-    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor, onReference }))
+    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor, onReference, adapter }))
   }
   if (state.stage === 'error') {
     return h('div', { className: 'campv-binary', role: 'alert' },
@@ -447,14 +447,14 @@ function DrawingBody({ sessionId, preview, onReference }) {
       h('button', { type: 'button', onClick: () => { void cancel() } }, '取消转换'), download))
 }
 
-function FilePreviewBody({ sessionId, preview, error, onReference }) {
+function FilePreviewBody({ sessionId, preview, error, onReference, drawingAdapter }) {
   const ModelViewer = useModelViewer()
   if (error) return h('div', { className: 'campv-error' }, error)
   if (!preview) return h('div', { className: 'campv-empty' }, '正在读取文件…')
   const raw = rawFileUrl(sessionId, preview.path)
   const ncName = isNcName(preview.name)
   if (/\.(?:dwg|dxf)$/i.test(preview.name)) {
-    return h(DrawingBody, { sessionId, preview, onReference })
+    return h(DrawingBody, { sessionId, preview, onReference, adapter: drawingAdapter })
   }
   if (/\.prt$/i.test(preview.name) && ModelViewer) {
     return h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId, path: preview.path, onReference }))
@@ -485,7 +485,7 @@ function FilePreviewBody({ sessionId, preview, error, onReference }) {
 
 // --- the view -------------------------------------------------------------------------
 
-function FilePreviewView({ sessionId, channel = 'default', embedded = false, onReference, renderHeader }) {
+function FilePreviewView({ sessionId, channel = 'default', embedded = false, onReference, renderHeader, drawingAdapter }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot)
   const target = snap.targets[targetKey(sessionId, channel)]
   const viewClass = embedded ? 'campv-view campv-embedded' : 'campv-view'
@@ -523,7 +523,7 @@ function FilePreviewView({ sessionId, channel = 'default', embedded = false, onR
       h('div', { className: 'campv-stage' },
         runMode ? ModelViewer ? h('div', { className: 'campv-pane' }, h(ModelViewer, { sessionId: target.sessionId, runId: target.runId, onReference })) : h('div', { className: 'campv-error' }, '加工查看器未加载') : contentMode
           ? h(NcOrText, { name: target.name, text: target.content })
-          : h(FilePreviewBody, { sessionId: target.sessionId, preview, error, onReference }))))
+          : h(FilePreviewBody, { sessionId: target.sessionId, preview, error, onReference, drawingAdapter }))))
 }
 
 // --- registration ------------------------------------------------------------------------

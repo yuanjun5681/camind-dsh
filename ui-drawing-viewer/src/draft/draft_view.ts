@@ -70,6 +70,36 @@ void main() {
 const FLOATS_PER_VERT = 8;
 const DEFAULT_BG: [number, number, number] = [0.118, 0.125, 0.137];
 
+function colorLuminance(rgb: readonly number[]): number {
+    return rgb.map(v => {
+        const s = v / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+}
+
+function readableColor(rgb: readonly number[], background: readonly number[]): [number, number, number] {
+    const contrast = (candidate: readonly number[]): number => {
+        const light = Math.max(colorLuminance(candidate.map(v => v * 255)), colorLuminance(background));
+        const dark = Math.min(colorLuminance(candidate.map(v => v * 255)), colorLuminance(background));
+        return (light + 0.05) / (dark + 0.05);
+    };
+    let best: [number, number, number] = [rgb[0], rgb[1], rgb[2]];
+    let bestContrast = contrast(best);
+    if (bestContrast >= 4.5) return best;
+    for (let step = 1; step <= 20; step++) {
+        const brighter = best.map(v => v + (1 - v) * step / 20) as [number, number, number];
+        const darker = best.map(v => v * (1 - step / 20)) as [number, number, number];
+        const brighterContrast = contrast(brighter);
+        const darkerContrast = contrast(darker);
+        if (brighterContrast > bestContrast || darkerContrast > bestContrast) {
+            best = brighterContrast >= darkerContrast ? brighter : darker;
+            bestContrast = Math.max(brighterContrast, darkerContrast);
+        }
+        if (bestContrast >= 4.5) return best;
+    }
+    return best;
+}
+
 /** 契约 halign(组码 72):0 左/1 中/2 右/3 Aligned/4 Middle/5 Fit;3/5 v1 降级按左端(§9)。 */
 export function textAlignOf(halign: number): CanvasTextAlign {
     return halign === 1 || halign === 4 ? "center" : halign === 2 ? "right" : "left";
@@ -106,6 +136,8 @@ export class DraftView {
     private pointHidden: Uint8Array;
     private st: ViewState;
     private minHalfH: number;
+    private colorMode: "readable" | "original" = "readable";
+    private readonly colorCache = new Map<string, [number, number, number]>();
     /** 宿主选择状态；只在帧内收集阶段改颜色，不改原始几何或图层数据。 */
     private readonly selectedEnts = new Set<number>();
     /** 末帧实际绘制的文字(屏幕坐标;与绘制同一过滤口径 —— 拾取候选集以此为准) */
@@ -290,6 +322,23 @@ export class DraftView {
         this.zoomToWorldRect([Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)]);
     }
 
+    setColorMode(mode: "readable" | "original"): void {
+        if (mode !== "readable" && mode !== "original") throw new Error(`未知配色模式:${JSON.stringify(mode)}`);
+        this.colorMode = mode;
+        this.colorCache.clear();
+        this.render();
+    }
+    private colorFor(r: number, g: number, b: number): [number, number, number] {
+        if (this.colorMode === "original") return [r, g, b];
+        const key = `${r},${g},${b}`;
+        const cached = this.colorCache.get(key);
+        if (cached) return cached;
+        const background = this.opts.background.map(v => v * 255);
+        const result = readableColor([r, g, b], background);
+        this.colorCache.set(key, result);
+        return result;
+    }
+
     // ── 选择（公共核心入口；Pane 只负责 dim/entity 目标解析）──
     setSelectedEntities(ids: readonly number[]): void {
         const next = new Set<number>();
@@ -418,6 +467,10 @@ export class DraftView {
         let n = 0, seen = 0;
         const emit = (i: number): void => {
             scratch.set(verts.subarray(i * STRIDE, i * STRIDE + STRIDE), n);
+            for (const off of [2, 10]) {
+                const [r, g, b] = this.colorFor(scratch[n + off], scratch[n + off + 1], scratch[n + off + 2]);
+                scratch[n + off] = r; scratch[n + off + 1] = g; scratch[n + off + 2] = b;
+            }
             if (this.selectedEnts.has(segs[i].entId)) {
                 for (const off of [2, 10]) {
                     scratch[n + off] = 1; scratch[n + off + 1] = 0.82; scratch[n + off + 2] = 0.2;
@@ -465,8 +518,9 @@ export class DraftView {
                 const p = pts[i];
                 if (p.x < vx0 - pad || p.x > vx1 + pad || p.y < vy0 - pad || p.y > vy1 + pad) continue;
                 const selected = this.selectedEnts.has(p.entId);
+                const [r, g, b] = this.colorFor(p.r, p.g, p.b);
                 ps[pn++] = p.x; ps[pn++] = p.y;
-                ps[pn++] = selected ? 1 : p.r; ps[pn++] = selected ? 0.82 : p.g; ps[pn++] = selected ? 0.2 : p.b;
+                ps[pn++] = selected ? 1 : r; ps[pn++] = selected ? 0.82 : g; ps[pn++] = selected ? 0.2 : b;
                 ps[pn++] = 0; ps[pn++] = 0; ps[pn++] = 0;
             }
             if (pn > 0) {
@@ -503,8 +557,9 @@ export class DraftView {
             if (t.rot) ctx.rotate(-t.rot); // 世界逆时针为正 → 屏幕 y 向下取负
             const wf = this.draft.textStyles.get(t.style.toLowerCase())?.widthFactor ?? 1;
             if (wf !== 1) ctx.scale(wf, 1);
+            const [r, g, b] = this.colorFor(t.r, t.g, t.b);
             ctx.fillStyle = this.selectedEnts.has(t.entId) ? "rgb(255,209,51)"
-                : `rgb(${Math.round(t.r * 255)},${Math.round(t.g * 255)},${Math.round(t.b * 255)})`;
+                : `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
             // SHX/TTF 一律映射系统字体 sans-serif,源样式名保留(契约 §8 行 8 行为规范)
             ctx.font = `${Math.max(8, px)}px sans-serif`;
             ctx.textAlign = textAlignOf(t.halign ?? 0);

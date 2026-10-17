@@ -7,17 +7,40 @@ import { drawingCss } from './styles.ts'
 const h = React.createElement
 type ReferenceHandler = (reference: DrawingReferenceCandidate | null) => void | Promise<void>
 type Loaded = Extract<PaneViewerMessage, { type: 'loaded' }>
+type DrawingTarget = DrawingReferenceCandidate['target']
+type DrawingRect = { x: number; y: number; width: number; height: number }
+type DrawingInsets = { top: number; right: number; bottom: number; left: number }
+export interface DrawingController {
+  fit: () => void
+  zoom: (factor: number) => void
+  locateTarget: (target: DrawingTarget, zoom?: boolean) => void
+  setSelection: (targets: DrawingTarget[]) => void
+  clearSelection: () => void
+  zoomToRect: (rect: DrawingRect) => void
+  setViewportInsets: (insets: DrawingInsets) => void
+  setColorMode: (mode: 'readable' | 'original') => void
+}
+interface DrawingAdapterProps {
+  descriptor: DrawingDescriptor
+  controller: DrawingController | null
+  selection: readonly DrawingTarget[]
+  viewportRef: React.RefObject<HTMLDivElement | null>
+  onReference?: ReferenceHandler
+}
+type DrawingAdapter = (props: DrawingAdapterProps) => React.ReactElement
 
-export function DrawingPreview({ descriptor, onReference }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler }): React.ReactElement {
+export function DrawingPreview({ descriptor, onReference, adapter }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler; adapter?: DrawingAdapter }): React.ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const callback = useRef<ReferenceHandler | undefined>(onReference)
   callback.current = onReference
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [degraded, setDegraded] = useState<Loaded['degraded'] | null>(null)
   const [error, setError] = useState('')
+  const [controller, setController] = useState<DrawingController | null>(null)
+  const [selection, setSelectionState] = useState<DrawingTarget[]>([])
 
   useEffect(() => {
-    setLoaded(null); setDegraded(null); setError('')
+    setLoaded(null); setDegraded(null); setError(''); setController(null); setSelectionState([])
     const container = host.current
     if (!container) return
     let disposed = false
@@ -39,21 +62,47 @@ export function DrawingPreview({ descriptor, onReference }: { descriptor: Drawin
         }))
         else if (msg.type === 'error') fail(msg.message)
         else if (msg.type === 'selectionChanged') {
-          if (msg.targets.length === 0) {
+          const targets = msg.targets.map(target => ({ ...target }))
+          setSelectionState(targets)
+          if (targets.length === 0) {
             void (async () => {
               try { await callback.current?.(null) }
               catch (e) { fail(e) }
             })()
             return
           }
-          if (msg.targets.length) setError('')
-          for (const reference of drawingReferences(descriptor, msg.targets)) {
+          setError('')
+          for (const reference of drawingReferences(descriptor, targets)) {
             void (async () => {
               try { await callback.current?.(reference) }
               catch (e) { fail(e) }
             })()
           }
         }
+      })
+      const currentPane = pane
+      const dpr = () => Math.min(window.devicePixelRatio || 1, 2)
+      // Host controls use CSS pixels; the public pane contract uses physical pixels.
+      setController({
+        fit: () => { currentPane.handle({ type: 'fit', messageVersion: 2 }) },
+        zoom: factor => {
+          const rect = host.current?.getBoundingClientRect()
+          if (!rect || rect.width <= 0 || rect.height <= 0) return
+          const scale = dpr()
+          currentPane.handle({ type: 'zoomAt', messageVersion: 2, sx: rect.width * scale / 2, sy: rect.height * scale / 2, factor })
+        },
+        locateTarget: (target, zoom = true) => { currentPane.handle({ type: 'locateTarget', messageVersion: 2, target, zoom }) },
+        setSelection: targets => { currentPane.handle({ type: 'setSelection', messageVersion: 2, targets }) },
+        clearSelection: () => { currentPane.handle({ type: 'clearSelection', messageVersion: 2 }) },
+        zoomToRect: rect => {
+          const scale = dpr()
+          currentPane.handle({ type: 'zoomToRect', messageVersion: 2, rect: { x: rect.x * scale, y: rect.y * scale, width: rect.width * scale, height: rect.height * scale } })
+        },
+        setViewportInsets: insets => {
+          const scale = dpr()
+          currentPane.handle({ type: 'setViewportInsets', messageVersion: 2, top: insets.top * scale, right: insets.right * scale, bottom: insets.bottom * scale, left: insets.left * scale })
+        },
+        setColorMode: mode => { currentPane.handle({ type: 'setColorMode', messageVersion: 2, mode }) },
       })
       pane.handle({ type: 'load', messageVersion: 2, packText: descriptor.packText, name: descriptor.name, provenance })
     } catch (e) {
@@ -78,7 +127,22 @@ export function DrawingPreview({ descriptor, onReference }: { descriptor: Drawin
       visibleDegraded?.skippedTypes.length ? h('span', { className: 'cdv-badge' }, `跳过未知类型：${visibleDegraded.skippedTypes.join('、')}`) : null),
     descriptor.missing?.length ? h('div', { className: 'cdv-missing' }, `缺失信息：${descriptor.missing.join('、')}`) : null,
     error ? h('div', { className: 'cdv-error', role: 'alert' }, error) : null,
-    h('div', { ref: host, className: 'cdv-canvas' }))
+    h('div', { className: 'cdv-body' },
+      h('div', {
+        ref: host, className: 'cdv-canvas', tabIndex: 0, role: 'region',
+        'aria-label': '二维图纸画布，拖动平移，滚轮缩放，F 适配全图',
+        onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => { event.currentTarget.focus({ preventScroll: true }) },
+        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (!controller) return
+          if (event.key.toLowerCase() === 'f') controller.fit()
+          else if (event.key === '+' || event.key === '=') controller.zoom(1.3)
+          else if (event.key === '-' || event.key === '_') controller.zoom(1 / 1.3)
+          else if (event.key === 'Escape') controller.clearSelection()
+          else return
+          event.preventDefault()
+        },
+      }),
+      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, onReference }) : null))
 }
 
 export const name = 'camind-ui-drawing-viewer'

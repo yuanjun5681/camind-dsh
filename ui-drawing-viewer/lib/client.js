@@ -1179,6 +1179,34 @@ void main() {
 }`;
 var FLOATS_PER_VERT = 8;
 var DEFAULT_BG = [0.118, 0.125, 0.137];
+function colorLuminance(rgb) {
+  return rgb.map((v) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+}
+function readableColor(rgb, background) {
+  const contrast = (candidate) => {
+    const light = Math.max(colorLuminance(candidate.map((v) => v * 255)), colorLuminance(background));
+    const dark = Math.min(colorLuminance(candidate.map((v) => v * 255)), colorLuminance(background));
+    return (light + 0.05) / (dark + 0.05);
+  };
+  let best = [rgb[0], rgb[1], rgb[2]];
+  let bestContrast = contrast(best);
+  if (bestContrast >= 4.5) return best;
+  for (let step = 1; step <= 20; step++) {
+    const brighter = best.map((v) => v + (1 - v) * step / 20);
+    const darker = best.map((v) => v * (1 - step / 20));
+    const brighterContrast = contrast(brighter);
+    const darkerContrast = contrast(darker);
+    if (brighterContrast > bestContrast || darkerContrast > bestContrast) {
+      best = brighterContrast >= darkerContrast ? brighter : darker;
+      bestContrast = Math.max(brighterContrast, darkerContrast);
+    }
+    if (bestContrast >= 4.5) return best;
+  }
+  return best;
+}
 function textAlignOf(halign) {
   return halign === 1 || halign === 4 ? "center" : halign === 2 ? "right" : "left";
 }
@@ -1211,6 +1239,8 @@ var DraftView = class {
   pointHidden;
   st;
   minHalfH;
+  colorMode = "readable";
+  colorCache = /* @__PURE__ */ new Map();
   /** 宿主选择状态；只在帧内收集阶段改颜色，不改原始几何或图层数据。 */
   selectedEnts = /* @__PURE__ */ new Set();
   /** 末帧实际绘制的文字(屏幕坐标;与绘制同一过滤口径 —— 拾取候选集以此为准) */
@@ -1426,6 +1456,22 @@ var DraftView = class {
     const [x1, y1] = this.screenToWorld(rect.x + rect.width, rect.y);
     this.zoomToWorldRect([Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)]);
   }
+  setColorMode(mode) {
+    if (mode !== "readable" && mode !== "original") throw new Error(`\u672A\u77E5\u914D\u8272\u6A21\u5F0F:${JSON.stringify(mode)}`);
+    this.colorMode = mode;
+    this.colorCache.clear();
+    this.render();
+  }
+  colorFor(r, g, b) {
+    if (this.colorMode === "original") return [r, g, b];
+    const key = `${r},${g},${b}`;
+    const cached = this.colorCache.get(key);
+    if (cached) return cached;
+    const background = this.opts.background.map((v) => v * 255);
+    const result = readableColor([r, g, b], background);
+    this.colorCache.set(key, result);
+    return result;
+  }
   // ── 选择（公共核心入口；Pane 只负责 dim/entity 目标解析）──
   setSelectedEntities(ids) {
     const next = /* @__PURE__ */ new Set();
@@ -1569,6 +1615,12 @@ var DraftView = class {
     let n = 0, seen = 0;
     const emit = (i) => {
       scratch.set(verts.subarray(i * STRIDE, i * STRIDE + STRIDE), n);
+      for (const off of [2, 10]) {
+        const [r, g, b] = this.colorFor(scratch[n + off], scratch[n + off + 1], scratch[n + off + 2]);
+        scratch[n + off] = r;
+        scratch[n + off + 1] = g;
+        scratch[n + off + 2] = b;
+      }
       if (this.selectedEnts.has(segs[i].entId)) {
         for (const off of [2, 10]) {
           scratch[n + off] = 1;
@@ -1616,11 +1668,12 @@ var DraftView = class {
         const p = pts[i];
         if (p.x < vx0 - pad || p.x > vx1 + pad || p.y < vy0 - pad || p.y > vy1 + pad) continue;
         const selected2 = this.selectedEnts.has(p.entId);
+        const [r, g, b] = this.colorFor(p.r, p.g, p.b);
         ps[pn++] = p.x;
         ps[pn++] = p.y;
-        ps[pn++] = selected2 ? 1 : p.r;
-        ps[pn++] = selected2 ? 0.82 : p.g;
-        ps[pn++] = selected2 ? 0.2 : p.b;
+        ps[pn++] = selected2 ? 1 : r;
+        ps[pn++] = selected2 ? 0.82 : g;
+        ps[pn++] = selected2 ? 0.2 : b;
         ps[pn++] = 0;
         ps[pn++] = 0;
         ps[pn++] = 0;
@@ -1663,7 +1716,8 @@ var DraftView = class {
       if (t.rot) ctx.rotate(-t.rot);
       const wf = this.draft.textStyles.get(t.style.toLowerCase())?.widthFactor ?? 1;
       if (wf !== 1) ctx.scale(wf, 1);
-      ctx.fillStyle = this.selectedEnts.has(t.entId) ? "rgb(255,209,51)" : `rgb(${Math.round(t.r * 255)},${Math.round(t.g * 255)},${Math.round(t.b * 255)})`;
+      const [r, g, b] = this.colorFor(t.r, t.g, t.b);
+      ctx.fillStyle = this.selectedEnts.has(t.entId) ? "rgb(255,209,51)" : `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
       ctx.font = `${Math.max(8, px)}px sans-serif`;
       ctx.textAlign = textAlignOf(t.halign ?? 0);
       ctx.textBaseline = textBaselineOf(t.valign ?? 0, t.halign ?? 0);
@@ -1863,6 +1917,7 @@ var DraftPane = class {
   originNow = null;
   provenance = null;
   selection = [];
+  colorMode = "readable";
   insets = { top: 0, right: 0, bottom: 0, left: 0 };
   clickTimer = null;
   contextSnapshot = null;
@@ -1905,7 +1960,7 @@ var DraftPane = class {
       const version = msg.messageVersion;
       if (version !== void 0 && version !== 1 && version !== DRAFT_PANE_MESSAGE_VERSION)
         throw new Error(`\u4E0D\u652F\u6301\u7684 DraftPane messageVersion:${JSON.stringify(version)}`);
-      const isV2 = msg.type === "zoomToRect" || msg.type === "locateTarget" || msg.type === "setSelection" || msg.type === "clearSelection" || msg.type === "getCamera" || msg.type === "setCamera" || msg.type === "setViewportInsets";
+      const isV2 = msg.type === "zoomToRect" || msg.type === "locateTarget" || msg.type === "setSelection" || msg.type === "clearSelection" || msg.type === "getCamera" || msg.type === "setCamera" || msg.type === "setViewportInsets" || msg.type === "setColorMode";
       if (isV2 && version !== DRAFT_PANE_MESSAGE_VERSION)
         throw new Error(`${msg.type} \u9700\u8981 messageVersion=2`);
       switch (msg.type) {
@@ -1992,12 +2047,20 @@ var DraftPane = class {
           this.renderNow();
           return;
         }
+        case "setColorMode":
+          this.setColorMode(msg.mode);
+          return;
         default:
           throw new Error("\u672A\u77E5 DraftPane \u6D88\u606F");
       }
     } catch (e) {
       this.emit({ type: "error", message: e instanceof Error ? e.message : String(e) });
     }
+  }
+  setColorMode(mode) {
+    if (mode !== "readable" && mode !== "original") throw new Error(`\u672A\u77E5\u914D\u8272\u6A21\u5F0F:${JSON.stringify(mode)}`);
+    this.colorMode = mode;
+    this.view?.setColorMode(mode);
   }
   load(packText, name2, provenance) {
     this.cancelClickTimer();
@@ -2010,7 +2073,7 @@ var DraftPane = class {
     const nextView = new DraftView(gl, c2d, draft, { checkErrors: true });
     nextView.setViewportInsets(this.insets);
     nextView.fit();
-    nextView.render();
+    nextView.setColorMode(this.colorMode);
     this.view?.dispose();
     this.view = nextView;
     this.draft = draft;
@@ -2062,7 +2125,7 @@ var DraftPane = class {
       nextView.setCamera(snapshot.camera);
       nextView.setLayerVisibility(snapshot.layers);
       nextView.setSelectedEntities(snapshot.selection);
-      nextView.render();
+      nextView.setColorMode(this.colorMode);
       this.view = nextView;
       this.renderLayers();
       this.contextSnapshot = null;
@@ -2577,24 +2640,30 @@ var drawingCss = `
 .cdv-error { margin:6px 8px; padding:8px; border:1px solid var(--camind-color-danger, var(--dsw-alias-state-error-primary));
   color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); background:var(--camind-surface-warning, transparent); }
 .cdv-missing { margin:0 8px 6px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
+.cdv-body { position:relative; display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
 .cdv-canvas { position:relative; flex:1; min-height:240px; min-width:0; overflow:hidden; }
+.cdv-canvas:focus-visible { outline:2px solid var(--camind-color-primary, var(--dsw-alias-state-business-primary)); outline-offset:-2px; }
 /* The mirrored DraftPane uses fixed-dark panels; keep a fixed light foreground in both themes. */
 .cdv-canvas > div:not(canvas) { color:#f5f5f5; }
 `;
 
 // ui-drawing-viewer/src/client.ts
 var h = import_react.default.createElement;
-function DrawingPreview({ descriptor, onReference }) {
+function DrawingPreview({ descriptor, onReference, adapter }) {
   const host = (0, import_react.useRef)(null);
   const callback = (0, import_react.useRef)(onReference);
   callback.current = onReference;
   const [loaded, setLoaded] = (0, import_react.useState)(null);
   const [degraded, setDegraded] = (0, import_react.useState)(null);
   const [error, setError] = (0, import_react.useState)("");
+  const [controller, setController] = (0, import_react.useState)(null);
+  const [selection, setSelectionState] = (0, import_react.useState)([]);
   (0, import_react.useEffect)(() => {
     setLoaded(null);
     setDegraded(null);
     setError("");
+    setController(null);
+    setSelectionState([]);
     const container = host.current;
     if (!container) return;
     let disposed = false;
@@ -2618,7 +2687,9 @@ function DrawingPreview({ descriptor, onReference }) {
         }));
         else if (msg.type === "error") fail(msg.message);
         else if (msg.type === "selectionChanged") {
-          if (msg.targets.length === 0) {
+          const targets = msg.targets.map((target) => ({ ...target }));
+          setSelectionState(targets);
+          if (targets.length === 0) {
             void (async () => {
               try {
                 await callback.current?.(null);
@@ -2628,8 +2699,8 @@ function DrawingPreview({ descriptor, onReference }) {
             })();
             return;
           }
-          if (msg.targets.length) setError("");
-          for (const reference of drawingReferences(descriptor, msg.targets)) {
+          setError("");
+          for (const reference of drawingReferences(descriptor, targets)) {
             void (async () => {
               try {
                 await callback.current?.(reference);
@@ -2638,6 +2709,39 @@ function DrawingPreview({ descriptor, onReference }) {
               }
             })();
           }
+        }
+      });
+      const currentPane = pane;
+      const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+      setController({
+        fit: () => {
+          currentPane.handle({ type: "fit", messageVersion: 2 });
+        },
+        zoom: (factor) => {
+          const rect = host.current?.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return;
+          const scale = dpr();
+          currentPane.handle({ type: "zoomAt", messageVersion: 2, sx: rect.width * scale / 2, sy: rect.height * scale / 2, factor });
+        },
+        locateTarget: (target, zoom = true) => {
+          currentPane.handle({ type: "locateTarget", messageVersion: 2, target, zoom });
+        },
+        setSelection: (targets) => {
+          currentPane.handle({ type: "setSelection", messageVersion: 2, targets });
+        },
+        clearSelection: () => {
+          currentPane.handle({ type: "clearSelection", messageVersion: 2 });
+        },
+        zoomToRect: (rect) => {
+          const scale = dpr();
+          currentPane.handle({ type: "zoomToRect", messageVersion: 2, rect: { x: rect.x * scale, y: rect.y * scale, width: rect.width * scale, height: rect.height * scale } });
+        },
+        setViewportInsets: (insets) => {
+          const scale = dpr();
+          currentPane.handle({ type: "setViewportInsets", messageVersion: 2, top: insets.top * scale, right: insets.right * scale, bottom: insets.bottom * scale, left: insets.left * scale });
+        },
+        setColorMode: (mode) => {
+          currentPane.handle({ type: "setColorMode", messageVersion: 2, mode });
         }
       });
       pane.handle({ type: "load", messageVersion: 2, packText: descriptor.packText, name: descriptor.name, provenance });
@@ -2672,7 +2776,30 @@ function DrawingPreview({ descriptor, onReference }) {
     ),
     descriptor.missing?.length ? h("div", { className: "cdv-missing" }, `\u7F3A\u5931\u4FE1\u606F\uFF1A${descriptor.missing.join("\u3001")}`) : null,
     error ? h("div", { className: "cdv-error", role: "alert" }, error) : null,
-    h("div", { ref: host, className: "cdv-canvas" })
+    h(
+      "div",
+      { className: "cdv-body" },
+      h("div", {
+        ref: host,
+        className: "cdv-canvas",
+        tabIndex: 0,
+        role: "region",
+        "aria-label": "\u4E8C\u7EF4\u56FE\u7EB8\u753B\u5E03\uFF0C\u62D6\u52A8\u5E73\u79FB\uFF0C\u6EDA\u8F6E\u7F29\u653E\uFF0CF \u9002\u914D\u5168\u56FE",
+        onPointerDown: (event) => {
+          event.currentTarget.focus({ preventScroll: true });
+        },
+        onKeyDown: (event) => {
+          if (!controller) return;
+          if (event.key.toLowerCase() === "f") controller.fit();
+          else if (event.key === "+" || event.key === "=") controller.zoom(1.3);
+          else if (event.key === "-" || event.key === "_") controller.zoom(1 / 1.3);
+          else if (event.key === "Escape") controller.clearSelection();
+          else return;
+          event.preventDefault();
+        }
+      }),
+      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, onReference }) : null
+    )
   );
 }
 var name = "camind-ui-drawing-viewer";
