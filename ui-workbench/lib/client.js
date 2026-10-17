@@ -288,9 +288,13 @@ let applyCtx = null
 function previewService() {
   return applyCtx?.get('filePreview')
 }
+function openTaskModelPreview(sessionId, task) {
+  if (!task?.inputs.prt) throw new Error('当前任务没有冻结的 PRT 输入')
+  previewService()?.preview(sessionId, task.inputs.prt.uri, 'model', task.inputs.prt.sha256)
+}
 function openTaskDrawingPreview(sessionId, task) {
   if (!task?.inputs.dwg) throw new Error('当前任务没有冻结的 DWG 输入')
-  previewService()?.preview(sessionId, task.inputs.dwg.uri)
+  previewService()?.preview(sessionId, task.inputs.dwg.uri, 'drawing', task.inputs.dwg.sha256)
 }
 
 function bytesLabel(bytes) {
@@ -1688,12 +1692,12 @@ function WorkbenchView({ sessionId }) {
     if (!task?.inputs.prt || loaded.current === task.inputs.prt.sha256) return
     loaded.current = task.inputs.prt.sha256
     // Restore the formal model after remount/restart without generating geometry.
-    previewService()?.preview(sessionId, task.inputs.prt.uri)
+    openTaskModelPreview(sessionId, task)
   }, [sessionId, task?.inputs.prt?.sha256])
   useEffect(() => {
     if (mode === 'drawing' && task?.inputs.dwg) openTaskDrawingPreview(sessionId, task)
   }, [sessionId, mode, task?.inputs.dwg?.uri])
-  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model')), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model'), 'model'), [sessionId])
   // Auto-open the newest available PRT in the canvas: first detection switches,
   // each newly appearing PRT switches again; re-polls of the same file do not.
   const autoPrt = useRef('')
@@ -1708,7 +1712,7 @@ function WorkbenchView({ sessionId }) {
         if (!controller.signal.aborted && newest?.path && newest.path !== autoPrt.current) {
           autoPrt.current = newest.path
           setMode('model')
-          previewService()?.preview(sessionId, newest.path)
+          previewService()?.preview(sessionId, newest.path, 'model')
         }
       } catch { /* Input discovery unavailable; manual file picking stays. */ }
       finally { if (!controller.signal.aborted) timer = setTimeout(tick, 3000) }
@@ -1724,12 +1728,12 @@ function WorkbenchView({ sessionId }) {
     try { localStorage.setItem(`camind-workbench/${sessionId}`, JSON.stringify({ ...preference.current, mode, panel })) } catch { /* Private browser storage may be unavailable. */ }
   }, [sessionId, mode, panel, wizard])
   const later = () => { preference.current.pausedReview = reviewKey; setWizard(false) }
-  const complete = () => { setWizard(false); setPanel(''); setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) }
+  const complete = () => { setWizard(false); setPanel(''); setMode('model'); openTaskModelPreview(sessionId, task) }
   const togglePanel = name => setPanel(old => old === name ? '' : name)
   return h('div', { className: 'wb-main' },
     h('header', { className: 'wb-main-head' }, h('div', { className: 'wb-file-heading', ref: setHeading }, mode === 'drawing' ? h('strong', { title: task?.inputs.dwg?.name }, task?.inputs.dwg?.name || 'CAD 图纸') : !heading || !Preview ? h('strong', null, task?.inputs.prt?.name || '加工工作台') : null),
       h('nav', { className: 'wb-view-controls', 'aria-label': '零件视图' }, ['prt', 'dwg'].map(role => h('button', { key: role, disabled: !task?.inputs[role], 'aria-pressed': mode === (role === 'prt' ? 'model' : 'drawing'), title: task?.inputs[role]?.name, onClick: () => {
-        if (role === 'prt') { setMode('model'); previewService()?.preview(sessionId, task.inputs.prt.uri) } else { setMode('drawing'); openTaskDrawingPreview(sessionId, task) }
+        if (role === 'prt') { setMode('model'); openTaskModelPreview(sessionId, task) } else { setMode('drawing'); openTaskDrawingPreview(sessionId, task) }
       } }, role === 'prt' ? '3D 模型' : 'CAD 图纸')),
         h('button', { disabled: !task, 'aria-pressed': panel === 'operations', title: '查看已确认工序单', onClick: () => setPanel('operations') }, '工序方案')),
       h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${task.phase}` : '读取任务'),
@@ -1737,8 +1741,8 @@ function WorkbenchView({ sessionId }) {
       !wizard && !running && h(SchemeWorkflow, { key: sessionId, sessionId, record })),
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
-        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
       panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },
@@ -1814,7 +1818,7 @@ function apply(ctx) {
     openReference({ sessionId }, { ref }) {
       const reference = JSON.parse(ref)
       if (reference.session_id !== sessionId) return false
-      previewService()?.preview(sessionId, reference.path)
+      previewService()?.preview(sessionId, reference.path, 'model', reference.source_sha256)
       return true
     },
   }), 'ui-workbench: native selection references')
@@ -1836,7 +1840,7 @@ function apply(ctx) {
     openReference({ sessionId }, { ref }) {
       const reference = JSON.parse(ref)
       if (reference.session !== sessionId) return false
-      previewService()?.preview(sessionId, reference.source.uri)
+      previewService()?.preview(sessionId, reference.source.uri, 'drawing', reference.source.sha256)
       return true
     },
   }), 'ui-workbench: native drawing references')

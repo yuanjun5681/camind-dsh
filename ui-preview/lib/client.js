@@ -95,12 +95,15 @@ const previewCss = `
 `
 
 // --- preview target store ---------------------------------------------------------
-// Per-session targets retain view state when navigating between conversations.
+// Per-session/channel targets retain independent panes when navigating between conversations.
 let snapshot = { targets: {} }
 const listeners = new Set()
+function targetKey(sessionId, channel = 'default') {
+  return `${sessionId}::${channel}`
+}
 function publish(next) {
   const target = next.target
-  snapshot = { targets: { ...snapshot.targets, [target.sessionId]: target } }
+  snapshot = { targets: { ...snapshot.targets, [targetKey(target.sessionId, target.channel)]: target } }
   for (const listener of listeners) listener()
 }
 function subscribe(listener) {
@@ -233,7 +236,7 @@ function fileNameFromPath(path) {
   return parts[parts.length - 1] || String(path)
 }
 
-function useFilePreview(sessionId, path) {
+function useFilePreview(sessionId, path, version) {
   const [preview, setPreview] = useState(undefined)
   const [error, setError] = useState(undefined)
   useEffect(() => {
@@ -251,7 +254,7 @@ function useFilePreview(sessionId, path) {
       if (!cancelled) setError(err instanceof Error ? err.message : String(err))
     })
     return () => { cancelled = true }
-  }, [path, sessionId])
+  }, [path, sessionId, version])
   return { preview, error }
 }
 
@@ -482,13 +485,13 @@ function FilePreviewBody({ sessionId, preview, error, onReference }) {
 
 // --- the view -------------------------------------------------------------------------
 
-function FilePreviewView({ sessionId, embedded = false, onReference, renderHeader }) {
+function FilePreviewView({ sessionId, channel = 'default', embedded = false, onReference, renderHeader }) {
   const snap = useSyncExternalStore(subscribe, getSnapshot)
-  const target = snap.targets[sessionId]
+  const target = snap.targets[targetKey(sessionId, channel)]
   const viewClass = embedded ? 'campv-view campv-embedded' : 'campv-view'
   const ModelViewer = useModelViewer()
   const isPath = target?.kind === 'path'
-  const { preview, error } = useFilePreview(isPath ? target.sessionId : undefined, isPath ? target.path : undefined)
+  const { preview, error } = useFilePreview(isPath ? target.sessionId : undefined, isPath ? target.path : undefined, isPath ? target.version : undefined)
   const blobUrl = useBlobUrl(target?.kind === 'content' ? target.content : undefined)
 
   if (target === undefined) {
@@ -541,19 +544,19 @@ function apply(ctx) {
 
   ctx.provide('filePreview', {
     View: FilePreviewView,
-    subscribe(sessionId, listener) {
-      let previous = snapshot.targets[sessionId]
+    subscribe(sessionId, listener, channel = 'default') {
+      let previous = snapshot.targets[targetKey(sessionId, channel)]
       return subscribe(() => {
-        const next = snapshot.targets[sessionId]
+        const next = snapshot.targets[targetKey(sessionId, channel)]
         if (next !== previous) { previous = next; listener() }
       })
     },
     // 路径模式：预览会话工作区 / upload:// 引用（经 Host 路由取数）。
-    preview(sessionId, path) {
+    preview(sessionId, path, channel = 'default', version) {
       const id = String(sessionId ?? '')
       const target = String(path ?? '')
       if (!id || !target) return
-      publish({ target: { kind: 'path', sessionId: id, path: target } })
+      publish({ target: { kind: 'path', sessionId: id, path: target, channel, version } })
       activateConversationView(id, 'preview')
     },
     previewRun(sessionId, runId) {
