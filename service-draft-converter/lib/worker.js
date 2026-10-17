@@ -1,36 +1,75 @@
-// DWG 转换在独立 worker 中运行,避免子进程等待和 DXF 解析阻塞宿主。
-// 子进程有自身超时;外层超时同时约束解析阶段,错误保留契约校验码。
+// DWG/DXF conversion runs in a bounded worker: parsing never blocks the host loop.
+// AbortSignal and timeout both terminate the real worker, not just discard its result.
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { convertDxfText } from './convert.js'
 import { dwgToDxfText, libredwgVersion, DWG2DXF_TIMEOUT_MS } from './dwg.js'
 
-export function convertDwgAsync(file, options = {}) {
+function runConversion(kind, payload, options) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./worker.js', import.meta.url), { workerData: { file, options } })
+    const worker = new Worker(new URL('./worker.js', import.meta.url), {
+      workerData: { kind, payload, options },
+      resourceLimits: {
+        maxOldGenerationSizeMb: options.maxOldGenerationSizeMb ?? 512,
+        maxYoungGenerationSizeMb: options.maxYoungGenerationSizeMb ?? 128,
+      },
+    })
+    let settled = false
+    const cleanup = () => {
+      clearTimeout(timer)
+      options.signal?.removeEventListener('abort', onAbort)
+    }
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn(value)
+    }
     const timer = setTimeout(() => {
       void worker.terminate()
-      reject(new Error('图纸转换超时,请简化图纸后重试'))
-    }, (options.timeoutMs ?? DWG2DXF_TIMEOUT_MS) + 15000)
+      finish(reject, new Error('图纸转换超时,请简化图纸后重试'))
+    }, options.timeoutMs ?? (kind === 'dxf' ? 30000 : DWG2DXF_TIMEOUT_MS + 15000))
+    const onAbort = () => {
+      void worker.terminate()
+      finish(reject, new Error('图纸转换已取消'))
+    }
+    if (options.signal?.aborted) {
+      onAbort()
+      return
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true })
     worker.once('message', result => {
-      clearTimeout(timer)
-      if (result.error) reject(Object.assign(new Error(result.error.message), { checkErrors: result.error.checkErrors }))
-      else resolve(result.pack)
+      if (result.error) finish(reject, Object.assign(new Error(result.error.message), { checkErrors: result.error.checkErrors }))
+      else finish(resolve, result.pack)
     })
-    worker.once('error', error => { clearTimeout(timer); reject(error) })
-    worker.once('exit', code => { clearTimeout(timer); if (code !== 0) reject(new Error(`图纸转换进程异常退出(${code})`)) })
+    worker.once('error', error => finish(reject, error))
+    worker.once('exit', code => {
+      if (code !== 0) finish(reject, new Error(`图纸转换进程异常退出(${code})`))
+    })
   })
+}
+
+export function convertDwgAsync(file, options = {}) {
+  return runConversion('dwg', file, options)
+}
+
+export function convertDxfAsync(text, options = {}) {
+  return runConversion('dxf', text, options)
 }
 
 if (!isMainThread) {
   try {
-    const { file, options } = workerData
-    const sourceBytes = readFileSync(file)
-    const dxf = dwgToDxfText(file, options)
-    const pack = convertDxfText(dxf, { sourceName: basename(file), sourceBytes,
-      libredwgVersion: libredwgVersion(options), converterVersion: options.converterVersion })
-    parentPort.postMessage({ pack })
+    const { kind, payload, options } = workerData
+    if (kind === 'dxf') {
+      parentPort.postMessage({ pack: convertDxfText(payload, options) })
+    } else {
+      const sourceBytes = readFileSync(payload)
+      const dxf = dwgToDxfText(payload, options)
+      const pack = convertDxfText(dxf, { sourceName: basename(payload), sourceBytes,
+        libredwgVersion: libredwgVersion(options), converterVersion: options.converterVersion })
+      parentPort.postMessage({ pack })
+    }
   } catch (error) {
     parentPort.postMessage({ error: { message: error.message, checkErrors: error.checkErrors } })
   }

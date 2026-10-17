@@ -12,7 +12,7 @@ CAM-Agent `Drawing_parser/dwg_to_draft_v1.py`（ezdxf 链）的移植正本。�
 ```js
 const dc = ctx.draftConverter          // 或 inject 声明后 ctx.get('draftConverter')
 await dc.convertDwg('/abs/path/part.dwg') // worker 转换 → 契约 v1 包对象（失败抛错，err.checkErrors 带拒绝码）
-dc.convertDxf(dxfText, { sourceName }) // DXF 直读
+await dc.convertDxf(dxfText, { sourceName }) // DXF 直读（同一有界 worker；支持 AbortSignal 与超时终止）
 dc.toSvg(pack)                          // → SVG（保留原色与简单虚线，背景由画布提供）
 dc.preview(pack)                        // → { svg, targets }，同源文字/尺寸实体索引
 dc.check(pack, 'writer' | 'reader')    // packcheck 校验（码表与 CAM-Agent draft_packcheck.py 同源）

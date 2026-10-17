@@ -16,7 +16,7 @@ import { convertDxfText } from './lib/convert.js'
 import { checkDraftPack } from './lib/packcheck.js'
 import { svgFromPack, drawingTargetsFromPack } from './lib/svg.js'
 import { libredwgVersion, resolveDwg2dxf } from './lib/dwg.js'
-import { convertDwgAsync } from './lib/worker.js'
+import { convertDwgAsync, convertDxfAsync } from './lib/worker.js'
 import { converterRelease, converterBuildFingerprint, conversionFingerprint, packIdentity } from './lib/identity.js'
 
 export const name = 'service-draft-converter'
@@ -41,7 +41,7 @@ export function apply(ctx, config) {
       return convertDwgAsync(absPath, { dwg2dxfPath: dwg2dxfPath(), timeoutMs: opts.timeoutMs, converterVersion: release })
     },
     convertDxf(text, meta = {}) {
-      return convertDxfText(text, { ...meta, converterVersion: release })
+      return convertDxfAsync(text, { ...meta, converterVersion: release })
     },
     toSvg(pack) {
       return svgFromPack(pack)
