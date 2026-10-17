@@ -1,0 +1,11 @@
+{
+  "name": "camind-ui-drawing-viewer",
+  "version": "0.1.0",
+  "description": "DWG/DXF camind-draft-pack preview with the migrated TypeScript WebGL2/Canvas2D renderer",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./client": "./lib/client.js", "./package.json": "./package.json" },
+  "files": ["index.js", "lib", "cordis.patch.yml"],
+  "scripts": { "build": "node build.mjs", "selfcheck": "node selfcheck.mjs" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web" } }
+}

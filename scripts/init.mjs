@@ -182,6 +182,8 @@ const PROFILE_TEMPLATES = {
 for (const name of ['web', 'desktop']) {
   PROFILE_TEMPLATES[name].dependencies['camind-ui-model-viewer'] = 'link:ui-model-viewer'
   PROFILE_TEMPLATES[name].bundles.push('camind-ui-model-viewer')
+  PROFILE_TEMPLATES[name].dependencies['camind-ui-drawing-viewer'] = 'link:ui-drawing-viewer'
+  PROFILE_TEMPLATES[name].bundles.push('camind-ui-drawing-viewer')
 }
 
 const PATCH_YML = `# Your patch layer for this dsh profile, applied after every bundle layer:
@@ -257,6 +259,8 @@ function buildUiShell() {
   run('npm', ['run', 'build'], path.join(root, 'ui-shell'))
   step('ui-model-viewer：构建 TypeScript 三维渲染核心')
   run(process.execPath, [path.join(root, 'ui-model-viewer', 'build.mjs')], root)
+  step('ui-drawing-viewer：构建 TypeScript 二维渲染核心')
+  run(process.execPath, [path.join(root, 'ui-drawing-viewer', 'build.mjs')], root)
 }
 
 checkPrerequisites()

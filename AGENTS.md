@@ -62,6 +62,9 @@ ui-model-viewer/    PRT/NC统一WebGL2查看器：保留cam.model.preview与cam.
                     未保存NX会话阻断；联合入口previewRun读run目录preview.json及NC zip，
                     必须验证源/几何/NC SHA与每工序真实工位矩阵。常规cam_run尚无完整回读，
                     缺证据时禁用联合入口，纯PRT/NC保留。详见ui-model-viewer/README.md
+ui-drawing-viewer/  DWG/DXF 二维查看器（`camind-ui-drawing-viewer`，M1 骨架）：
+                    TypeScript Draft 核心 + esbuild 预打包 client bundle；web/desktop 挂载，
+                    Host drawingPreview 服务在 M2 引入。详见 ui-drawing-viewer/README.md
 page-memory/        记忆库管理页（`camind-page-memory`）：底部菜单「记忆库」+ 两级页面
                     `/pages/memory`（知识/经验双 tab 列表 → `/pages/memory/<type>/<name>` 详情）；
                     Host 半注册 `/camind/api/memory`；上传/新建/编辑缺元数据时经
@@ -155,7 +158,7 @@ npm run check:dsh-version
 
 一个 bundle = 带 `dsh.bundle` 声明的 npm 包，三个文件：`package.json`、`cordis.patch.yml`、`index.js`。照抄现有示例的结构即可，要点：
 
-- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有十五个：`camind-ui-shell`（ui-shell/）、`camind-ui-foundation`（ui-foundation/）、`camind-ui-preview`（ui-preview/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-ui-model-viewer`（ui-model-viewer/）、`camind-ui-workbench`（ui-workbench/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）、`camind-service-machine`（service-machine/）、`camind-service-draft-converter`（service-draft-converter/）。
+- 本工作区自定义插件的命名约定：包名 `camind-<角色>-<职责>`（对齐上游文档 `docs/cookbook/adding-a-package.zh.md` 的角色命名规范——名称描述当前稳定职责，不用 `custom`、`plugin` 这类无信息量或基类词）；目录名 = 包名去掉 `camind-` 前缀。现有十六个：`camind-ui-shell`（ui-shell/）、`camind-ui-foundation`（ui-foundation/）、`camind-ui-preview`（ui-preview/）、`camind-ui-sidebar`（ui-sidebar/）、`camind-ui-brand`（ui-brand/）、`camind-ui-home`（ui-home/）、`camind-ui-model-viewer`（ui-model-viewer/）、`camind-ui-drawing-viewer`（ui-drawing-viewer/）、`camind-ui-workbench`（ui-workbench/）、`camind-tool-upload`（tool-upload/）、`camind-tool-cam`（tool-cam/）、`camind-tool-memory`（tool-memory/）、`camind-page-memory`（page-memory/）、`camind-service-git-repository`（service-git-repository/）、`camind-service-machine`（service-machine/）、`camind-service-draft-converter`（service-draft-converter/）。
 - 插件是导出 `apply(ctx)` 的 ESM 模块；`export const inject = ['tools', 'commands', ...]` 声明消费的服务，Cordis 等其就绪后才运行 `apply`。通过 `ctx` 注册的一切都是可逆 effect，卸载自动回收；手动资源用 `ctx.effect(() => disposer)`。
 - `package.json` 声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`；有浏览器代码时再加 `"dsh": { "client": { "platform": "web" } }` 并导出 `./client`。
 - `cordis.patch.yml` 的插件行按**包名**引用（`- insert: [{ id: ..., name: <包名> }]`），Node 解析到安装后的代码。

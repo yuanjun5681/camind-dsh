@@ -1,0 +1,4 @@
+# DWG/DXF preview: keyed renderer in the preview conversation view.
+- insert:
+    - id: camind-ui-drawing-viewer
+      name: camind-ui-drawing-viewer
