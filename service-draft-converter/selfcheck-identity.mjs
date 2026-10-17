@@ -32,6 +32,9 @@ assert.equal(candidates.length, 3)
 assert.equal(new Set(candidates.map(item => item.identity)).size, 3)
 assert.equal(candidates.find(item => item.channel === pack.origin.channel).identity, (await converter.identity(pack)).identity,
   '缓存候选必须包含实际 pack 的六项身份')
+const frozenFingerprint = 'b'.repeat(64)
+assert.equal((await converter.identity(pack, { conversionFingerprint: frozenFingerprint })).fields[3], frozenFingerprint,
+  '发布时必须能使用本次转换冻结的指纹')
 
 const differentOptions = await converter.identity(pack, { options: { ltscale: 2 } })
 assert.notEqual(first.identity, differentOptions.identity)

@@ -47,7 +47,7 @@ export function createDrawingPreviewService({
     home,
     check: (pack, profile) => draftConverter.check(pack, profile),
   })
-  const flights = new Map()
+  const flights = new Map(), producers = new Set()
   const snapshotSource = (sessionId, uri) => snapshotDrawingSource({ sessionId, requested: uri, resolve })
 
   async function convertSnapshot(snapshot, signal) {
@@ -59,9 +59,10 @@ export function createDrawingPreviewService({
       maxOldGenerationSizeMb: 384,
       maxYoungGenerationSizeMb: 64,
     }
-    return decoded.kind === 'dwg'
-      ? draftConverter.convertDwg(snapshot.snapshotPath, options)
-      : draftConverter.convertDxf(decoded.text, options)
+    const pack = decoded.kind === 'dwg'
+      ? await draftConverter.convertDwg(snapshot.snapshotPath, options)
+      : await draftConverter.convertDxf(decoded.text, options)
+    return { kind: decoded.kind, pack }
   }
 
   async function readCached(sessionId, key, snapshot, requested, includeText, displayName) {
@@ -82,13 +83,17 @@ export function createDrawingPreviewService({
     return { key, descriptor }
   }
 
-  async function convertAndPublish(sessionId, requested, expectedSha, signal) {
+  async function convertAndPublish(sessionId, requested, expectedSha, conversionFingerprint, signal) {
     const snapshot = await snapshotSource(sessionId, requested)
     try {
       if (snapshot.sha256 !== expectedSha) throw new Error('源文件变更：转换前快照已不一致')
-      const pack = await convertSnapshot(snapshot, signal)
+      const { kind, pack } = await convertSnapshot(snapshot, signal)
       if (snapshot.sha256 !== pack.source_sha256) throw new Error('源件改变：转换包与稳定快照不一致')
-      const { identity: key } = await draftConverter.identity(pack, { signal })
+      if (kind === 'dwg' && !pack.conversion?.libredwg) throw new Error('转换不完整：缺少实际 LibreDWG 版本')
+      const identityOptions = kind === 'dwg'
+        ? { libredwgVersion: pack.conversion.libredwg }
+        : { conversionFingerprint }
+      const { identity: key } = await draftConverter.identity(pack, identityOptions)
       const packText = JSON.stringify(pack)
       await draftCache.get(sessionId, key, {
         name: snapshot.name,
@@ -112,8 +117,10 @@ export function createDrawingPreviewService({
       flight = { controller: new AbortController(), consumers: 0, settled: false, promise: null }
       flight.promise = (async () => produce(flight.controller.signal))()
       flights.set(id, flight)
+      producers.add(flight)
       const settle = () => {
         flight.settled = true
+        producers.delete(flight)
         if (flights.get(id) === flight) flights.delete(id)
       }
       flight.promise.then(settle, settle)
@@ -144,13 +151,15 @@ export function createDrawingPreviewService({
     try {
       const candidates = await draftConverter.identities(snapshot.sha256, { signal })
       if (!Array.isArray(candidates) || !candidates.length) throw new Error('转换器未提供六项身份候选')
+      const conversionFingerprint = candidates[0]?.fields?.[3]
+      if (!/^[0-9a-f]{64}$/i.test(conversionFingerprint ?? '')) throw new Error('转换器未提供有效转换指纹')
       for (const { identity: key } of candidates) {
         try { return await readCached(sessionId, key, snapshot, requested, false) }
         catch (error) { if (error.code !== 'PACK_NOT_READY') throw error }
       }
       const flightId = `${sessionId}/${sha256(JSON.stringify(candidates.map(item => item.identity).sort()))}`
       const key = await joinFlight(flightId, signal,
-        flightSignal => convertAndPublish(sessionId, requested, snapshot.sha256, flightSignal))
+        flightSignal => convertAndPublish(sessionId, requested, snapshot.sha256, conversionFingerprint, flightSignal))
       return await readCached(sessionId, key, snapshot, requested, false)
     } finally {
       await snapshot.cleanup()
@@ -167,8 +176,8 @@ export function createDrawingPreviewService({
   }
 
   async function dispose() {
-    for (const flight of flights.values()) flight.controller.abort()
-    const pending = [...flights.values()].map(flight => flight.promise.catch(() => {}))
+    for (const flight of producers) flight.controller.abort()
+    const pending = [...producers].map(flight => flight.promise.catch(() => {}))
     await Promise.all([queue.dispose(), ...pending])
   }
 

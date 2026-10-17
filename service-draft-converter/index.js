@@ -62,7 +62,8 @@ export function apply(ctx, config) {
     },
     conversionIdentity,
     async identity(pack, options = {}) {
-      return packIdentity(pack, { conversionFingerprint: await conversionIdentity(options) })
+      const fingerprint = options.conversionFingerprint ?? await conversionIdentity(options)
+      return packIdentity(pack, { conversionFingerprint: fingerprint })
     },
     async identities(sourceSha256, options = {}) {
       if (!/^[0-9a-f]{64}$/i.test(sourceSha256)) throw new Error('源 SHA256 非法')
