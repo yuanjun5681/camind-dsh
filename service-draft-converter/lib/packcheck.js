@@ -182,6 +182,9 @@ function checkBodies(p, add, profile) {
 
     // ── I9 双向 + dims 载荷 schema(reader 档同样拒绝畸形载荷)──
     for (const d of dims) {
+        if (d.entity_ids !== undefined && !Array.isArray(d.entity_ids)) {
+            add(`DRAFT_E_SHAPE:dims.${JSON.stringify(d.id)} entity_ids 应为数组`);
+        }
         const entityIds = Array.isArray(d.entity_ids) ? d.entity_ids : [];
         for (const eid of entityIds) {
             if (!Number.isInteger(eid) || eid < 0) {
@@ -193,6 +196,9 @@ function checkBodies(p, add, profile) {
             else if (ref.dim_id !== d.id) {
                 add(`DRAFT_E_DIM_REF:dims.${JSON.stringify(d.id)} 引用实体 ${JSON.stringify(eid)} 未回带 dim_id`);
             }
+        }
+        if (d.def_points !== undefined && !Array.isArray(d.def_points)) {
+            add(`DRAFT_E_SHAPE:dims.${JSON.stringify(d.id)} def_points 应为数组`);
         }
         const defPoints = Array.isArray(d.def_points) ? d.def_points : [];
         for (const q of defPoints) {

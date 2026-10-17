@@ -172,6 +172,13 @@ for (const profile of ["writer", "reader"]) {
     badIds.dims[0].entity_ids = [-1];
     const idErrs = checkDraftPack(badIds, profile);
     assert.ok(idErrs.some(e => e.startsWith("DRAFT_E_SHAPE") && e.includes("entity_ids")), idErrs.join(";"));
+
+    const badContainers = JSON.parse(JSON.stringify(pack));
+    badContainers.dims[0].entity_ids = "1";
+    badContainers.dims[0].def_points = null;
+    const containerErrs = checkDraftPack(badContainers, profile);
+    assert.ok(containerErrs.some(e => e.startsWith("DRAFT_E_SHAPE") && e.includes("entity_ids")), containerErrs.join(";"));
+    assert.ok(containerErrs.some(e => e.startsWith("DRAFT_E_SHAPE") && e.includes("def_points")), containerErrs.join(";"));
 }
 ok("packcheck dims 载荷 writer/reader 双档拒绝");
 
