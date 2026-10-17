@@ -58,6 +58,7 @@ function verifiedTargetContent(pack, target) {
   }
   const entity = pack.entities.find(candidate => candidate.id === target.id)
   const geometry = defined(Object.fromEntries([
+    'a', 'b', 'c', 'r', 'verts', 'p', 'h', 'rot',
     'start', 'end', 'center', 'position', 'radius', 'start_angle', 'end_angle',
     'rotation', 'height', 'closed', 'points', 'vertices',
   ].map(key => [key, boundedValue(entity[key])]).filter(([, value]) => value !== undefined)))

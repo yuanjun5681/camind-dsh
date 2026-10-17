@@ -16,8 +16,9 @@ const PACK = {
     { id: 'dim-2' },
   ],
   entities: [
-    { id: 0, type: 'line', layer: '0', start: [0, 0], end: [10, 0] },
-    { id: 7, type: 'text', layer: 'annotation', text: '备注', handle: 'AB1' },
+    { id: 0, type: 'line', layer: '0', a: [0, 0], b: [10, 0] },
+    { id: 7, type: 'text', layer: 'annotation', text: '备注', handle: 'AB1', p: [2, 3], h: 2.5, rot: 0 },
+    { id: 8, type: 'circle', layer: '0', c: [5, 5], r: 10 },
   ],
 }
 const PACK_TEXT = JSON.stringify(PACK)
@@ -99,7 +100,7 @@ function makeHarness() {
   const { state, verify } = makeHarness()
   const result = await verify(SESSION, makeInput({ type: 'entity', id: 0 }))
   assert.deepEqual(result.reference.target, { type: 'entity', id: 0 })
-  assert.deepEqual(result.targetContent.geometry, { start: [0, 0], end: [10, 0] })
+  assert.deepEqual(result.targetContent.geometry, { a: [0, 0], b: [10, 0] })
   assert.equal(state.cleanups, 1)
   console.log('ok - valid non-negative integer entity reference')
 }
@@ -109,7 +110,10 @@ function makeHarness() {
   const result = await verify(SESSION, makeInput({ type: 'entity', id: 7 }))
   assert.equal(result.targetContent.text, '备注')
   assert.equal(result.targetContent.entityType, 'text')
-  console.log('ok - verified target content includes annotation text and bounded geometry')
+  assert.deepEqual(result.targetContent.geometry, { p: [2, 3], h: 2.5, rot: 0 })
+  const circle = await verify(SESSION, makeInput({ type: 'entity', id: 8 }))
+  assert.deepEqual(circle.targetContent.geometry, { c: [5, 5], r: 10 })
+  console.log('ok - verified target content includes annotation text and converter-shaped geometry')
 }
 
 {
