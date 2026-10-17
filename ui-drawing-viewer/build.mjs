@@ -7,6 +7,7 @@ await build({
   entryPoints: [path.join(root, 'src/client.ts')],
   outfile: path.join(root, 'lib/client.js'),
   bundle: true,
+  absWorkingDir: path.dirname(root),
   platform: 'browser',
   format: 'cjs',
   external: ['react', '@deepseek-ai/dsh-client-ui-primitives'],

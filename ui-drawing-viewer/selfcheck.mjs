@@ -51,6 +51,7 @@ console.log('ok - converter synthetic pack -> writer + loader')
 
 const { outputFiles } = await build({
   entryPoints: [path.join(root, 'src/client.ts')], bundle: true, write: false,
+  absWorkingDir: path.dirname(root),
   platform: 'browser', format: 'cjs', external: ['react', '@deepseek-ai/dsh-client-ui-primitives'],
   banner: { js: "// Generated from ui-drawing-viewer/src; run node ui-drawing-viewer/build.mjs.\nwindow.__ModuleLoader__.load({ id: 'camind-ui-drawing-viewer', factory: (require) => { var module = { exports: {} }; var exports = module.exports;" },
   footer: { js: 'return module.exports; } });' },

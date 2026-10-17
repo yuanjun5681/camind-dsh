@@ -72,22 +72,33 @@ try {
   const summary = await evaluate(`(() => {
     const host = document.querySelector('.cdv-canvas')
     const meta = document.querySelector('.cdv-meta')?.innerText ?? ''
-    const canvas = host?.querySelector('canvas')
-    if (!canvas) return { canvases: 0, meta }
-    const gl = canvas.getContext('webgl2')
-    const pixels = new Uint8Array(canvas.width * canvas.height * 4)
-    gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-    const colors = new Set()
-    for (let i = 0; i < pixels.length; i += 4) {
-      colors.add(String(pixels[i]) + ',' + String(pixels[i + 1]) + ',' + String(pixels[i + 2]))
-      if (colors.size > 16) break
-    }
-    return { canvases: host.querySelectorAll('canvas').length, meta, width: canvas.width, height: canvas.height, colors: colors.size }
+    const rect = host?.getBoundingClientRect()
+    return { canvases: host?.querySelectorAll('canvas').length ?? 0, meta,
+      clip: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 } : null }
   })()`)
   assert.equal(summary.canvases, 2, 'DraftPane should create WebGL2 + Canvas2D layers')
   assert.match(summary.meta, /16 实体 · 2 尺寸/)
-  assert.ok(summary.width > 0 && summary.height > 0)
-  assert.ok(summary.colors > 1, `WebGL 像素为空或单色：${JSON.stringify(summary)}`)
+  assert.ok(summary.clip, '缺少合成截图区域')
+  const screenshot = await send('Page.captureScreenshot', {
+    format: 'png', fromSurface: true, captureBeyondViewport: false, clip: summary.clip,
+  })
+  const colors = await evaluate(`(async () => {
+    const image = new Image()
+    image.src = 'data:image/png;base64,${screenshot.data}'
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width; canvas.height = image.height
+    const context = canvas.getContext('2d')
+    context.drawImage(image, 0, 0)
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+    const colors = new Set()
+    for (let i = 0; i < pixels.length; i += 4) {
+      colors.add(String(pixels[i]) + ',' + String(pixels[i + 1]) + ',' + String(pixels[i + 2])
+      if (colors.size > 16) break
+    }
+    return colors.size
+  })()`)
+  assert.ok(colors > 1, `合成截图为空或单色：${colors}`)
   assert.deepEqual(pageErrors, [])
   console.log(`dsh-app:// 合成图验收通过：${JSON.stringify(summary)}`)
 } finally {
