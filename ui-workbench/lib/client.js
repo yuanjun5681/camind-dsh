@@ -815,6 +815,40 @@ async function addSelectionToDraft(sessionId, reference) {
   input.focus()
 }
 
+const DRAWING_REFERENCE_SOURCE = 'cam-drawing-ref'
+function drawingReferenceClipboard(ref) {
+  return `[CAM_DRAWING_REFERENCE]\n${ref}\n[/CAM_DRAWING_REFERENCE]`
+}
+async function verifyDrawingReference(sessionId, reference, signal) {
+  const response = await fetch(`/camind/api/drawings/sessions/${encodeURIComponent(sessionId)}/refs/verify`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(reference), signal,
+  })
+  const body = await response.json()
+  if (!response.ok || !body.reference) throw new Error(body.message || '图纸引用核验失败')
+  return body
+}
+async function addDrawingReferenceToDraft(sessionId, reference) {
+  const input = sessionInput(sessionId)
+  if (!input) throw new Error('原生输入框未就绪，请稍后重试')
+  const state = input.state.getSnapshot()
+  if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
+  const { reference: verified } = await verifyDrawingReference(sessionId, reference)
+  const ref = JSON.stringify(verified)
+  if (state.occurrences.some(item => item.source === DRAWING_REFERENCE_SOURCE && item.ref === ref)) { input.focus(); return }
+  const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
+  const target = verified.target.type === 'dim' ? `尺寸 ${verified.target.id}` : `图元 ${verified.target.id}`
+  const label = `${target} · ${verified.source.sha256.slice(0, 8)}`
+  if (!input.insertReference({ source: DRAWING_REFERENCE_SOURCE, ref, label, appearance: 'file', clipboardText: drawingReferenceClipboard(ref) }, { start: end, end, draftRev: state.draftRev })) {
+    throw new Error('草稿已变更，请重新添加引用')
+  }
+  input.focus()
+}
+function addPreviewReferenceToDraft(sessionId, reference) {
+  return reference.kind === 'camind-drawing-ref'
+    ? addDrawingReferenceToDraft(sessionId, reference)
+    : addSelectionToDraft(sessionId, reference)
+}
+
 function CapabilityPlaceholder({ title, children }) {
   return h('section', { className: 'wb-placeholder' }, h('h3', null, title), h('p', null, children), h('small', null, '功能待接入 · 不参与加工放行'))
 }
@@ -1671,7 +1705,7 @@ function WorkbenchView({ sessionId }) {
       !wizard && !running && h(SchemeWorkflow, { key: sessionId, sessionId, record })),
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
-        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addSelectionToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, h(DwgPane, { sessionId, record, statusTarget: mode === 'drawing' ? heading : null })),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
@@ -1752,6 +1786,27 @@ function apply(ctx) {
       return true
     },
   }), 'ui-workbench: native selection references')
+
+  ctx.effect(() => ctx.get('inputTriggers').registerSource({
+    trigger: '@', name: DRAWING_REFERENCE_SOURCE, candidates: async () => [], onPick: () => undefined,
+    codec: {
+      clipboardText: drawingReferenceClipboard,
+      async serialize(ref, signal) {
+        const reference = JSON.parse(ref)
+        const checkSession = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session) throw new Error('图纸引用不属于当前会话，请重新选择') }
+        checkSession()
+        const { reference: verified } = await verifyDrawingReference(reference.session, reference, signal)
+        checkSession()
+        return `${drawingReferenceClipboard(JSON.stringify(verified))}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
+      },
+    },
+    openReference({ sessionId }, { ref }) {
+      const reference = JSON.parse(ref)
+      if (reference.session !== sessionId) return false
+      previewService()?.preview(sessionId, reference.source.uri)
+      return true
+    },
+  }), 'ui-workbench: native drawing references')
 
   for (const source of ['cam-object', DRAWING_QUESTION_SOURCE]) ctx.effect(() => ctx.get('inputTriggers').registerSource({
     trigger: '@', name: source, candidates: async () => [], onPick: () => undefined,

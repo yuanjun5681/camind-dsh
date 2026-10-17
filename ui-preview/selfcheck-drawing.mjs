@@ -158,7 +158,7 @@ render()
 const ready = find(tree, node => node.type === Viewer)
 assert.ok(ready, `ready descriptor must reach the keyed drawing viewer: ${text(tree)} ${JSON.stringify(calls)}`)
 assert.equal(ready.props.descriptor.packText, '{"ok":true}')
-assert.equal(ready.props.onReference, undefined, 'drawing selections must not enter the model-only callback')
+assert.equal(typeof ready.props.onReference, 'function', 'drawing selections must reach the drawing-specific adapter')
 console.log('ok - start, status polling and ready pack dispatch')
 
 fresh()

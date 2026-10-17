@@ -143,8 +143,9 @@ assert.equal(first.props.className, 'campv-view campv-embedded')
 assert.ok(JSON.stringify(first).includes('upload://batch/part.prt'))
 const dwgBody = first.children[0].children[1].children[0]
 const dwg = dwgBody.type({ sessionId: 's1', preview: { name: 'drawing.dwg', path: 'upload://batch/drawing.dwg' } })
-assert.match(JSON.stringify(dwg), /CAD 图纸预览待接入/)
-assert.match(JSON.stringify(dwg), /不能据此视为已审图/)
+const renderedDwg = dwg.type(dwg.props)
+assert.match(JSON.stringify(renderedDwg), /2D 图纸查看器未加载/)
+assert.equal(JSON.stringify(renderedDwg).includes('CAD 图纸预览待接入'), false)
 const header = registrations.find(r => r.options.id === 'workbench' && r.options.name.includes('utilities'))
 for (const preference of [null, 'chat', 'trajectory']) {
   activeView = preference; effects.length = 0; cursor = 0

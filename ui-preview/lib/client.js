@@ -425,7 +425,7 @@ function DrawingBody({ sessionId, preview, onReference }) {
       h('p', null, '当前环境无法创建 WebGL2 上下文，未启动图纸转换；这不是转换失败。请下载后用外部 CAD 工具打开。'), download)
   }
   if (state.stage === 'ready') {
-    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor }))
+    return h('div', { className: 'campv-pane' }, h(Viewer, { descriptor: state.descriptor, onReference }))
   }
   if (state.stage === 'error') {
     return h('div', { className: 'campv-binary', role: 'alert' },
