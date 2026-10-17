@@ -1,6 +1,7 @@
 // M2-05 cache correctness: atomic writes, independent pack SHA, single-flight, LRU,
 // corruption rebuild, symlink rejection and authorization on every cache hit.
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -58,6 +59,17 @@ await fs.writeFile(path.join(home, 'draft-previews/s1', `${key2}.sidecar.json`),
 await cache.get('s1', key2, { name: 'second.dwg', resolve, build })
 assert.equal(builds, 3, '损坏 sidecar 必须重建')
 console.log('ok - single-flight authorization and corruption rebuild')
+
+const concurrent = createDraftCache({ home: path.join(home, 'concurrent'), maxBytes: 1024 * 1024, check: () => [] })
+await Promise.all([
+  concurrent.put('s1', key, { name: 'a.dxf', packText: '{"source_file":"a.dxf"}' }),
+  concurrent.put('s1', key, { name: 'b.dxf', packText: '{"source_file":"b.dxf"}' }),
+])
+const published = await concurrent.get('s1', key, { name: 'current.dxf', resolve: allow, build: noBuild })
+const publishedSha = createHash('sha256').update(Buffer.from(published.packText, 'utf8')).digest('hex')
+assert.equal(published.sidecar.packSha256, publishedSha, '同键并发发布不得错配 pack 与 sidecar')
+assert.equal(published.sidecar.bytes, Buffer.byteLength(published.packText, 'utf8'))
+console.log('ok - same-key concurrent publications stay consistent')
 
 const lruHome = await fs.mkdtemp(path.join(os.tmpdir(), 'drawing-cache-lru-'))
 const lru = createDraftCache({ home: lruHome, maxEntries: 2, maxBytes: 1024 * 1024, check: () => [] })

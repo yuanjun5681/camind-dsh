@@ -14,7 +14,7 @@ const sessionDeleted = () => Object.assign(new Error('会话图纸缓存已清�
 
 export function createDraftCache({ home, maxEntries = 32, maxBytes = 256 * 1024 * 1024, check }) {
   const root = path.join(home, 'draft-previews')
-  const pending = new Map(), cleanups = new Map(), versions = new Map()
+  const pending = new Map(), publications = new Map(), cleanups = new Map(), versions = new Map()
   const sessionDir = sessionId => {
     if (typeof sessionId !== 'string' || !sessionId || sessionId === '.' || sessionId === '..'
       || sessionId.includes('/') || sessionId.includes('\\') || sessionId.includes('\0')) {
@@ -46,7 +46,7 @@ export function createDraftCache({ home, maxEntries = 32, maxBytes = 256 * 1024 
     if (!inside(base, file) || !inside(base, sidecarFile)) throw new Error('图纸缓存路径越界')
     return { file, sidecarFile }
   }
-  async function put(sessionId, key, { name, packText }, expectedVersion) {
+  async function write(sessionId, key, { name, packText }, expectedVersion) {
     validIdentity(key)
     assertVersion(sessionId, expectedVersion)
     const pack = JSON.parse(packText)
@@ -72,6 +72,20 @@ export function createDraftCache({ home, maxEntries = 32, maxBytes = 256 * 1024 
     } finally {
       await Promise.all([rm(tmpPack, { force: true }), rm(tmpSidecar, { force: true })])
     }
+  }
+  async function put(sessionId, key, options, expectedVersion) {
+    validIdentity(key)
+    sessionDir(sessionId)
+    if (expectedVersion === undefined) {
+      const cleanup = cleanups.get(sessionId)
+      if (cleanup) await cleanup
+    }
+    const version = expectedVersion ?? (versions.get(sessionId) ?? 0)
+    const publicationKey = `${sessionId}/${key}`
+    const previous = publications.get(publicationKey) ?? Promise.resolve()
+    const task = previous.catch(() => {}).then(() => write(sessionId, key, options, version))
+    publications.set(publicationKey, task)
+    try { return await task } finally { if (publications.get(publicationKey) === task) publications.delete(publicationKey) }
   }
   async function trim(sessionId) {
     const dir = sessionDir(sessionId)
@@ -150,9 +164,12 @@ export function createDraftCache({ home, maxEntries = 32, maxBytes = 256 * 1024 
       if (existing) return existing
       const cleanup = (async () => {
         versions.set(sessionId, (versions.get(sessionId) ?? 0) + 1)
-        const tasks = [...pending.entries()]
-          .filter(([key]) => key.startsWith(`${sessionId}/`))
-          .map(([, task]) => task.catch(() => {}))
+        const tasks = []
+        for (const operations of [pending, publications]) {
+          for (const [key, task] of operations) {
+            if (key.startsWith(`${sessionId}/`)) tasks.push(task.catch(() => {}))
+          }
+        }
         await Promise.all(tasks)
         await rm(sessionDir(sessionId), { recursive: true, force: true })
       })()
