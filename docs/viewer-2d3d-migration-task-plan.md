@@ -11,8 +11,8 @@ M1-01～M1-03 与 M6 已完成；M1-04 的离线自检、构建复现和 Codex �
 
 | 任务 | 当前状态 | 后续动作与解锁条件 |
 |---|---|---|
-| **M1-04-live：`dsh-app://` 合成图冒烟** | **DOING（环境延后）** | 安装或提供 Camind/DeepSeek Harness 桌面环境后，先运行 `scripts/desktop.sh --remote-debugging-port=9236`，再运行 `DESKTOP_REPO=/private/tmp/camind-desktop-viewer-2d3d CAM_AGENT_REPO=/Users/yj/Desktop/CAM-Agent node ui-drawing-viewer/acceptance-desktop.mjs`。验收通过并提交 Codex 审核后，M1 才能闭合 |
-| M2～M5 | 未启动 | M1-04-live 通过后按 M2 → M3 → M4 → M5 顺序启动；不得以离线结果替代桌面验收 |
+| **M1-04-live：`dsh-app://` 合成图冒烟** | **PENDING（后续补做）** | 安装或提供 Camind/DeepSeek Harness 桌面环境后，先运行 `scripts/desktop.sh --remote-debugging-port=9236`，再运行 `DESKTOP_REPO=/private/tmp/camind-desktop-viewer-2d3d CAM_AGENT_REPO=/Users/yj/Desktop/CAM-Agent node ui-drawing-viewer/acceptance-desktop.mjs`。验收通过并提交 Codex 审核后，M1 才能闭合 |
+| M2～M5 | 当前可启动 | 按并行批次执行；M1-04-live 移至后续补做，不作为 M2 启动前置，但在 M5 三壳验收前必须补做并通过 |
 
 ## 1. 所有任务强制执行的通用规则
 
