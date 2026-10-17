@@ -418,6 +418,7 @@ function apply(ctx) {
     children: {
       'cam.nc.preview': { kind: 'keyed', scope: 'root' },
       'cam.model.preview': { kind: 'keyed', scope: 'root' },
+      'cam.drawing.preview': { kind: 'keyed', scope: 'root' },
     },
     inject: (sessionId) => ({ sessionId }),
   }, FilePreviewView))
