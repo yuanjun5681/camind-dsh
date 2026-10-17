@@ -6,7 +6,7 @@
 //   convertDxf(text, meta) → 契约 v1 包(DXF 直读,meta.sourceName/sourceBytes)
 //   preview(pack)       → SVG + 同源文字/尺寸目标索引(实际绘制 entity_ids)
 //   check(pack, profile) → packcheck 校验(writer/reader 两档,码表与 CAM-Agent 同源)
-//   info()               → { dwg2dxf, libredwg } 当前解析到的转换链版本
+//   info()               → { dwg2dxf, libredwg, converter, conversionFingerprint } 版本与转换身份
 // 配置:条目 config 的 dwg2dxfPath(volatile 热更)> 环境变量 CAMIND_DWG2DXF > PATH。
 
 import { readFileSync } from 'node:fs'
@@ -17,6 +17,7 @@ import { checkDraftPack } from './lib/packcheck.js'
 import { svgFromPack, drawingTargetsFromPack } from './lib/svg.js'
 import { libredwgVersion, resolveDwg2dxf } from './lib/dwg.js'
 import { convertDwgAsync } from './lib/worker.js'
+import { converterRelease, converterBuildFingerprint, conversionFingerprint, packIdentity } from './lib/identity.js'
 
 export const name = 'service-draft-converter'
 export const Config = z.object({
@@ -25,17 +26,18 @@ export const Config = z.object({
 
 const cellValue = (v) => (v && typeof v.get === 'function' ? v.get() : v)
 
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
-
 export function apply(ctx, config) {
   const dwg2dxfPath = () => cellValue(config?.dwg2dxfPath) || undefined
+  const release = converterRelease()
+  const buildFingerprint = converterBuildFingerprint()
+  const conversionIdentity = (options = {}) => conversionFingerprint({ buildFingerprint, ...options })
 
   const draftConverter = {
     convertDwg(absPath, opts = {}) {
-      return convertDwgAsync(absPath, { dwg2dxfPath: dwg2dxfPath(), timeoutMs: opts.timeoutMs, converterVersion: pkg.version })
+      return convertDwgAsync(absPath, { dwg2dxfPath: dwg2dxfPath(), timeoutMs: opts.timeoutMs, converterVersion: release })
     },
     convertDxf(text, meta = {}) {
-      return convertDxfText(text, { ...meta, converterVersion: pkg.version })
+      return convertDxfText(text, { ...meta, converterVersion: release })
     },
     toSvg(pack) {
       return svgFromPack(pack)
@@ -46,9 +48,14 @@ export function apply(ctx, config) {
     check(pack, profile = 'writer') {
       return checkDraftPack(pack, profile)
     },
+    conversionIdentity,
+    identity(pack, options = {}) {
+      return packIdentity(pack, { conversionFingerprint: conversionIdentity(options) })
+    },
     info() {
       const bin = resolveDwg2dxf(dwg2dxfPath())
-      return { dwg2dxf: bin, libredwg: libredwgVersion({ dwg2dxfPath: dwg2dxfPath() }), converter: pkg.version }
+      return { dwg2dxf: bin, libredwg: libredwgVersion({ dwg2dxfPath: dwg2dxfPath() }), converter: release,
+        conversionFingerprint: conversionIdentity() }
     },
   }
   ctx.provide('draftConverter', draftConverter)

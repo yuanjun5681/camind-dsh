@@ -56,6 +56,20 @@ lib/aci.js        ACI 1~255 → RGB 表（ezdxf DXF_DEFAULT_COLORS dump，与渲
    归为 `ignored_dimension_defpoint`，供预览区分正常省略与真实缺失；其他图层 POINT 不豁免。
    两切面对账总数不变。与旧 Python 黄金包对照时，仅将此理由合并回旧类别再比较。
 
+## 转换身份与 pack.identity（唯一权威规范）
+
+`conversion.commit` 仅作展示溯源：优先取 `CAMIND_CONVERTER_COMMIT`，否则取当前 Git `HEAD`，
+最后才回退到 package.json 版本。它**不是缓存键原料**。实际转换身份由以下三部分组成：
+真实构建文件 SHA256、dwg2dxf `--version` 首行、影响输出的规范化选项。构建哈希逐字节覆盖
+`lib/aci.js`、`convert.js`、`dwg.js`、`dxfparse.js`、`expand.js`、`hatch.js`、`packcheck.js`、`text.js`、`worker.js`，
+因此未提交源码变化也会改变身份。
+
+`pack.identity = sha256(JSON.stringify(六项数组))`，六项顺序固定为：
+`source_sha256`、`pipeline_version`、`origin.channel`、综合转换指纹、`rules_version`、`view_rule_version`。
+字符串按 NFC 规范化；对象键排序、数组保序；`null`/`undefined` 归为空字符串；数字与布尔按 `String()`。
+该身份只在 descriptor/缓存 sidecar 中使用，**不写入 pack JSON**，因此不破坏 writer 顶层白名单。
+服务 API：`conversionIdentity(options)` 计算综合指纹，`identity(pack, options)` 返回 `{ fields, identity }`。
+
 ## 自检
 
 ```sh
