@@ -79,20 +79,27 @@ const { DrawingBody } = loaded.__drawingTest
 
 const calls = []
 const identity = '4'.repeat(64)
-let raceCancelled = false
+let raceCancelled = false, startupFailurePolls = 0
 async function fetch(url, options = {}) {
   calls.push({ url, options })
   let body
   if (url.endsWith('/packs') && options.method === 'POST') {
     const requested = JSON.parse(options.body).path
-    if (requested === 'startup.dxf') await new Promise(resolve => setTimeout(resolve, 30))
+    if (requested === 'startup.dxf' || requested === 'startup-failure.dxf') await new Promise(resolve => setTimeout(resolve, 30))
     body = { jobId: `${requested}-job`, state: 'queued' }
   } else if (url.endsWith('/status')) {
     if (url.includes('bad.dxf')) body = { state: 'error', error: { message: '坏包' } }
     else if (url.includes('cancel.dxf')) body = { state: 'running' }
     else if (url.includes('race.dxf')) body = raceCancelled ? { state: 'ready', result: { key: identity } } : { state: 'running' }
+    else if (url.includes('startup-failure.dxf')) {
+      startupFailurePolls++
+      body = startupFailurePolls === 1 ? { state: 'running' } : { state: 'ready', result: { key: identity } }
+    }
     else body = { state: 'ready', result: { key: identity } }
   } else if (url.endsWith('/cancel')) {
+    if (url.includes('startup-failure.dxf')) {
+      return { ok: false, status: 503, json: async () => ({ message: '取消服务暂不可用' }) }
+    }
     if (url.includes('race.dxf') || url.includes('startup.dxf')) {
       if (url.includes('race.dxf')) raceCancelled = true
       return { ok: false, status: 404, json: async () => ({ message: '转换作业不存在或已结束' }) }
@@ -202,6 +209,19 @@ const startupReady = find(tree, node => node.type === Viewer)
 assert.ok(startupReady, 'cancel during initial POST must reconcile a fast ready job')
 assert.equal(text(tree).includes('图纸转换已取消'), false)
 console.log('ok - cancellation during start also reconciles terminal ready')
+
+fresh()
+render({ name: 'startup-failure.dxf', path: 'startup-failure.dxf' })
+await sleep(10)
+render()
+const startupFailureButton = find(tree, node => node.type === 'button' && text(node) === '取消转换')
+await startupFailureButton.props.onClick()
+await sleep(350)
+render()
+const startupFailureReady = find(tree, node => node.type === Viewer)
+assert.ok(startupFailureReady, 'failed startup cancellation must resume polling instead of false confirmation')
+assert.equal(text(tree).includes('图纸转换已取消'), false)
+console.log('ok - unsuccessful startup cancellation resumes status polling')
 
 fresh()
 webgl = false

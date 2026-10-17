@@ -317,68 +317,35 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
   const [state, setState] = useState({ stage: 'idle' })
   const runtime = useRef(null)
   useEffect(() => {
-    let cancelled = false, cancelPending = false, timer = null, jobId = null
+    let active = true, cancelled = false, cancelPending = false, timer = null, jobId = null
     const base = drawingPacksUrl(sessionId)
+    const update = next => { if (active) setState(next) }
     const cancelRequest = () => jobId ? drawingJson(`${base}/${jobId}/cancel`, { method: 'POST' }) : Promise.resolve(null)
     const publishJob = async job => {
       if (job.state === 'ready') {
         const key = job.result?.key ?? job.result?.descriptor?.pack?.identity
         if (!key) throw new Error('转换作业就绪但缺少图纸包身份')
         const descriptor = await drawingJson(`${base}/${key}?path=${encodeURIComponent(path)}`)
-        if (runtime.current) setState({ stage: 'ready', descriptor })
+        update({ stage: 'ready', descriptor })
         return true
       }
       if (job.state === 'error') {
-        if (runtime.current) {
-          setState(job.error?.code === 'cancelled'
-            ? { stage: 'cancelled', message: job.error?.message ?? '图纸转换已取消' }
-            : { stage: 'error', message: job.error?.message ?? '图纸转换失败' })
-        }
+        update(job.error?.code === 'cancelled'
+          ? { stage: 'cancelled', message: job.error?.message ?? '图纸转换已取消' }
+          : { stage: 'error', message: job.error?.message ?? '图纸转换失败' })
         return true
       }
       return false
     }
-    const cancel = async () => {
-      if (cancelPending) return
-      cancelPending = true
-      cancelled = true
-      if (timer !== null) clearTimeout(timer)
-      if (!jobId) {
-        if (runtime.current) setState({ stage: 'cancelled', message: '图纸转换已取消' })
-        return
-      }
-      try {
-        const job = await cancelRequest()
-        await publishJob(job)
-      } catch (error) {
-        try {
-          const job = await drawingJson(`${base}/${jobId}/status`)
-          const terminal = await publishJob(job)
-          if (!terminal && runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
-        } catch {
-          if (runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
-        }
-      }
-    }
-    runtime.current = { cancel }
-    if (!enabled) {
-      setState({ stage: 'unsupported' })
-      return () => { runtime.current = null }
-    }
-    setState({ stage: 'starting' })
-    const poll = async () => {
+    async function poll() {
       try {
         if (!jobId) {
           const started = await drawingJson(base, { method: 'POST', body: JSON.stringify({ path }) })
           jobId = started.jobId
           if (cancelled) {
-            await cancelRequest().catch(() => {})
-            try {
-              const job = await drawingJson(`${base}/${jobId}/status`)
-              await publishJob(job)
-            } catch (error) {
-              if (runtime.current) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
-            }
+            let cancelError = null
+            try { await cancelRequest() } catch (error) { cancelError = error }
+            await reconcile(cancelError)
             return
           }
         }
@@ -386,14 +353,54 @@ function useDrawingJob(sessionId, path, attempt, enabled) {
         const job = await drawingJson(`${base}/${jobId}/status`)
         if (cancelled) return
         if (await publishJob(job)) return
-        setState({ stage: job.state === 'queued' ? 'queued' : 'running' })
+        update({ stage: job.state === 'queued' ? 'queued' : 'running' })
         timer = setTimeout(poll, 250)
       } catch (error) {
-        if (!cancelled) setState({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
+        if (!cancelled) update({ stage: 'error', message: error instanceof Error ? error.message : String(error) })
       }
     }
+    async function reconcile(cancelError) {
+      try {
+        const job = await drawingJson(`${base}/${jobId}/status`)
+        const terminal = await publishJob(job)
+        if (!terminal && active) {
+          cancelled = false
+          cancelPending = false
+          update({ stage: job.state })
+          timer = setTimeout(poll, 250)
+        }
+      } catch {
+        update({
+          stage: 'error',
+          message: cancelError instanceof Error ? cancelError.message : '取消转换失败，且无法查询作业状态',
+        })
+      }
+    }
+    const cancel = async () => {
+      if (cancelPending) return
+      cancelPending = true
+      cancelled = true
+      if (timer !== null) clearTimeout(timer)
+      if (!jobId) {
+        update({ stage: 'cancelling', message: '正在取消图纸转换' })
+        return
+      }
+      try {
+        const job = await cancelRequest()
+        await publishJob(job)
+      } catch (error) {
+        await reconcile(error)
+      }
+    }
+    runtime.current = { cancel }
+    if (!enabled) {
+      update({ stage: 'unsupported' })
+      return () => { active = false; runtime.current = null }
+    }
+    update({ stage: 'starting' })
     void poll()
     return () => {
+      active = false
       cancelled = true
       if (timer !== null) clearTimeout(timer)
       runtime.current = null
