@@ -7,6 +7,8 @@ const source = await fs.readFile(new URL('./lib/client.js', import.meta.url), 'u
 assert.equal(source.includes('h(DwgPane, { sessionId, record'), false, 'the drawing slot must not render the legacy DwgPane')
 assert.ok(source.includes("hidden: mode !== 'drawing' }, Preview"), 'the drawing slot must render the shared Preview')
 assert.ok(source.includes("mode === 'drawing' ? require('react-dom').createPortal"), 'the drawing slot keeps the workbench header integration')
+assert.ok(source.includes("subscribe(sessionId, () => setMode('drawing'), 'drawing')"), 'opening a drawing reference must activate the drawing pane')
+assert.ok(source.includes('task?.inputs.dwg?.sha256])'), 'source SHA changes must retrigger the drawing preview effect')
 const code = source.replace('exports.apply = apply', 'exports.__drawingTaskTest = { openTaskDrawingPreview, openTaskModelPreview }; exports.apply = apply')
 let plugin
 const previewCalls = []

@@ -1696,8 +1696,9 @@ function WorkbenchView({ sessionId }) {
   }, [sessionId, task?.inputs.prt?.sha256])
   useEffect(() => {
     if (mode === 'drawing' && task?.inputs.dwg) openTaskDrawingPreview(sessionId, task)
-  }, [sessionId, mode, task?.inputs.dwg?.uri])
+  }, [sessionId, mode, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model'), 'model'), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('drawing'), 'drawing'), [sessionId])
   // Auto-open the newest available PRT in the canvas: first detection switches,
   // each newly appearing PRT switches again; re-polls of the same file do not.
   const autoPrt = useRef('')
