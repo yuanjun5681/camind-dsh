@@ -37,7 +37,7 @@ function statusCode(error) {
   return 400
 }
 
-export function createDrawingRouteHandler({ service, connection }) {
+export function createDrawingRouteHandler({ service, connection, referenceVerifier }) {
   return async function drawingRoute(req, res) {
     const rejection = connection.requestRejection({ headers: req.headers })
     if (rejection !== undefined) return send(res, rejection, { ok: false, message: rejection === 401 ? '未登录' : '拒绝访问' })
@@ -47,7 +47,15 @@ export function createDrawingRouteHandler({ service, connection }) {
       const rest = pathname.slice(DRAWING_ROUTE_PREFIX.length).replace(/^\//, '')
       const segments = rest.split('/')
       const sessionId = segments.shift()
-      if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || segments[0] !== 'packs') return send(res, 404, { ok: false, message: '图纸接口不存在' })
+      if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return send(res, 404, { ok: false, message: '图纸接口不存在' })
+      if (segments[0] === 'refs') {
+        if (segments.length !== 2 || segments[1] !== 'verify') return send(res, 404, { ok: false, message: '图纸接口不存在' })
+        if (req.method !== 'POST') return send(res, 405, { ok: false, message: '引用核验仅支持 POST' })
+        if (!referenceVerifier) return send(res, 503, { ok: false, message: '引用核验服务不可用' })
+        const body = await bodyJson(req)
+        return send(res, 200, await referenceVerifier.verify(sessionId, body.reference ?? body))
+      }
+      if (segments[0] !== 'packs') return send(res, 404, { ok: false, message: '图纸接口不存在' })
       const parts = segments.slice(1)
       if (parts.length === 0) {
         if (req.method !== 'POST') return send(res, 405, { ok: false, message: '启动转换仅支持 POST' })

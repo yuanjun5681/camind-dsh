@@ -8,6 +8,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { createDrawingPreviewService } from './lib/service.js'
 import { createJobQueue } from './lib/jobs.js'
+import { createDrawingReferenceVerifier } from './lib/reference.js'
 import { createDrawingRouteHandler, DRAWING_ROUTE_PREFIX } from './lib/routes.js'
 
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'drawing-routes-check-'))
@@ -47,7 +48,7 @@ const converter = {
   async convertDwg() { throw new Error('本自检不使用 DWG') },
   check: () => [],
   identity: pack => identityFor(pack.source_sha256, pack.origin.channel),
-  identities: source => ['autocad', 'nx', 'unknown'].map(channel => identityFor(source, channel)),
+  identities: source => ['autocad', 'nx', 'unknown'].map(channel => ({ channel, ...identityFor(source, channel) })),
 }
 const resolve = async (sessionId, requested) => {
   const file = requested === 'part.dxf' ? sourceFile : requested === 'cancel.dxf' ? cancelFile : null
@@ -55,8 +56,9 @@ const resolve = async (sessionId, requested) => {
   return { file, displayPath: requested }
 }
 const service = createDrawingPreviewService({ home, resolve, draftConverter: converter })
+const referenceVerifier = createDrawingReferenceVerifier({ snapshotSource: service.snapshotSource, readPack: service.readPack })
 let rejection
-const handler = createDrawingRouteHandler({ service, connection: { requestRejection: () => rejection } })
+const handler = createDrawingRouteHandler({ service, connection: { requestRejection: () => rejection }, referenceVerifier })
 
 function response() {
   return {
@@ -139,6 +141,33 @@ assert.equal(pack.json.pack.identity, key)
 assert.equal(pack.json.packText.includes(sourceFile), false, 'descriptor 不得泄露 Host 临时路径')
 assert.deepEqual(pack.json.missing, ['xref:AB1:XREF:外部参照未展开'])
 console.log('ok - authorized pack read, no-store, SHA header and structured missing diagnostics')
+
+const drawingReference = {
+  kind: 'camind-drawing-ref', version: 1, session: 's1',
+  source: pack.json.source, pack: pack.json.pack, target: { type: 'dim', id: 'dim-1' },
+}
+const verified = await request('POST', `${DRAWING_ROUTE_PREFIX}/s1/refs/verify`, { body: drawingReference })
+assert.equal(verified.status, 200, verified.body)
+assert.deepEqual(verified.json.reference, drawingReference)
+assert.equal(verified.json.descriptor.packText, undefined)
+assert.deepEqual(verified.json.descriptor.missing, ['xref:AB1:XREF:外部参照未展开'])
+const wrongReferenceSession = await request('POST', `${DRAWING_ROUTE_PREFIX}/s1/refs/verify`, {
+  body: { ...drawingReference, session: 'other' },
+})
+assert.equal(wrongReferenceSession.status, 400)
+const wrongReferenceSource = await request('POST', `${DRAWING_ROUTE_PREFIX}/s1/refs/verify`, {
+  body: { ...drawingReference, source: { ...drawingReference.source, sha256: '0'.repeat(64) } },
+})
+assert.equal(wrongReferenceSource.status, 400)
+const wrongReferenceTarget = await request('POST', `${DRAWING_ROUTE_PREFIX}/s1/refs/verify`, {
+  body: { ...drawingReference, target: { type: 'dim', id: 'missing' } },
+})
+assert.equal(wrongReferenceTarget.status, 400)
+rejection = 401
+const unauthorizedReference = await request('POST', `${DRAWING_ROUTE_PREFIX}/s1/refs/verify`, { body: drawingReference })
+assert.equal(unauthorizedReference.status, 401)
+rejection = undefined
+console.log('ok - refs/verify enforces connection, session, source, pack identity and target checks')
 
 const oldJob = service.prepare('s1', 'cancel.dxf')
 await waitUntil(() => conversions === 3, '取消用例未进入转换')

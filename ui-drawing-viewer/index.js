@@ -2,6 +2,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { createDrawingPreviewService } from './lib/service.js'
+import { createDrawingReferenceVerifier } from './lib/reference.js'
 import { createDrawingRouteHandler, DRAWING_ROUTE_PREFIX } from './lib/routes.js'
 
 export const inject = ['webServer', 'previewFiles', 'draftConverter', 'connection']
@@ -13,11 +14,16 @@ export function apply(ctx) {
     resolve: (...args) => ctx.previewFiles.resolve(...args),
     draftConverter: ctx.draftConverter,
   })
+  const referenceVerifier = createDrawingReferenceVerifier({
+    snapshotSource: service.snapshotSource,
+    readPack: service.readPack,
+  })
+  service.verifyReference = referenceVerifier.verify
   ctx.provide('drawingPreview', service)
   ctx.effect(() => () => service.dispose())
   ctx.webServer.register({
     kind: 'prefix',
     path: DRAWING_ROUTE_PREFIX,
-    handler: createDrawingRouteHandler({ service, connection: ctx.connection }),
+    handler: createDrawingRouteHandler({ service, connection: ctx.connection, referenceVerifier }),
   })
 }

@@ -225,7 +225,11 @@ export function createDrawingPreviewService({
     read,
     async readPack(sessionId, identity, { sourceUri, name }) {
       const descriptor = await read(sessionId, identity, sourceUri, name)
-      return { packText: descriptor.packText, identity, descriptor }
+      const pack = JSON.parse(descriptor.packText)
+      const candidates = await draftConverter.identities(pack.source_sha256)
+      const match = candidates.find(candidate => candidate.identity === identity && candidate.channel === pack.origin?.channel)
+      if (!match) throw new Error('图纸包转换 identity 与真实六项身份不符')
+      return { packText: descriptor.packText, identity: match.identity, descriptor }
     },
     snapshotSource,
     deleteSession(sessionId) {
