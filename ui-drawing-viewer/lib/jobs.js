@@ -17,7 +17,7 @@ export function classifyConversionError(error) {
 export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb = 1024 } = {}) {
   const jobs = new Map(), pending = []
   const activeSessions = new Map()
-  let activeMemory = 0, pumping = false
+  let activeJobs = 0, activeMemory = 0, pumping = false
 
   const info = job => ({
     id: job.id, state: job.state, stage: job.stage,
@@ -28,26 +28,34 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
   })
   const canStart = job => {
     const sessionActive = activeSessions.get(job.sessionId)?.count ?? 0
-    return activeSessions.size < maxGlobal
+    return activeJobs < maxGlobal
       && sessionActive < maxPerSession
       && activeMemory + job.estimatedMemoryMb <= maxMemoryMb
   }
   async function runJob(job) {
     try {
-      job.result = await job.run({ signal: job.controller.signal })
-      job.state = 'ready'; job.stage = 'ready'; job.retryable = false
+      const result = await job.run({ signal: job.controller.signal })
+      if (job.cancelled || job.controller.signal.aborted) {
+        job.state = 'error'; job.stage = 'error'
+        job.error = classifyConversionError(new Error('取消'))
+        job.retryable = false
+      } else {
+        job.result = result
+        job.state = 'ready'; job.stage = 'ready'; job.retryable = false
+      }
     } catch (error) {
       job.state = 'error'; job.stage = 'error'
       job.error = job.cancelled ? classifyConversionError(new Error('取消')) : classifyConversionError(error)
       job.retryable = job.error.retryable
     } finally {
+      activeJobs--
+      activeMemory -= job.estimatedMemoryMb
       const session = activeSessions.get(job.sessionId)
       if (session) {
         session.count--
-        activeMemory -= job.estimatedMemoryMb
         if (session.count === 0) activeSessions.delete(job.sessionId)
       }
-      void pump()
+      pump()
     }
   }
   function pump() {
@@ -56,6 +64,7 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
     try {
       while (pending.length && canStart(pending[0])) {
         const job = pending.shift()
+        activeJobs++
         activeSessions.set(job.sessionId, { count: (activeSessions.get(job.sessionId)?.count ?? 0) + 1 })
         activeMemory += job.estimatedMemoryMb
         job.state = 'running'; job.stage = 'converting'
@@ -93,8 +102,13 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
       if (!job || ['ready', 'error'].includes(job.state)) return null
       job.cancelled = true
       job.controller.abort()
-      if (job.state === 'queued') pending.splice(pending.indexOf(job), 1)
-      job.state = 'error'; job.stage = 'error'; job.error = classifyConversionError(new Error('取消'))
+      if (job.state === 'queued') {
+        pending.splice(pending.indexOf(job), 1)
+        pump()
+      }
+      job.state = 'error'; job.stage = 'error'
+      job.error = classifyConversionError(new Error('取消'))
+      job.retryable = false
       return info(job)
     },
     retry(id, sessionId) {
@@ -103,6 +117,7 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
       return submit({ sessionId, estimatedMemoryMb: job.estimatedMemoryMb, run: job.run, retryOf: id })
     },
     deleteSession(sessionId) {
+      let removed = false
       for (const job of jobs.values()) {
         if (job.sessionId !== sessionId) continue
         if (!['ready', 'error'].includes(job.state)) {
@@ -111,8 +126,12 @@ export function createJobQueue({ maxGlobal = 2, maxPerSession = 1, maxMemoryMb =
         }
         jobs.delete(job.id)
         const index = pending.indexOf(job)
-        if (index >= 0) pending.splice(index, 1)
+        if (index >= 0) {
+          pending.splice(index, 1)
+          removed = true
+        }
       }
+      if (removed) pump()
     },
     get activeMemoryMb() { return activeMemory },
     get pendingCount() { return pending.length },
