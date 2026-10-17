@@ -24,15 +24,21 @@ function normalizeTarget(target) {
   return { type: 'entity', id: target.id === 0 ? 0 : target.id }
 }
 
-function boundedValue(value, depth = 0) {
+function boundedValue(value, depth = 0, truncations, path = 'value') {
   if (typeof value === 'number' && Number.isFinite(value) || typeof value === 'boolean') return value
-  if (typeof value === 'string') return value.slice(0, 1000)
+  if (typeof value === 'string') {
+    if (truncations && value.length > 1000) truncations.push({ path, originalLength: value.length, returnedLength: 1000 })
+    return value.slice(0, 1000)
+  }
   if (Array.isArray(value) && depth < 2) {
-    return value.slice(0, 32).map(item => boundedValue(item, depth + 1)).filter(item => item !== undefined)
+    if (truncations && value.length > 32) truncations.push({ path, originalLength: value.length, returnedLength: 32 })
+    return value.slice(0, 32).map(item => boundedValue(item, depth + 1, truncations, path)).filter(item => item !== undefined)
   }
   if (isRecord(value) && depth < 2) {
-    return Object.fromEntries(Object.entries(value).slice(0, 16)
-      .map(([key, item]) => [key, boundedValue(item, depth + 1)])
+    const entries = Object.entries(value)
+    if (truncations && entries.length > 16) truncations.push({ path, originalLength: entries.length, returnedLength: 16 })
+    return Object.fromEntries(entries.slice(0, 16)
+      .map(([key, item]) => [key, boundedValue(item, depth + 1, truncations, path)])
       .filter(([, item]) => item !== undefined))
   }
   return undefined
@@ -42,36 +48,46 @@ function defined(value) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined))
 }
 
+function withTruncation(content, truncations) {
+  if (truncations.length) content.truncated = { fields: truncations }
+  return content
+}
+
 function verifiedTargetContent(pack, target) {
+  const truncations = []
+  const bounded = (value, path) => boundedValue(value, 0, truncations, path)
   if (target.type === 'dim') {
     const dim = pack.dims.find(candidate => candidate.id === target.id)
-    return defined({
+    return withTruncation(defined({
       type: 'dim', id: dim.id,
-      displayText: boundedValue(dim.display_text),
-      measured: boundedValue(dim.measured),
-      tolerance: boundedValue(dim.tolerance),
-      dimlfac: boundedValue(dim.dimlfac),
-      inferred: boundedValue(dim.inferred),
-      ruleVersion: boundedValue(dim.rule_version),
-      entityIds: boundedValue(dim.entity_ids),
-    })
+      displayText: bounded(dim.display_text, 'displayText'),
+      measured: bounded(dim.measured, 'measured'),
+      tolerance: bounded(dim.tolerance, 'tolerance'),
+      dimlfac: bounded(dim.dimlfac, 'dimlfac'),
+      inferred: bounded(dim.inferred, 'inferred'),
+      ruleVersion: bounded(dim.rule_version, 'ruleVersion'),
+      entityIds: bounded(dim.entity_ids, 'entityIds'),
+    }), truncations)
   }
   const entity = pack.entities.find(candidate => candidate.id === target.id)
   const geometry = defined(Object.fromEntries([
     'a', 'b', 'c', 'r', 'verts', 'p', 'h', 'rot',
     'start', 'end', 'center', 'position', 'radius', 'start_angle', 'end_angle',
-    'rotation', 'height', 'closed', 'points', 'vertices',
-  ].map(key => [key, boundedValue(entity[key])]).filter(([, value]) => value !== undefined)))
-  return defined({
+    'rotation', 'height', 'closed', 'points', 'vertices', 'segs', 'cells',
+    'frame_segs', 'rows', 'boundary', 'generated_segs', 'pattern_name',
+    'style', 'attach', 'halign', 'valign', 'align_point', 'def_width',
+    'source_type', 'truncated',
+  ].map(key => [key, bounded(entity[key], `geometry.${key}`)]).filter(([, value]) => value !== undefined)))
+  return withTruncation(defined({
     type: 'entity', id: entity.id,
-    entityType: boundedValue(entity.type),
-    layer: boundedValue(entity.layer),
-    handle: boundedValue(entity.handle),
-    dimId: boundedValue(entity.dim_id),
-    text: boundedValue(entity.text),
-    nominal: boundedValue(entity.nominal),
+    entityType: bounded(entity.type, 'entityType'),
+    layer: bounded(entity.layer, 'layer'),
+    handle: bounded(entity.handle, 'handle'),
+    dimId: bounded(entity.dim_id, 'dimId'),
+    text: bounded(entity.text, 'text'),
+    nominal: bounded(entity.nominal, 'nominal'),
     geometry,
-  })
+  }), truncations)
 }
 
 function normalizeInput(sessionId, input) {

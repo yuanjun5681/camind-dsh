@@ -19,6 +19,15 @@ const PACK = {
     { id: 0, type: 'line', layer: '0', a: [0, 0], b: [10, 0] },
     { id: 7, type: 'text', layer: 'annotation', text: '备注', handle: 'AB1', p: [2, 3], h: 2.5, rot: 0 },
     { id: 8, type: 'circle', layer: '0', c: [5, 5], r: 10 },
+    { id: 9, type: 'polyline', layer: '0', closed: true, verts: Array.from({ length: 40 }, (_, i) => ({ x: i, y: 0 })) },
+    { id: 10, type: 'tolerance', layer: 'annotation',
+      cells: [
+        { p: [0, 0], h: 4, text: 'POSITION', rot: 0, style: 'Standard' },
+        { p: [0, 4], h: 4, text: '0.05', rot: 0, style: 'Standard' },
+        { p: [0, 8], h: 4, text: 'A', rot: 0, style: 'Standard' },
+      ],
+      frame_segs: [[0, 0, 20, 0]] },
+    { id: 11, type: 'text', layer: 'annotation', text: 'x'.repeat(1005), p: [0, 0], h: 2.5, rot: 0 },
   ],
 }
 const PACK_TEXT = JSON.stringify(PACK)
@@ -114,6 +123,20 @@ function makeHarness() {
   const circle = await verify(SESSION, makeInput({ type: 'entity', id: 8 }))
   assert.deepEqual(circle.targetContent.geometry, { c: [5, 5], r: 10 })
   console.log('ok - verified target content includes annotation text and converter-shaped geometry')
+}
+
+{
+  const { verify } = makeHarness()
+  const polyline = await verify(SESSION, makeInput({ type: 'entity', id: 9 }))
+  assert.equal(polyline.targetContent.geometry.verts.length, 32)
+  assert.deepEqual(polyline.targetContent.truncated.fields, [{ path: 'geometry.verts', originalLength: 40, returnedLength: 32 }])
+  const tolerance = await verify(SESSION, makeInput({ type: 'entity', id: 10 }))
+  assert.deepEqual(tolerance.targetContent.geometry.cells.map(cell => cell.text), ['POSITION', '0.05', 'A'])
+  assert.deepEqual(tolerance.targetContent.geometry.frame_segs, [[0, 0, 20, 0]])
+  const longText = await verify(SESSION, makeInput({ type: 'entity', id: 11 }))
+  assert.equal(longText.targetContent.text.length, 1000)
+  assert.deepEqual(longText.targetContent.truncated.fields, [{ path: 'text', originalLength: 1005, returnedLength: 1000 }])
+  console.log('ok - tolerance payloads and explicit truncation metadata are preserved')
 }
 
 {
