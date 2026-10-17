@@ -2,7 +2,21 @@
 
 `camind-ui-drawing-viewer` 用于在 dsh 预览席位中显示 camind-draft-pack v1。TypeScript client source
 经 ui-shell 已安装的 esbuild 生成 dsh module-loader 格式的 `lib/client.js`，不新增构建依赖。
-Host `drawingPreview` 服务按计划在 M2 引入。
+Host `drawingPreview` 服务把授权源快照、worker 转换、有界作业和六项身份缓存串为本地 provider。
+
+## Host 作业与取包
+
+路由统一半注册在 `/camind/api/drawings/sessions/<sid>`，并先经过官方
+`connection.requestRejection`：`POST /packs` 以 `{ "path": "<会话图纸引用>" }` 启动转换；
+`GET /packs/<jobId>/status` 查询状态；`POST /packs/<jobId>/cancel` 取消；
+`POST /packs/<jobId>/retry` 重试可重试失败；`GET /packs/<identity>?path=<会话图纸引用>`
+读取就绪 descriptor（含 `packText`）。取包必须带当前引用以重新授权并核对源 SHA，响应始终
+`Cache-Control: no-store`，`X-Pack-SHA256` 只声明实际 pack 字节指纹。派生缓存位于
+`$DSH_HOME/draft-previews/<session>/`，不写入会话工作区；交付或归档必须显式导出快照。
+
+```sh
+node ui-drawing-viewer/selfcheck-routes.mjs
+```
 
 ## 构建与检查
 

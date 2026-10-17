@@ -38,7 +38,12 @@ export function apply(ctx, config) {
 
   const draftConverter = {
     convertDwg(absPath, opts = {}) {
-      return convertDwgAsync(absPath, { dwg2dxfPath: dwg2dxfPath(), timeoutMs: opts.timeoutMs, converterVersion: release })
+      return convertDwgAsync(absPath, {
+        dwg2dxfPath: dwg2dxfPath(), timeoutMs: opts.timeoutMs, converterVersion: release,
+        signal: opts.signal,
+        maxOldGenerationSizeMb: opts.maxOldGenerationSizeMb,
+        maxYoungGenerationSizeMb: opts.maxYoungGenerationSizeMb,
+      })
     },
     convertDxf(text, meta = {}) {
       return convertDxfAsync(text, { ...meta, converterVersion: release })
