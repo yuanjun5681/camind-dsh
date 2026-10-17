@@ -70,6 +70,22 @@ function textAnchorOf(ent) {
     return ha === 1 ? "middle" : ha === 2 ? "end" : null;
 }
 
+// Search targets use the exact entity ids rendered below, never text/position matching.
+export function drawingTargetsFromPack(pack) {
+    const ids = new Set(pack.entities.map(e => e.id));
+    const targets = [];
+    for (const [index, dim] of (pack.dims ?? []).entries()) {
+        if (!dim.entity_ids?.length || !dim.entity_ids.every(id => ids.has(id))) continue;
+        targets.push({ id: `d:${index}`, kind: 'dimension', text: dim.display_text || '尺寸标注',
+            entity_ids: [...dim.entity_ids], source_id: dim.id, layer: '' });
+    }
+    for (const e of pack.entities) {
+        if (e.dim_id || !['text', 'mtext'].includes(e.type) || !e.text?.trim()) continue;
+        targets.push({ id: `t:${e.id}`, kind: 'text', text: e.text, entity_ids: [e.id], source_id: e.handle, layer: e.layer });
+    }
+    return targets;
+}
+
 /** pack → SVG 文本。viewBox = pack.bbox + 5% 边距(Y 翻转后)。 */
 export function svgFromPack(pack) {
     const [x0, y0, x1, y1] = pack.bbox;
@@ -92,7 +108,7 @@ export function svgFromPack(pack) {
             else dashes.push(length);
         }
         if (dashes.length % 2) dashes.push(0);
-        out.push(`<g${dashes.some(v => v > 0) ? ` stroke-dasharray="${dashes.join(' ')}"` : ''}>`);
+        out.push(`<g id="dwg-e-${e.id}"${dashes.some(v => v > 0) ? ` stroke-dasharray="${dashes.join(' ')}"` : ''}>`);
         switch (e.type) {
             case "line":
                 out.push(`<line x1="${e.a[0]}" y1="${-e.a[1]}" x2="${e.b[0]}" y2="${-e.b[1]}" stroke="${color}" stroke-width="${sw}"/>`);

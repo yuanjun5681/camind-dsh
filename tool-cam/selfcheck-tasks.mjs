@@ -25,7 +25,7 @@ try {
   const options = { home, resolve: async (sid, ref) => { assert.equal(sid, 'session-a'); if (!['prt', 'dwg'].includes(ref)) throw new Error('not owned'); return { file: ref === 'prt' ? prt : dwg } },
     machineRegistry: { snapshot: id => { assert.equal(id, 'machine-a'); return { id, version: 1, spindle: { rpm_min: 50, rpm_max: 12000 }, kinematics: { max_cut_feed_mm_min: 10000 } } } },
     geometry: async () => ({ state: 'ready', geometry_sha256: 'a'.repeat(64), manifest: { units: 'mm' } }), drawingReader: async () => drawing,
-    drawingPreview: async () => ({ svg: '<svg>updated display</svg>', preview_partial: false, note: '', preview_info: { status: 'ready', messages: [], omissions: ['辅助点'], diagnostics: '' } }) }
+    drawingPreview: async () => ({ svg: '<svg>updated display</svg>', targets: [{ id: 'd:0', kind: 'dimension', text: 'Ø10', entity_ids: [1, 2], source_id: 'Da1', layer: '' }], preview_sha256: 'c'.repeat(64), preview_partial: false, note: '', preview_info: { status: 'ready', messages: [], omissions: ['辅助点'], diagnostics: '' } }) }
   let service = createCamTasks(options), task = await service.read('session-a')
   assert.equal(task.version, 0); assert(task.blockers.length)
   await assert.rejects(service.collect('../escape', 0, { prt: 'prt' }))
@@ -36,6 +36,12 @@ try {
   const displays = await Promise.all([service.drawing('session-a', { preview: true }), service.drawing('session-a', { preview: true })])
   assert.equal(displays[0].svg, '<svg>updated display</svg>')
   assert.equal(displays[0].preview_info.status, 'ready', 'Display status must reach the drawing route')
+  const targetReference = { session_id: 'session-a', kind: 'drawing-target', source_sha256: task.inputs.dwg.sha256, preview_sha256: 'c'.repeat(64), ids: ['d:0'] }
+  const checkedTarget = await service.validateReference('session-a', { ...targetReference, entities: [{ text: 'forged' }] })
+  assert.equal(checkedTarget.entities[0].text, 'Ø10', 'Prompt facts must come from the current server target index')
+  await assert.rejects(service.validateReference('session-a', { ...targetReference, preview_sha256: 'old' }), /预览已更新/)
+  await assert.rejects(service.validateReference('session-a', { ...targetReference, ids: ['missing'] }), /不存在/)
+  await assert.rejects(service.validateReference('session-a', { ...targetReference, session_id: 'foreign' }), /归属/)
   assert.deepEqual(displays[0].annotations, frozenDrawing.annotations)
   assert.deepEqual(await service.drawing('session-a'), frozenDrawing, 'Display refresh must not rewrite frozen evidence')
   assert.deepEqual(await service.read('session-a'), beforeDisplay, 'Display refresh must not alter task version or authorization')

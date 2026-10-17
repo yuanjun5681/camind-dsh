@@ -14,6 +14,7 @@ const dc = ctx.draftConverter          // 或 inject 声明后 ctx.get('draftCon
 await dc.convertDwg('/abs/path/part.dwg') // worker 转换 → 契约 v1 包对象（失败抛错，err.checkErrors 带拒绝码）
 dc.convertDxf(dxfText, { sourceName }) // DXF 直读
 dc.toSvg(pack)                          // → SVG（保留原色与简单虚线，背景由画布提供）
+dc.preview(pack)                        // → { svg, targets }，同源文字/尺寸实体索引
 dc.check(pack, 'writer' | 'reader')    // packcheck 校验（码表与 CAM-Agent draft_packcheck.py 同源）
 dc.info()                              // { dwg2dxf, libredwg, converter } 版本面
 ```
@@ -39,7 +40,8 @@ lib/convert.js    转换主链（颜色判序/语义层 dims/self_check 对账/b
 lib/packcheck.js  契约 I1~I9 校验（writer/reader 两档）
 lib/dwg.js        dwg2dxf 子进程编排（超时/缺二进制响亮报错/临时文件即删）
 lib/worker.js     服务异步转换入口（子进程等待与 DXF 解析不阻塞宿主）
-lib/svg.js        图纸包 SVG 渲染（Y 翻转、文字旋转、简单虚线）
+lib/svg.js        图纸包 SVG 渲染（Y 翻转、文字旋转、简单虚线、dwg-e-<id> 实体标识）
+                 + 搜索目标索引（尺寸 entity_ids 整组 / 非尺寸文字单实体，不作模糊关联）
 lib/aci.js        ACI 1~255 → RGB 表（ezdxf DXF_DEFAULT_COLORS dump，与渲染端同源）
 ```
 

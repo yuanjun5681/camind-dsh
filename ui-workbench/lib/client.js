@@ -187,6 +187,14 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 .wb-drawing-svg[data-box="true"] { cursor:crosshair; }
 .wb-drawing-svg > svg { width:100%; height:100%; display:block; }
 .wb-drawing-selection { position:absolute; pointer-events:none; border:1px solid #91bfff; background:#91bfff22; }
+.wb-drawing-focus { position:absolute; pointer-events:none; border:1px solid #80d8ff; border-radius:3px; }
+.wb-drawing-svg [data-drawing-target] { cursor:pointer; }
+.wb-drawing-selected [stroke]:not([stroke="none"]) { stroke:#80d8ff!important; }
+.wb-drawing-selected text { fill:#fff!important; }
+.wb-current-target { position:fixed; z-index:101; display:flex; align-items:center; gap:8px; padding:6px 12px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); font-size:13px; }
+.wb-current-target > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wb-current-target button { flex:none; }
+.wb-drawing-context-clear { display:inline-flex!important; width:18px!important; height:18px!important; padding:0!important; margin-left:3px; vertical-align:middle; }
 .wb-drawing-annotations { display:flex; flex-direction:column; flex:none; width:300px; max-width:45%; min-height:0; padding:12px; border-left:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
 .wb-drawing-annotations header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
 .wb-drawing-annotations h3 { font-size:14px; margin:0; }
@@ -818,6 +826,15 @@ function AgentPanel({ sessionId }) {
   const [state, setState] = useState({ running: false, streaming: false, text: '', pending: false })
   const [dock, setDock] = useState(null), [stopping, setStopping] = useState(false), [error, setError] = useState('')
   const panel = React.useRef(null)
+  const [question, questionController] = useDrawingQuestion(sessionId)
+  const clearTarget = () => { try { questionController.clear(); if (!state.running) sessionInput(sessionId)?.focus() } catch (e) { sessionInput(sessionId)?.notify('error', e.message) } }
+  const chipHost = !state.running && question.hasChip ? document.querySelector('.wb-floating-composer [data-composer-chip="cam-drawing"]') : null
+  const clearChip = chipHost ? require('react-dom').createPortal(h(Tooltip, { label: '清除当前提问对象', delayMs: 400 },
+    h(Button, { className: 'wb-drawing-context-clear', 'aria-label': '清除当前提问对象', onPointerDown: e => e.preventDefault(), onClick: e => { e.preventDefault(); e.stopPropagation(); clearTarget() } }, '×')), chipHost) : null
+  const badge = dock && question.active && (state.running || !question.hasChip) && !state.pending ? h('div', { className: 'wb-current-target', style: { ...dock, bottom: dock.bottom + 58 }, role: 'status' },
+    h('span', { title: question.active.label }, `${state.running ? '下一次提问' : '针对'}：${question.active.label}`),
+    h(Button, { 'aria-label': '清除当前提问对象', onClick: clearTarget }, '×')) : null
+  const withBadge = node => require('react-dom').createPortal(h(React.Fragment, null, clearChip, badge, node), document.body)
   useEffect(() => {
     const sessions = applyCtx?.get('sessions')
     const source = applyCtx?.get('uiConversation')?.binding(sessionId).target('chat')
@@ -876,10 +893,10 @@ function AgentPanel({ sessionId }) {
     window.addEventListener('resize', measure); measure()
     return () => { observer.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); seat.classList.remove('wb-floating-composer', 'wb-composer-muted', 'wb-composer-confirmation'); previous === null ? seat.removeAttribute('style') : seat.setAttribute('style', previous) }
   }, [sessionId, state.running, state.pending])
-  if (!state.running || !dock || state.pending) return null // Keep official confirmation cards visible.
+  if (!state.running || !dock || state.pending) return badge || clearChip ? withBadge(null) : null // Keep official confirmation cards visible.
   const compact = applyCtx?.get('compactComposer')
-  if (compact) return require('react-dom').createPortal(compact.renderResponse({ state, dock }), document.body)
-  return require('react-dom').createPortal(h('section', { ref: panel, className: 'wb-agent', style: dock, 'aria-label': 'Agent 当前响应' },
+  if (compact) return withBadge(compact.renderResponse({ state, dock }))
+  return withBadge(h('section', { ref: panel, className: 'wb-agent', style: dock, 'aria-label': 'Agent 当前响应' },
     h('header', null, h('i', { className: 'wb-progress', 'aria-hidden': true }), h('strong', null, 'Agent'),
       h('span', { role: 'status' }, stopping ? '正在请求停止' : state.streaming ? '公开回复生成中' : '处理中'),
       h(Button, { disabled: stopping, title: '停止 Agent 当前响应；后台 NX 加工需另行停止', onClick: async () => {
@@ -888,7 +905,7 @@ function AgentPanel({ sessionId }) {
         catch (e) { setStopping(false); setError(e.message || '停止失败，请重试') }
       } }, '停止')),
     h('div', { className: 'wb-response', 'aria-live': 'polite', 'aria-atomic': false }, state.text ? h(MarkdownText, { text: state.text }) : '正在等待公开输出…'),
-    error && h('p', { className: 'wb-hint', role: 'alert' }, error)), document.body)
+    error && h('p', { className: 'wb-hint', role: 'alert' }, error)))
 }
 
 const TASK_API = '/camind/api/cam/tasks'
@@ -1047,21 +1064,26 @@ function drawingDisplayColor(value) {
   return `rgb(${result.join(', ')})`
 }
 function drawingAnnotationLabel(entity) {
+  if (entity.kind === 'text' || entity.kind === 'dimension') return entity.text?.trim() || '图纸文字'
   // shortcut: strip known inline display codes only; full MTEXT layout remains in the converter.
   const text = String(entity.text || '').replace(/\\[ACFHQTWacfhqtw][^;\\{}]*;/g, '').replace(/\\[LlOoKk]/g, '')
   return text.replace(/[{}]/g, '').trim() || `图纸标称 ${entity.nominal ?? '未读取'}`
 }
 function DrawingIcon({ name }) {
-  const paths = { minus: 'M5 12h14', plus: 'M5 12h14M12 5v14', fit: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M7 7h10v10H7z', box: 'M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M8 12h8M12 8v8', annotations: 'M5 3h14v18H5zM8 7h8M8 11h8M8 15h5', more: 'M5 12h.01M12 12h.01M19 12h.01' }
+  const paths = { minus: 'M5 12h14', plus: 'M5 12h14M12 5v14', fit: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M7 7h10v10H7z', box: 'M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M8 12h8M12 8v8', annotations: 'M16 16l5 5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0', more: 'M5 12h.01M12 12h.01M19 12h.01' }
   return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: paths[name] }))
 }
 function DrawingTool({ name, label, ...props }) {
   return h(Tooltip, { label, delayMs: 400 }, h(Button, { ...props, 'aria-label': label }, h(DrawingIcon, { name })))
 }
 // ViewBox always matches the viewport aspect ratio: screen/world transforms stay exact.
-function mountDrawingViewport(host, onBoxMode, onError) {
-  const svg = host.querySelector('svg'), selection = document.createElement('div')
+function mountDrawingViewport(host, onBoxMode, onError, onPick, onClear, targets = []) {
+  const svg = host.querySelector('svg'), selection = document.createElement('div'), frame = document.createElement('div')
   selection.className = 'wb-drawing-selection'; selection.hidden = true; host.append(selection)
+  frame.className = 'wb-drawing-focus'; frame.hidden = true; host.append(frame)
+  for (const target of targets) for (const id of target.entity_ids) {
+    if (Number.isSafeInteger(id)) { const node = svg.querySelector(`[id="dwg-e-${id}"]`); if (node) node.dataset.drawingTarget = target.id }
+  }
   const oldBackground = svg.querySelector(':scope > rect[fill="#23272e"]')
   if (oldBackground && oldBackground.getAttribute('x') === svg.getAttribute('viewBox')?.split(/\s+/)[0]) oldBackground.remove()
   for (const node of svg.querySelectorAll('[stroke-width]')) {
@@ -1069,7 +1091,13 @@ function mountDrawingViewport(host, onBoxMode, onError) {
     if (Number.isFinite(width) && width > 0) node.style.strokeWidth = `max(${width}px, var(--wb-min-stroke, 0px))`
   }
   const colors = [...svg.querySelectorAll('[fill],[stroke]')].flatMap(node => ['fill', 'stroke'].filter(attr => node.hasAttribute(attr) && node.getAttribute(attr) !== 'none').map(attr => ({ node, attr, raw: node.getAttribute(attr), readable: drawingDisplayColor(getComputedStyle(node)[attr]) })))
-  let bounds, drag, boxMode = false, fitted = false, size
+  let bounds, drag, boxMode = false, fitted = false, size, selectedTarget, selectedBox
+  const paintFrame = () => {
+    if (!selectedBox || !host.clientWidth || !host.clientHeight) { frame.hidden = true; return }
+    const matrix = svg.getScreenCTM(), r = host.getBoundingClientRect()
+    const a = new DOMPoint(selectedBox.x, selectedBox.y).matrixTransform(matrix), b = new DOMPoint(selectedBox.x + selectedBox.width, selectedBox.y + selectedBox.height).matrixTransform(matrix)
+    Object.assign(frame.style, { left: `${a.x - r.left - 6}px`, top: `${a.y - r.top - 6}px`, width: `${b.x - a.x + 12}px`, height: `${b.y - a.y + 12}px` }); frame.hidden = false
+  }
   const view = () => { const b = svg.viewBox.baseVal; return { x: b.x, y: b.y, width: b.width, height: b.height } }
   const set = b => {
     if (!Object.values(b).every(Number.isFinite) || b.width <= 0 || b.height <= 0) return
@@ -1077,17 +1105,18 @@ function mountDrawingViewport(host, onBoxMode, onError) {
     // Keep fine lines legible without converting world-space dash lengths into screen pixels.
     const matrix = svg.getScreenCTM(), scale = Math.hypot(matrix.a, matrix.b)
     if (scale > 0) svg.style.setProperty('--wb-min-stroke', `${.85 / scale}px`)
+    paintFrame()
   }
   const screenPoint = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; return p.matrixTransform(svg.getScreenCTM().inverse()) }
   const setBox = value => { boxMode = value; host.dataset.box = String(value); onBoxMode(value) }
   const finish = () => { const pointer = drag?.pointerId; drag = null; selection.hidden = true; host.dataset.dragging = 'false'; if (pointer !== undefined && host.hasPointerCapture(pointer)) host.releasePointerCapture(pointer) }
-  const fitBox = (b, safe = true) => {
+  const fitBox = (b, safe = true, minScale = 0) => {
     const r = host.getBoundingClientRect(); if (!r.width || !r.height) return
     const toolbar = host.parentElement.querySelector('.wb-drawing-controls')?.getBoundingClientRect()
     const top = safe ? Math.min(toolbar ? toolbar.bottom - r.top + 16 : 64, r.height / 3) : 16
     const composer = host.closest('.wb-main')?.querySelector('.wb-floating-composer')?.getBoundingClientRect()
     const bottom = safe ? Math.min(r.height / 3, Math.max(72, composer?.height + 32 || 0)) : 16
-    const scale = Math.max(Math.max(b.width, .001) / Math.max(1, r.width - 32), Math.max(b.height, .001) / Math.max(1, r.height - top - bottom)) * 1.04
+    const scale = Math.max(minScale, Math.max(b.width, .001) / Math.max(1, r.width - 32), Math.max(b.height, .001) / Math.max(1, r.height - top - bottom)) * 1.04
     const width = r.width * scale, height = r.height * scale
     set({ x: b.x + b.width / 2 - width / 2, y: b.y + b.height / 2 - (top + (r.height - top - bottom) / 2) * scale, width, height })
     fitted = true; size = { width: r.width, height: r.height }
@@ -1108,10 +1137,36 @@ function mountDrawingViewport(host, onBoxMode, onError) {
     factor = Math.max(min / b.width, Math.min(max / b.width, factor))
     set({ x: p.x - (p.x - b.x) * factor, y: p.y - (p.y - b.y) * factor, width: b.width * factor, height: b.height * factor })
   }
+  const highlight = (target, reveal = false) => {
+    selectedTarget = target; selectedBox = null; frame.hidden = true
+    for (const node of svg.querySelectorAll('.wb-drawing-selected')) node.classList.remove('wb-drawing-selected')
+    const r = host.getBoundingClientRect()
+    if (!target || !r.width || !r.height) return
+    if (!fitted) fit()
+    const nodes = target.entity_ids.map(id => Number.isSafeInteger(id) && svg.querySelector(`[id="dwg-e-${id}"]`)).filter(Boolean)
+    if (nodes.length !== target.entity_ids.length || !nodes.length) return
+    const inverse = svg.getCTM().inverse(), points = []
+    for (const node of nodes) {
+      const b = node.getBBox(), m = inverse.multiply(node.getCTM())
+      for (const [x, y] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) points.push(new DOMPoint(x, y).matrixTransform(m))
+      node.classList.add('wb-drawing-selected')
+    }
+    const x = Math.min(...points.map(p => p.x)), y = Math.min(...points.map(p => p.y))
+    selectedBox = { x, y, width: Math.max(...points.map(p => p.x)) - x, height: Math.max(...points.map(p => p.y)) - y }
+    paintFrame()
+    if (reveal) {
+      const f = frame.getBoundingClientRect()
+      if (f.left < r.left + 16 || f.right > r.right - 16 || f.top < r.top + 68 || f.bottom > r.bottom - 100 || f.width < 80 || f.height < 24) {
+        const fontHeight = Math.max(0, ...nodes.flatMap(node => [...node.querySelectorAll('text')].map(text => Number(text.getAttribute('font-size')) || 0)))
+        // A tiny dimension label should become readable, not fill the whole screen.
+        fitBox(selectedBox, true, Math.max(fontHeight / 22, Math.max(bounds.width, bounds.height) / 3000))
+      }
+    }
+  }
   const down = e => {
     if (![0, 1].includes(e.button) || drag || !fitted) return
     e.preventDefault(); host.focus({ preventScroll: true })
-    drag = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, point: screenPoint(e.clientX, e.clientY), b: view(), box: boxMode && e.button === 0 }
+    drag = { pointerId: e.pointerId, button: e.button, target: e.target.closest('[data-drawing-target]')?.dataset.drawingTarget, x: e.clientX, y: e.clientY, point: screenPoint(e.clientX, e.clientY), b: view(), box: boxMode && e.button === 0 }
     host.dataset.dragging = String(!drag.box); host.setPointerCapture(e.pointerId)
   }
   const move = e => {
@@ -1133,14 +1188,14 @@ function mountDrawingViewport(host, onBoxMode, onError) {
         fitBox({ x: Math.min(p.x, drag.point.x), y: Math.min(p.y, drag.point.y), width: Math.abs(p.x - drag.point.x), height: Math.abs(p.y - drag.point.y) }, false)
       }
       setBox(false)
-    }
+    } else if (drag.button === 0 && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4 && drag.target) onPick?.(drag.target)
     finish()
   }
   const cancel = () => { finish(); setBox(false) }
   const wheel = e => { e.preventDefault(); if (drag) return; const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? host.clientHeight : 1); zoom(Math.exp(Math.max(-.5, Math.min(.5, delta * (e.ctrlKey ? .01 : .002)))), e.clientX, e.clientY) }
   const key = e => {
     if (e.target !== host) return
-    if (e.key === 'Escape') { e.preventDefault(); cancel() }
+    if (e.key === 'Escape') { e.preventDefault(); const wasBox = boxMode; cancel(); if (!wasBox) onClear?.() }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
       if (['f', 'F', '+', '=', '-'].includes(e.key)) { e.preventDefault(); if (e.key.toLowerCase() === 'f') fit(); else zoom(e.key === '-' ? 1.3 : 1 / 1.3) }
       else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && fitted) {
@@ -1155,16 +1210,17 @@ function mountDrawingViewport(host, onBoxMode, onError) {
   for (const [name, handler] of Object.entries(events)) host.addEventListener(name, handler, { passive: false })
   const observer = new ResizeObserver(() => {
     const r = host.getBoundingClientRect(); if (!r.width || !r.height) return
-    if (!fitted) { fit(); return }
+    if (!fitted) { fit(); highlight(selectedTarget); return }
     if (size && (size.width !== r.width || size.height !== r.height)) {
       const b = view(), scale = b.width / size.width, width = r.width * scale, height = r.height * scale
       set({ x: b.x + (b.width - width) / 2, y: b.y + (b.height - height) / 2, width, height }); size = { width: r.width, height: r.height }
     }
+    highlight(selectedTarget)
   })
   observer.observe(host)
-  return { fit, zoom, box: () => { finish(); setBox(!boxMode); host.focus() },
+  return { fit, zoom, highlight, box: () => { finish(); setBox(!boxMode); host.focus() },
     colors: original => colors.forEach(({ node, attr, raw, readable }) => node.setAttribute(attr, original ? raw : readable)),
-    dispose: () => { finish(); observer.disconnect(); selection.remove(); for (const [name, handler] of Object.entries(events)) host.removeEventListener(name, handler) } }
+    dispose: () => { finish(); observer.disconnect(); selection.remove(); frame.remove(); for (const [name, handler] of Object.entries(events)) host.removeEventListener(name, handler) } }
 }
 function DrawingPreviewStatus({ info, showDetails }) {
   if (info.status === 'ready') return null
@@ -1186,23 +1242,48 @@ function DrawingConversionDetails({ info, detailsRef }) {
     info.diagnostics && h('details', null, h('summary', null, '诊断信息'), h('textarea', { readOnly: true, 'aria-label': '转换诊断信息，可复制', value: info.diagnostics })))
 }
 function DwgPane({ sessionId, record, statusTarget }) {
-  const [data, setData] = useState(null), [error, setError] = useState(''), [selected, setSelected] = useState(null), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
+  const [data, setData] = useState(null), [error, setError] = useState(''), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
+  const [question, questionController] = useDrawingQuestion(sessionId)
   const [annotationsOpen, setAnnotationsOpen] = useState(false), [boxMode, setBoxMode] = useState(false), [originalColors, setOriginalColors] = useState(false)
   const drawingHost = useRef(null), viewport = useRef(null), annotationsButton = useRef(null), drawingMenu = useRef(null), conversionDetails = useRef(null)
   useEffect(() => {
     if (!data || !drawingHost.current) return
-    const controls = mountDrawingViewport(drawingHost.current, setBoxMode, setError)
+    const controls = mountDrawingViewport(drawingHost.current, setBoxMode, setError, id => void selectTarget(id), () => { try { questionController.clear() } catch (e) { setError(e.message) } }, data.targets || [])
     viewport.current = controls
     return () => { controls.dispose(); viewport.current = null }
   }, [data])
   useEffect(() => { viewport.current?.colors(originalColors) }, [data, originalColors])
   useEffect(() => {
-    let alive = true; setData(null); setError(''); setSelected(null); setQuery(''); setLimit(100); setBoxMode(false)
+    if (!data) return
+    questionController.setVersion(data.source_sha256, data.preview_sha256)
+    const ref = question.active?.reference
+    viewport.current?.highlight(ref?.kind === 'drawing-target' && ref.preview_sha256 === data.preview_sha256 ? data.targets?.find(target => target.id === ref.ids[0]) : null)
+  }, [data, question.active?.ref])
+  useEffect(() => {
+    let alive = true; setData(null); setError(''); setQuery(''); setLimit(100); setBoxMode(false)
     void taskApi(sessionId, 'drawing').then(next => { if (alive) setData({ ...next, safeSvg: sanitizeDwgSvg(next.svg) }) }).catch(e => { if (alive) setError(e.message) })
     return () => { alive = false }
   }, [sessionId, record.task?.inputs.dwg?.sha256])
   if (!data) return h('div', { className: 'wb-empty', role: 'status' }, error || '正在读取图纸…')
-  const filtered = data.annotations.filter(entity => `${entity.id} ${entity.text} ${drawingAnnotationLabel(entity)} ${entity.layer}`.toLowerCase().includes(query.toLowerCase()))
+  const items = data.preview_sha256 ? data.targets || [] : data.annotations
+  const filtered = query.trim() ? items.filter(entity => `${drawingAnnotationLabel(entity)} ${entity.layer || ''}`.toLowerCase().includes(query.trim().toLowerCase())) : []
+  const selected = question.active?.reference.entities?.[0]
+  const selectTarget = async id => {
+    const target = items.find(item => item.id === id)
+    if (!target) return
+    const reference = { kind: data.preview_sha256 ? 'drawing-target' : 'drawing', source_sha256: data.source_sha256, ids: [id], ...(data.preview_sha256 ? { preview_sha256: data.preview_sha256 } : {}) }
+    const focusOrigin = document.activeElement
+    let preserveFocus
+    try {
+      if (await questionController.select(reference, () => {
+        if (document.activeElement !== focusOrigin) preserveFocus = document.activeElement
+        return !preserveFocus
+      })) {
+        preserveFocus?.focus({ preventScroll: true })
+        setError(''); viewport.current?.highlight(data.preview_sha256 ? target : null, true)
+      }
+    } catch (e) { setError(e.message) }
+  }
   const closeAnnotations = () => { setAnnotationsOpen(false); annotationsButton.current?.querySelector('button')?.focus() }
   const info = data.preview_info || { status: data.preview_partial ? 'partial' : 'ready',
     messages: data.preview_partial ? ['部分图纸内容可能未显示，请打开原图核对。'] : [], omissions: [], diagnostics: data.preview_details || '' }
@@ -1216,7 +1297,7 @@ function DwgPane({ sessionId, record, statusTarget }) {
           h(DrawingTool, { name: 'plus', label: '放大图纸', onClick: () => viewport.current?.zoom(1 / 1.3) }),
           h(DrawingTool, { name: 'fit', label: '适配全图 (F)', onClick: () => viewport.current?.fit() }),
           h(DrawingTool, { name: 'box', label: '框选放大', 'aria-pressed': boxMode, onClick: () => viewport.current?.box() }),
-          h('span', { ref: annotationsButton, tabIndex: -1 }, h(DrawingTool, { name: 'annotations', label: '图纸标注', 'aria-pressed': annotationsOpen, onClick: () => setAnnotationsOpen(old => !old) })),
+          h('span', { ref: annotationsButton, tabIndex: -1 }, h(DrawingTool, { name: 'annotations', label: '查找图纸文字', 'aria-pressed': annotationsOpen, onClick: () => setAnnotationsOpen(old => !old) })),
           h('details', { ref: drawingMenu, onKeyDown: e => { if (e.key === 'Escape') { e.preventDefault(); e.currentTarget.open = false; e.currentTarget.querySelector('summary').focus() } } },
             h('summary', { 'aria-label': '更多图纸选项', title: '更多图纸选项' }, h(DrawingIcon, { name: 'more' })),
             h('div', { className: 'wb-drawing-menu' }, h('label', null, h('input', { type: 'checkbox', checked: originalColors, onChange: e => setOriginalColors(e.target.checked) }), '原始配色'),
@@ -1224,25 +1305,127 @@ function DwgPane({ sessionId, record, statusTarget }) {
               h(DrawingConversionDetails, { info, detailsRef: conversionDetails }))))),
       h('div', { ref: drawingHost, className: 'wb-drawing-svg', tabIndex: 0, role: 'region', 'aria-label': '二维图纸画布，拖动平移，滚轮缩放，F 适配全图', dangerouslySetInnerHTML: { __html: data.safeSvg } }),
       error && h('p', { className: 'wb-notice', role: 'alert' }, error)),
-    annotationsOpen && h('aside', { className: 'wb-drawing-annotations', 'aria-label': '图纸标注', onKeyDown: e => { if (e.key === 'Escape') { e.stopPropagation(); closeAnnotations() } } },
-      h('header', null, h('h3', null, '图纸标注'), h(Button, { 'aria-label': '收起图纸标注', onClick: closeAnnotations }, '收起')),
-      h('input', { 'aria-label': '搜索图纸标注', placeholder: '搜索标注文字', value: query, onChange: e => { setQuery(e.target.value); setLimit(100) } }),
-      h('p', { role: 'status' }, `共 ${filtered.length} 条标注`),
-      h('div', { className: 'wb-drawing-annotation-list' }, filtered.slice(0, limit).map(entity => h('button', { key: entity.id, 'aria-pressed': selected?.id === entity.id, onClick: () => setSelected(entity) }, drawingAnnotationLabel(entity), h('small', null, `图层 ${entity.layer || '未命名'} · ${entity.id}`))),
-        !filtered.length && h('p', null, '没有匹配的标注'), filtered.length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多标注')),
+    annotationsOpen && h('aside', { className: 'wb-drawing-annotations', 'aria-label': '查找图纸文字', onKeyDown: e => { if (e.key === 'Escape') { e.stopPropagation(); closeAnnotations() } } },
+      h('header', null, h('h3', null, '查找图纸文字'), h(Button, { 'aria-label': '收起图纸文字搜索', onClick: closeAnnotations }, '收起')),
+      h('input', { 'aria-label': '搜索图纸文字', placeholder: '搜索文字、尺寸或技术要求', value: query, onChange: e => { setQuery(e.target.value); setLimit(100) } }),
+      h('p', { role: 'status' }, query.trim() ? `找到 ${filtered.length} 项` : '输入文字、尺寸或技术要求查找'),
+      h('div', { className: 'wb-drawing-annotation-list', onKeyDown: e => {
+        if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return
+        const buttons = [...e.currentTarget.querySelectorAll('button')], index = buttons.indexOf(document.activeElement)
+        e.preventDefault(); buttons[Math.max(0, Math.min(buttons.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus()
+      } }, filtered.slice(0, limit).map(entity => h('button', { key: entity.id, 'data-drawing-result': entity.id, 'aria-pressed': selected?.id === entity.id, onClick: () => void selectTarget(entity.id) }, drawingAnnotationLabel(entity), h('small', null, data.preview_sha256 ? entity.kind === 'dimension' ? '尺寸标注' : '图纸文字' : '仅引用文字，暂不支持定位'))),
+        query.trim() && !filtered.length && h('p', null, '没有匹配的内容'), filtered.length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多结果')),
       selected && h('section', { className: 'wb-drawing-annotation-detail' }, h('strong', null, drawingAnnotationLabel(selected)),
-        h('details', null, h('summary', null, '查看标注原文'), h('p', null, selected.text || `图纸标称 ${selected.nominal ?? '未读取'}`), h('small', null, `句柄 ${selected.id} · ${selected.type}`)),
-        h(Button, { onClick: () => void addTaskObjectToDraft(sessionId, { kind: 'drawing', source_sha256: data.source_sha256, ids: [selected.id] }, `图纸 ${selected.id}`).catch(e => setError(e.message)) }, '添加标注到提问'))))
+        h('details', null, h('summary', null, '查看标注原文'), h('p', null, selected.text || `图纸标称 ${selected.nominal ?? '未读取'}`), h('small', null, `来源 ${selected.source_id || selected.id} · ${selected.kind || selected.type}`)),
+        h('p', null, '已设为当前提问对象，可直接输入问题。'))))
 }
-async function addTaskObjectToDraft(sessionId, reference, label) {
-  const checked = await taskApi(sessionId, 'reference', { reference: { ...reference, session_id: sessionId } })
-  const input = sessionInput(sessionId), state = input?.state.getSnapshot()
-  if (!state || state.phase !== 'plain') throw new Error('原生输入框未就绪或正在提交')
-  const ref = JSON.stringify(checked)
-  if (state.occurrences.some(item => item.source === 'cam-object' && item.ref === ref)) { input.focus(); return }
-  const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
-  if (!input.insertReference({ source: 'cam-object', ref, label, appearance: 'file', clipboardText: `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]` }, { start: end, end, draftRev: state.draftRev })) throw new Error('草稿已经变更，请重新添加引用')
-  input.focus()
+const drawingQuestions = new Map()
+const DRAWING_QUESTION_SOURCE = 'cam-drawing'
+function drawingQuestionSpan(state, occurrence) {
+  const before = state.occurrences.filter(item => item.offset < occurrence.offset)
+  const start = occurrence.offset - before.reduce((sum, item) => sum + item.length - 1, 0)
+  return { start, end: start + 1, draftRev: state.draftRev }
+}
+// One owned native chip is the send snapshot; retained selection never rewrites a submitted request.
+function createDrawingQuestionController({ input, consume, validate, isCurrent, admitted }) {
+  let snapshot = { active: null, hasChip: false }, sequence = 0, editing = false, handoff = false, disposed = false, version = null, invalidNotice = false
+  const listeners = new Set()
+  const publish = next => { snapshot = next; for (const listener of listeners) listener() }
+  const owned = state => state.occurrences.filter(item => item.source === DRAWING_QUESTION_SOURCE)
+  const stale = ref => version && (ref.source_sha256 !== version.source || (ref.kind === 'drawing-target' && version.preview && ref.preview_sha256 !== version.preview))
+  const invalidate = () => { handoff = false; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
+  const insert = active => {
+    const state = input.state.getSnapshot(), chips = owned(state)
+    if (state.phase !== 'plain' || chips.length > 1) return false
+    const span = chips[0] ? drawingQuestionSpan(state, chips[0]) : { start: 0, end: 0, draftRev: state.draftRev }
+    editing = true
+    try { return input.insertReference({ source: DRAWING_QUESTION_SOURCE, ref: active.ref, label: `针对：${active.label}`, appearance: 'file', clipboardText: `[CAM_OBJECT]\n${active.ref}\n[/CAM_OBJECT]` }, span) }
+    finally { editing = false }
+  }
+  const fromChip = chip => { try { const reference = JSON.parse(chip.ref); return { ref: chip.ref, reference, label: reference.entities?.[0]?.text || chip.label.replace(/^针对：/, '') } } catch { return null } }
+  const sync = () => {
+    if (editing || disposed) return
+    const state = input.state.getSnapshot(), chip = owned(state)[0]
+    if (chip) {
+      if (!snapshot.hasChip) handoff = false
+      const active = fromChip(chip)
+      if (active && stale(active.reference)) {
+        if (state.phase === 'plain') {
+          editing = true
+          try { if (consume(drawingQuestionSpan(state, chip))) invalidate() }
+          finally { editing = false }
+        }
+        return
+      }
+      if (snapshot.active?.ref !== active?.ref || !snapshot.hasChip) publish({ active, hasChip: true })
+    } else if (snapshot.hasChip) {
+      if (!handoff) { sequence++; publish({ active: null, hasChip: false }) }
+      else publish({ active: snapshot.active, hasChip: false })
+    }
+    if (!chip && snapshot.active && stale(snapshot.active.reference)) { invalidate(); return }
+    // A new draft can start before admission settles. Only attach once it contains new user work.
+    if (handoff && snapshot.active && !snapshot.hasChip && state.phase === 'plain' && (state.draft.trim() || state.attachmentIds?.length)) {
+      if (insert(snapshot.active)) { handoff = false; sync() }
+    }
+  }
+  const unsubscribe = input.state.subscribe(sync)
+  let lastTurn = admitted?.getSnapshot()?.legacy?.nodes?.findLast(node => node.kind === 'user')?.turn
+  const unsubscribeAdmitted = admitted?.subscribe(() => {
+    if (!isCurrent()) return
+    let turn
+    try { turn = admitted.getSnapshot()?.legacy?.nodes?.findLast(node => node.kind === 'user')?.turn }
+    catch { return } // The upstream session reference can be released during navigation.
+    if (turn === undefined || turn === lastTurn) return
+    lastTurn = turn
+    if (handoff && snapshot.active && !snapshot.hasChip && insert(snapshot.active)) { handoff = false; sync() }
+  })
+  sync()
+  return {
+    input, admitted,
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot,
+    async select(reference, shouldFocus = () => true) {
+      const ticket = ++sequence, checked = await validate(reference)
+      if (disposed || ticket !== sequence || !isCurrent()) return false
+      if (stale(checked)) throw new Error('图纸或预览已更新，请重新选择提问对象')
+      const active = { reference: checked, ref: JSON.stringify(checked), label: checked.entities?.[0]?.text || '图纸文字' }
+      if (snapshot.active?.ref === active.ref && snapshot.hasChip) { if (shouldFocus()) input.focus(); return true }
+      const focus = shouldFocus()
+      if (!insert(active)) throw new Error('输入框正在提交或引用无法替换，请稍后重选')
+      handoff = false; publish({ active, hasChip: true })
+      if (invalidNotice) { input.notify?.('info', ''); invalidNotice = false }
+      if (focus) input.focus(); return true
+    },
+    clear() {
+      sequence++
+      const state = input.state.getSnapshot(), chips = owned(state)
+      if (chips.length > 1 || (chips[0] && (state.phase !== 'plain' || !consume(drawingQuestionSpan(state, chips[0]))))) throw new Error('当前引用暂时无法清除，请稍后重试')
+      handoff = false; publish({ active: null, hasChip: false })
+    },
+    beginSend(ref) { if (snapshot.active?.ref === ref) handoff = true },
+    setVersion(source, preview) {
+      if (version?.source !== source || version?.preview !== preview) { sequence++; version = { source, preview }; sync() }
+      if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
+    },
+    dispose() { disposed = true; sequence++; unsubscribe(); unsubscribeAdmitted?.(); listeners.clear() },
+  }
+}
+function drawingQuestion(sessionId) {
+  const scope = applyCtx.get('sessions').scope(sessionId), input = sessionInput(sessionId), admitted = applyCtx.get('uiConversation').binding(sessionId).target('chat')
+  const previous = drawingQuestions.get(sessionId)
+  if (previous && (previous.input !== input || previous.admitted !== admitted)) { previous.dispose(); drawingQuestions.delete(sessionId) }
+  if (!drawingQuestions.has(sessionId)) {
+    drawingQuestions.set(sessionId, createDrawingQuestionController({ input,
+      consume: span => scope.bail('slash/input-consume-token', { guard: { kind: 'span', span } }) === true,
+      validate: reference => taskApi(sessionId, 'reference', { reference: { ...reference, session_id: sessionId } }),
+      isCurrent: () => applyCtx.get('sidebarRight').mounted.getSnapshot() === sessionId,
+      admitted,
+    }))
+  }
+  return drawingQuestions.get(sessionId)
+}
+function useDrawingQuestion(sessionId) {
+  const controller = drawingQuestion(sessionId)
+  return [React.useSyncExternalStore(controller.subscribe, controller.getSnapshot), controller]
 }
 function OperationTable({ task }) {
   const headers = ['顺序 / 工序', '工位', '刀具 / 刀位', '转速 rpm', '进给 mm/min', '前置工序']
@@ -1432,6 +1615,8 @@ function WorkbenchView({ sessionId }) {
   const [heading, setHeading] = useState(null)
   const preference = useRef(readBenchPreference(sessionId)), loaded = useRef('')
   const record = useFormalTask(sessionId), task = record.task
+  const [, questionController] = useDrawingQuestion(sessionId)
+  useEffect(() => { if (task) questionController.setVersion(task.inputs.dwg?.sha256) }, [task?.inputs.dwg?.sha256])
   const Preview = previewService()?.View
   const running = React.useSyncExternalStore(listener => applyCtx.get('sessions').list.subscribe(listener), () => applyCtx.get('sessions').list.getSnapshot().byId[sessionId]?.running === true)
   useEffect(() => { preference.current = readBenchPreference(sessionId); loaded.current = ''; setMode(preference.current.mode || 'model'); setPanel(preference.current.panel || ''); setWizard(false) }, [sessionId])
@@ -1568,14 +1753,15 @@ function apply(ctx) {
     },
   }), 'ui-workbench: native selection references')
 
-  ctx.effect(() => ctx.get('inputTriggers').registerSource({
-    trigger: '@', name: 'cam-object', candidates: async () => [], onPick: () => undefined,
+  for (const source of ['cam-object', DRAWING_QUESTION_SOURCE]) ctx.effect(() => ctx.get('inputTriggers').registerSource({
+    trigger: '@', name: source, candidates: async () => [], onPick: () => undefined,
     codec: {
       clipboardText: ref => `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]`,
       async serialize(ref, signal) {
         const reference = JSON.parse(ref)
         const check = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session_id) throw new Error('加工对象引用不属于当前会话') }
         check()
+        if (source === DRAWING_QUESTION_SOURCE) drawingQuestion(reference.session_id).beginSend(ref)
         const response = await fetch(`${TASK_API}/${encodeURIComponent(reference.session_id)}/reference`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reference }), signal })
         const body = await response.json()
         if (!response.ok || !body.ok) throw new Error(body.message || '加工对象引用核验失败')
@@ -1585,6 +1771,7 @@ function apply(ctx) {
     },
     openReference({ sessionId }, { ref }) { if (JSON.parse(ref).session_id !== sessionId) return false; openView(sessionId, VIEW_ID); return true },
   }), 'ui-workbench: native task references')
+  ctx.effect(() => () => { for (const controller of drawingQuestions.values()) controller.dispose(); drawingQuestions.clear() }, 'ui-workbench: drawing questions')
 
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view', id: VIEW_ID, order: -10, label: () => '工作台',

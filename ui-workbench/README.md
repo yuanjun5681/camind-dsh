@@ -27,9 +27,11 @@
 
 ## CAD 图纸交互
 
-- 整块深色画布与左上浮动图标工具条：缩小、放大、适配全图、框选放大、图纸标注和更多选项。默认提亮低对比度颜色，“原始配色”可随时核对，不改源文件。
+- 整块深色画布与左上浮动图标工具条：缩小、放大、适配全图、框选放大、查找图纸文字和更多选项。默认提亮低对比度颜色，“原始配色”可随时核对，不改源文件。
 - 左键/中键拖动平移，滚轮以指针为锚点缩放；画布聚焦后 F 适配、+/− 缩放，Esc 取消框选，中键双击适配。框选完成回到平移。画布不选择文字，标注原文仍可复制。
-- 标注栏默认收起，按需搜索/查看原文/添加到提问，不假定已建立图纸实体定位映射。同源 2D/3D 切换和资料栏开合保留查看位置；适配考虑工具条与浮动输入遮挡。
+- 搜索栏默认收起，空查询不铺开列表；搜索与 SVG 同用图纸包目标索引。正式尺寸按实际 entity_ids 整组高亮、框显，普通文字仅定位自身，不按相同文字或距离猜关联。缺可靠映射的兼容预览只支持引用冻结文字并明确标注不可定位。
+- 点击图纸文字/尺寸或按 Enter 确认搜索结果，同时高亮与设置一个“针对：…”原生提问引用；选择另一项只替换此引用，不改问题、手动引用或附件，不自动发送。列表方向键仅浏览；拖动不选中。原生引用 × 或画布 Esc 清除选择。请求序列化时冻结引用并校验会话、源件 SHA、预览版本与目标身份；旧请求不随新选择变化。发送后保留对象以便连续追问；序列化失败由原生输入恢复草稿，新选择不会被旧请求回写。
+- 同源 2D/3D 切换和资料栏开合保留提问对象与查看位置；源件/预览版本更新时清除旧对象、保留文字。适配考虑工具条与浮动输入遮挡。
 - 旧任务的当前预览由正式输入快照重新生成，进程内最多缓存四张；冻结的标注缓存、审核指纹和授权记录不被显示刷新改写。
 - 标注块内 Defpoints 辅助点作为正常省略，不产生警告；统计在“更多 → 转换详情”，内部错误码仅在进一步展开的可复制诊断中显示。真实缺失/兼容回退在文件名旁显示紧凑状态，点击查看影响与核对建议，不再占据画布工具条旁空间。
 
@@ -37,6 +39,7 @@
 
 ```sh
 node ui-workbench/selfcheck.mjs
+node ui-workbench/selfcheck-drawing-question.mjs
 node ui-compact-composer/selfcheck.mjs
 node tool-cam/selfcheck-tasks.mjs
 node tool-cam/selfcheck-drawing-preview.mjs
@@ -56,6 +59,8 @@ CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-workbench/acceptance-des
 CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-workbench/acceptance-drawing-desktop.mjs
 # 同一桌面中临时替换预览响应，验证真实缺失/兼容回退的标题提示；结束恢复真实响应：
 CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-workbench/acceptance-drawing-status-desktop.mjs
+# 空草稿/已有 DWG；原生选择、替换与序列化验收，主动拒绝发送以保证不调用模型：
+CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-workbench/acceptance-drawing-question-desktop.mjs
 ```
 
 验收覆盖标签排序、旧右栏迁移、缓存模型、侧边资料、输入/交付/加工、回对话不被轮询抢页、原生输入可见及选面引用保留草稿。必须使用空草稿，不发送提问。

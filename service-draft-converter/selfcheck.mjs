@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import { svgFromPack } from './lib/svg.js';
+import { svgFromPack, drawingTargetsFromPack } from './lib/svg.js';
 import { convertDwgAsync } from './lib/worker.js';
 import { convertDxfText } from "./lib/convert.js";
 import { dwgToDxfText, libredwgVersion } from "./lib/dwg.js";
@@ -179,6 +179,20 @@ ok("出身/单位");
     assert(svg.includes('stroke-dasharray="3 1"'));
     assert(!svg.includes('<rect'));
     ok('SVG 文字旋转、转义、虚线与背景边界');
+}
+
+// Search and rendered geometry share ids; identical text is never merged or matched by proximity.
+{
+    const targets = drawingTargetsFromPack(pack), dimension = targets.find(t => t.kind === 'dimension');
+    assert.deepEqual(dimension.entity_ids, pack.dims[0].entity_ids);
+    assert.equal(targets.filter(t => t.kind === 'dimension').length, pack.dims.length);
+    const svg = svgFromPack(pack);
+    for (const target of targets) for (const id of target.entity_ids) assert(svg.includes(`id="dwg-e-${id}"`));
+    const duplicates = drawingTargetsFromPack({ ...pack, dims: [], entities: [
+        { id: 1, type: 'text', text: '85', handle: 'a' }, { id: 2, type: 'text', text: '85', handle: 'b' },
+    ] });
+    assert.equal(duplicates.length, 2); assert.notEqual(duplicates[0].id, duplicates[1].id);
+    ok('同源目标索引、尺寸分组和重复文字隔离');
 }
 
 // A slow CLI runs in a worker: the host heartbeat must keep progressing.

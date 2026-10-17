@@ -227,8 +227,8 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
           previews.set(key, pending)
           pending.catch(() => { if (previews.get(key) === pending) previews.delete(key) })
         }
-        const { svg, preview_partial, note, preview_info } = await previews.get(key)
-        display = { svg, preview_partial, note, preview_info }
+        const { svg, targets, preview_sha256, preview_partial, note, preview_info } = await previews.get(key)
+        display = { svg, targets, preview_sha256, preview_partial, note, preview_info }
       }
       return { ...JSON.parse(encoded), ...display, source_sha256: task.inputs.dwg.sha256 }
     },
@@ -419,6 +419,15 @@ export function createCamTasks({ home, resolve, machineRegistry, geometry, drawi
       if (reference?.session_id !== sid || !Array.isArray(reference.ids) || reference.ids.length < 1 || reference.ids.length > 100 || reference.ids.some(id => typeof id !== 'string')) fail('对象引用归属/标识不合法')
       const task = await read(sid)
       await sourcesFresh(task)
+      if (reference.kind === 'drawing-target') {
+        if (reference.source_sha256 !== task.inputs.dwg?.sha256) fail('图纸已换版，请重新选择')
+        const data = await this.drawing(sid, { preview: true })
+        if (!data.preview_sha256 || reference.preview_sha256 !== data.preview_sha256) fail('图纸预览已更新，请重新选择')
+        const targets = reference.ids.map(id => data.targets?.find(target => target.id === id))
+        if (targets.some(target => !target)) fail('图纸对象不存在或不支持定位，请重新选择')
+        return { kind: 'drawing-target', session_id: sid, source_sha256: data.source_sha256, preview_sha256: data.preview_sha256,
+          ids: [...reference.ids], entities: targets.map(({ id, kind, text, source_id, layer }) => ({ id, kind, text, source_id, layer })) }
+      }
       if (reference.kind === 'drawing') {
         if (reference.source_sha256 !== task.inputs.dwg?.sha256) fail('图纸已换版，请重新选择标注')
         const data = await this.drawing(sid)

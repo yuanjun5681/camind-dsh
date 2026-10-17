@@ -1,6 +1,7 @@
 // Local, bounded DWG evidence decoding and independent display preview. Neither rewrites the source or provides precision measurement.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 const exec = promisify(execFile)
 const MAX = 32 * 1024 * 1024
@@ -53,12 +54,14 @@ export async function readDrawingPreview(file, { converter } = {}) {
   let diagnostics = '未启用图纸转换服务'
   if (converter) {
     try {
-      const pack = await converter.convertDwg(file), svg = converter.toSvg(pack), info = previewInfo(pack)
-      return { svg, preview_partial: info.status !== 'ready', note: info.status === 'partial' ? '预览有缺失' : '', preview_info: info }
+      const pack = await converter.convertDwg(file), info = previewInfo(pack)
+      const { svg, targets } = converter.preview ? converter.preview(pack) : { svg: converter.toSvg(pack), targets: [] }
+      const preview_sha256 = createHash('sha256').update(JSON.stringify({ svg, targets })).digest('hex')
+      return { svg, targets, preview_sha256, preview_partial: info.status !== 'ready', note: info.status === 'partial' ? '预览有缺失' : '', preview_info: info }
     } catch (error) { diagnostics = String(error.message).slice(0, 500) }
   }
   const svg = await exec('dwg2SVG', [file], { timeout: 30000, maxBuffer: 16 * 1024 * 1024 })
   if (!svg.stdout.includes('<svg')) throw new Error('转换未返回 SVG')
-  return { svg: svg.stdout, preview_partial: true, note: '已使用兼容预览',
+  return { svg: svg.stdout, targets: [], preview_sha256: null, preview_partial: true, note: '已使用兼容预览',
     preview_info: { status: 'fallback', messages: ['部分图纸内容可能未显示，请打开原图核对。'], omissions: [], diagnostics } }
 }
