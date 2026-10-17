@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { snapshotDrawingSource, decodeDxfSnapshot } from './lib/source.js'
+import { snapshotDrawingSource, decodeDxfSnapshot, MAX_DRAWING_SOURCE_BYTES } from './lib/source.js'
 
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'drawing-source-check-'))
 try {
@@ -39,6 +39,10 @@ try {
   assert.throws(() => decodeDxfSnapshot({ name: 'part.txt', bytes: Buffer.from(text) }), /不支持的图纸载体/)
   await fs.writeFile(original, Buffer.from([0xC3, 0x28]))
   assert.throws(() => decodeDxfSnapshot({ name: 'bad.dxf', bytes: Buffer.from([0xC3, 0x28]) }), /utf-8|UTF/)
+  assert.throws(() => decodeDxfSnapshot({ name: 'bomless-utf16.dxf', bytes: Buffer.from(text, 'utf16le') }), /无 BOM|二进制/)
+  assert.throws(() => decodeDxfSnapshot({ name: 'binary.dxf', bytes: Buffer.from([1, 2, 3, 4]) }), /BOM|二进制|结构/)
+  await fs.truncate(original, MAX_DRAWING_SOURCE_BYTES + 1)
+  await assert.rejects(snapshotDrawingSource({ sessionId: 's1', requested: 'huge.dxf', resolve: async () => ({ file: original }) }), /超过 128 MiB/)
   await assert.rejects(
     snapshotDrawingSource({ sessionId: 's2', requested: 'secret.dxf', resolve: async () => { throw new Error('forbidden') } }),
     /forbidden/,
