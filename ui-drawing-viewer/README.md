@@ -16,7 +16,7 @@ Host `drawingPreview` 服务把授权源快照、worker 转换、有界作业和
 
 `POST /refs/verify` 接收 DrawingReference v1（也可包在 `{ "reference": ... }` 中）。返回前强制核验
 URL 会话、授权源快照 SHA、实际 pack 字节 SHA、六项转换身份、pack 内源 SHA 和 dim/entity 目标存在性；
-成功只返回规范化引用与不含 `packText` 的 descriptor。缺少可信来源的内容模式只允许查看，不能签发引用。
+成功返回规范化引用、不含 `packText` 的 descriptor，以及从实际 pack 提取的有界 `targetContent`（尺寸显示值/公差、文字或有界几何）。缺少可信来源的内容模式只允许查看，不能签发引用。
 
 ```sh
 node ui-drawing-viewer/selfcheck-routes.mjs

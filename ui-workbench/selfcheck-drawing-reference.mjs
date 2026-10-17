@@ -17,9 +17,9 @@ assert.deepEqual(drawingReferences({
 }, [reference.target]), [reference], 'trusted descriptor produces the complete v1 contract')
 console.log('ok - trusted descriptor contract and content-mode read-only')
 
-let plugin, sourceDefinition, allow = true, mounted = 's1'
+let plugin, sourceDefinition, allow = true, mounted = 's1', deferred = null
 const inserted = [], verifyCalls = [], previewCalls = [], events = []
-const state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [] }
+let state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [] }
 const input = {
   state: { getSnapshot: () => state },
   focus: () => { events.push('focus') },
@@ -30,9 +30,12 @@ const input = {
     assert.equal(span.draftRev, state.draftRev)
     events.push('insert')
     inserted.push(ref)
-    state.occurrences.push({ ...ref, length: ref.clipboardText.length })
-    state.draft += `${ref.clipboardText} `
-    state.draftRev++
+    state = {
+      ...state,
+      draft: `${state.draft}${ref.clipboardText} `,
+      draftRev: state.draftRev + 1,
+      occurrences: [...state.occurrences, { ...ref, length: ref.clipboardText.length }],
+    }
     return true
   },
 }
@@ -41,9 +44,16 @@ async function fetch(url, options = {}) {
   const claimed = JSON.parse(options.body)
   verifyCalls.push({ claimed, signal: options.signal })
   events.push('verify')
+  if (deferred) return deferred(claimed)
   return {
     ok: allow,
-    json: async () => allow ? { reference: claimed, descriptor: {} } : { message: '图纸引用已失效' },
+    json: async () => allow ? {
+      reference: claimed,
+      descriptor: {},
+      targetContent: claimed.target.type === 'dim'
+        ? { type: 'dim', id: claimed.target.id, displayText: 'Ø10 ±0.1' }
+        : { type: 'entity', id: claimed.target.id, text: '备注' },
+    } : { message: '图纸引用已失效' },
   }
 }
 const ctx = {
@@ -86,8 +96,9 @@ allow = true
 const serialized = await sourceDefinition.codec.serialize(JSON.stringify(reference), new AbortController().signal)
 assert.match(serialized, /CAM_DRAWING_REFERENCE/)
 assert.match(serialized, /dim-1/)
+assert.match(serialized, /Ø10 ±0.1/)
 assert.ok(verifyCalls.every(call => call.signal === undefined || call.signal instanceof AbortSignal))
-console.log('ok - native codec re-verifies before send')
+console.log('ok - native codec re-verifies before send and includes target content')
 
 mounted = 's2'
 const beforeWrongSession = verifyCalls.length
@@ -103,3 +114,28 @@ assert.equal(sourceDefinition.openReference({ sessionId: 's2' }, { ref: JSON.str
 assert.equal(sourceDefinition.openReference({ sessionId: 's1' }, { ref: JSON.stringify(reference) }), true)
 assert.deepEqual(previewCalls, [['s1', reference.source.uri]])
 console.log('ok - openReference returns to the authorized drawing preview')
+
+state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [] }
+inserted.length = 0
+const pending = new Map()
+deferred = claimed => new Promise(resolve => {
+  pending.set(claimed.target.id, () => resolve({
+    ok: true,
+    json: async () => ({ reference: claimed, targetContent: {} }),
+  }))
+})
+const first = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 1 } })
+const second = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 2 } })
+pending.get(2)()
+await second
+pending.get(1)()
+await first
+assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2], 'an older verification cannot supersede the latest pick')
+const third = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 3 } })
+state = { ...state, draft: `${state.draft}新文字`, draftRev: state.draftRev + 1 }
+pending.get(3)()
+await third
+assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3])
+assert.ok(state.draft.includes('新文字'), 'verification re-reads and preserves the latest draft snapshot')
+deferred = null
+console.log('ok - concurrent picks are sequenced and draft snapshots refresh after verification')

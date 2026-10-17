@@ -816,6 +816,7 @@ async function addSelectionToDraft(sessionId, reference) {
 }
 
 const DRAWING_REFERENCE_SOURCE = 'cam-drawing-ref'
+const drawingReferenceSelections = new Map()
 function drawingReferenceClipboard(ref) {
   return `[CAM_DRAWING_REFERENCE]\n${ref}\n[/CAM_DRAWING_REFERENCE]`
 }
@@ -830,9 +831,12 @@ async function verifyDrawingReference(sessionId, reference, signal) {
 async function addDrawingReferenceToDraft(sessionId, reference) {
   const input = sessionInput(sessionId)
   if (!input) throw new Error('原生输入框未就绪，请稍后重试')
+  const ticket = (drawingReferenceSelections.get(sessionId) ?? 0) + 1
+  drawingReferenceSelections.set(sessionId, ticket)
+  const { reference: verified } = await verifyDrawingReference(sessionId, reference)
+  if (drawingReferenceSelections.get(sessionId) !== ticket || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
   const state = input.state.getSnapshot()
   if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-  const { reference: verified } = await verifyDrawingReference(sessionId, reference)
   const ref = JSON.stringify(verified)
   if (state.occurrences.some(item => item.source === DRAWING_REFERENCE_SOURCE && item.ref === ref)) { input.focus(); return }
   const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
@@ -1795,9 +1799,10 @@ function apply(ctx) {
         const reference = JSON.parse(ref)
         const checkSession = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session) throw new Error('图纸引用不属于当前会话，请重新选择') }
         checkSession()
-        const { reference: verified } = await verifyDrawingReference(reference.session, reference, signal)
+        const { reference: verified, targetContent } = await verifyDrawingReference(reference.session, reference, signal)
         checkSession()
-        return `${drawingReferenceClipboard(JSON.stringify(verified))}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
+        const detail = targetContent ? `\n已核验图纸对象内容：${JSON.stringify(targetContent)}` : ''
+        return `${drawingReferenceClipboard(JSON.stringify(verified))}${detail}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
       },
     },
     openReference({ sessionId }, { ref }) {
@@ -1826,7 +1831,7 @@ function apply(ctx) {
     },
     openReference({ sessionId }, { ref }) { if (JSON.parse(ref).session_id !== sessionId) return false; openView(sessionId, VIEW_ID); return true },
   }), 'ui-workbench: native task references')
-  ctx.effect(() => () => { for (const controller of drawingQuestions.values()) controller.dispose(); drawingQuestions.clear() }, 'ui-workbench: drawing questions')
+  ctx.effect(() => () => { for (const controller of drawingQuestions.values()) controller.dispose(); drawingQuestions.clear(); drawingReferenceSelections.clear() }, 'ui-workbench: drawing questions')
 
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view', id: VIEW_ID, order: -10, label: () => '工作台',

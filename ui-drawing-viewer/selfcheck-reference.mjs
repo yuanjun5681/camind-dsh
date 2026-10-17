@@ -9,7 +9,17 @@ const URI = 'upload://batch/part.dwg'
 const NAME = 'part.dwg'
 const SOURCE_SHA = 'a'.repeat(64)
 const IDENTITY = 'b'.repeat(64)
-const PACK = { source_sha256: SOURCE_SHA, dims: [{ id: 'dim-1' }, { id: 'dim-2' }], entities: [{ id: 0 }, { id: 7 }] }
+const PACK = {
+  source_sha256: SOURCE_SHA,
+  dims: [
+    { id: 'dim-1', display_text: 'Ø10 ±0.1', measured: 10, tolerance: { upper: 0.1, lower: -0.1 }, dimlfac: 1, inferred: false, entity_ids: [0], rule_version: 'rules-1' },
+    { id: 'dim-2' },
+  ],
+  entities: [
+    { id: 0, type: 'line', layer: '0', start: [0, 0], end: [10, 0] },
+    { id: 7, type: 'text', layer: 'annotation', text: '备注', handle: 'AB1' },
+  ],
+}
 const PACK_TEXT = JSON.stringify(PACK)
 const PACK_SHA = createHash('sha256').update(Buffer.from(PACK_TEXT, 'utf8')).digest('hex')
 const DESCRIPTOR_DETAILS = {
@@ -73,6 +83,11 @@ function makeHarness() {
       pack: { sha256: PACK_SHA, identity: IDENTITY },
       ...DESCRIPTOR_DETAILS,
     },
+    targetContent: {
+      type: 'dim', id: 'dim-1', displayText: 'Ø10 ±0.1', measured: 10,
+      tolerance: { upper: 0.1, lower: -0.1 }, dimlfac: 1, inferred: false,
+      ruleVersion: 'rules-1', entityIds: [0],
+    },
   })
   assert.deepEqual(state.snapshotCalls, [[SESSION, URI]])
   assert.deepEqual(state.readCalls, [[SESSION, IDENTITY, { sourceUri: URI, name: NAME }]])
@@ -84,8 +99,17 @@ function makeHarness() {
   const { state, verify } = makeHarness()
   const result = await verify(SESSION, makeInput({ type: 'entity', id: 0 }))
   assert.deepEqual(result.reference.target, { type: 'entity', id: 0 })
+  assert.deepEqual(result.targetContent.geometry, { start: [0, 0], end: [10, 0] })
   assert.equal(state.cleanups, 1)
   console.log('ok - valid non-negative integer entity reference')
+}
+
+{
+  const { verify } = makeHarness()
+  const result = await verify(SESSION, makeInput({ type: 'entity', id: 7 }))
+  assert.equal(result.targetContent.text, '备注')
+  assert.equal(result.targetContent.entityType, 'text')
+  console.log('ok - verified target content includes annotation text and bounded geometry')
 }
 
 {

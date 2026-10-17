@@ -24,6 +24,55 @@ function normalizeTarget(target) {
   return { type: 'entity', id: target.id === 0 ? 0 : target.id }
 }
 
+function boundedValue(value, depth = 0) {
+  if (typeof value === 'number' && Number.isFinite(value) || typeof value === 'boolean') return value
+  if (typeof value === 'string') return value.slice(0, 1000)
+  if (Array.isArray(value) && depth < 2) {
+    return value.slice(0, 32).map(item => boundedValue(item, depth + 1)).filter(item => item !== undefined)
+  }
+  if (isRecord(value) && depth < 2) {
+    return Object.fromEntries(Object.entries(value).slice(0, 16)
+      .map(([key, item]) => [key, boundedValue(item, depth + 1)])
+      .filter(([, item]) => item !== undefined))
+  }
+  return undefined
+}
+
+function defined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined))
+}
+
+function verifiedTargetContent(pack, target) {
+  if (target.type === 'dim') {
+    const dim = pack.dims.find(candidate => candidate.id === target.id)
+    return defined({
+      type: 'dim', id: dim.id,
+      displayText: boundedValue(dim.display_text),
+      measured: boundedValue(dim.measured),
+      tolerance: boundedValue(dim.tolerance),
+      dimlfac: boundedValue(dim.dimlfac),
+      inferred: boundedValue(dim.inferred),
+      ruleVersion: boundedValue(dim.rule_version),
+      entityIds: boundedValue(dim.entity_ids),
+    })
+  }
+  const entity = pack.entities.find(candidate => candidate.id === target.id)
+  const geometry = defined(Object.fromEntries([
+    'start', 'end', 'center', 'position', 'radius', 'start_angle', 'end_angle',
+    'rotation', 'height', 'closed', 'points', 'vertices',
+  ].map(key => [key, boundedValue(entity[key])]).filter(([, value]) => value !== undefined)))
+  return defined({
+    type: 'entity', id: entity.id,
+    entityType: boundedValue(entity.type),
+    layer: boundedValue(entity.layer),
+    handle: boundedValue(entity.handle),
+    dimId: boundedValue(entity.dim_id),
+    text: boundedValue(entity.text),
+    nominal: boundedValue(entity.nominal),
+    geometry,
+  })
+}
+
 function normalizeInput(sessionId, input) {
   if (!isText(sessionId)) throw new Error('当前会话标识不得为空')
   if (!isRecord(input)) throw new Error('图纸引用必须是对象')
@@ -111,7 +160,8 @@ export function createDrawingReferenceVerifier({ snapshotSource, readPack } = {}
       for (const key of ['conversion', 'degraded', 'missing']) {
         if (Object.hasOwn(metadata, key)) descriptor[key] = metadata[key]
       }
-      return { reference, descriptor }
+      const targetContent = verifiedTargetContent(pack, claim.target)
+      return { reference, descriptor, targetContent }
     } finally {
       await snapshot.cleanup()
     }
