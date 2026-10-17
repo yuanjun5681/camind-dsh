@@ -28,6 +28,9 @@ const PACK = {
       ],
       frame_segs: [[0, 0, 20, 0]] },
     { id: 11, type: 'text', layer: 'annotation', text: 'x'.repeat(1005), p: [0, 0], h: 2.5, rot: 0 },
+    { id: 12, type: 'mtext', layer: 'annotation', text: '第一行\n第二行', p: [0, 0], h: 2.5, rot: 0,
+      rows: [{ p: [0, 0], text: '第一行' }, { p: [0, 2.5], text: '第二行' }] },
+    { id: 13, type: 'polyline', layer: '0', verts: [[[[1]]]] },
   ],
 }
 const PACK_TEXT = JSON.stringify(PACK)
@@ -132,10 +135,15 @@ function makeHarness() {
   assert.deepEqual(polyline.targetContent.truncated.fields, [{ path: 'geometry.verts', originalLength: 40, returnedLength: 32 }])
   const tolerance = await verify(SESSION, makeInput({ type: 'entity', id: 10 }))
   assert.deepEqual(tolerance.targetContent.geometry.cells.map(cell => cell.text), ['POSITION', '0.05', 'A'])
+  assert.deepEqual(tolerance.targetContent.geometry.cells[0].p, [0, 0])
   assert.deepEqual(tolerance.targetContent.geometry.frame_segs, [[0, 0, 20, 0]])
   const longText = await verify(SESSION, makeInput({ type: 'entity', id: 11 }))
   assert.equal(longText.targetContent.text.length, 1000)
   assert.deepEqual(longText.targetContent.truncated.fields, [{ path: 'text', originalLength: 1005, returnedLength: 1000 }])
+  const mtext = await verify(SESSION, makeInput({ type: 'entity', id: 12 }))
+  assert.deepEqual(mtext.targetContent.geometry.rows[0].p, [0, 0])
+  const deep = await verify(SESSION, makeInput({ type: 'entity', id: 13 }))
+  assert.ok(deep.targetContent.truncated.fields.some(field => field.reason === 'depth'))
   console.log('ok - tolerance payloads and explicit truncation metadata are preserved')
 }
 

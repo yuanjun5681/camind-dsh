@@ -833,19 +833,26 @@ async function addDrawingReferenceToDraft(sessionId, reference) {
   if (!input) throw new Error('原生输入框未就绪，请稍后重试')
   const ticket = (drawingReferenceSelections.get(sessionId) ?? 0) + 1
   drawingReferenceSelections.set(sessionId, ticket)
-  const { reference: verified } = await verifyDrawingReference(sessionId, reference)
-  if (drawingReferenceSelections.get(sessionId) !== ticket || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
-  const state = input.state.getSnapshot()
-  if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-  const ref = JSON.stringify(verified)
-  if (state.occurrences.some(item => item.source === DRAWING_REFERENCE_SOURCE && item.ref === ref)) { input.focus(); return }
-  const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
-  const target = verified.target.type === 'dim' ? `尺寸 ${verified.target.id}` : `图元 ${verified.target.id}`
-  const label = `${target} · ${verified.source.sha256.slice(0, 8)}`
-  if (!input.insertReference({ source: DRAWING_REFERENCE_SOURCE, ref, label, appearance: 'file', clipboardText: drawingReferenceClipboard(ref) }, { start: end, end, draftRev: state.draftRev })) {
-    throw new Error('草稿已变更，请重新添加引用')
+  if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
+  let crossedBoundary = false
+  const unsubscribe = input.state.subscribe?.(next => { if (next.phase !== 'plain') crossedBoundary = true }) ?? (() => {})
+  try {
+    const { reference: verified } = await verifyDrawingReference(sessionId, reference)
+    if (crossedBoundary || drawingReferenceSelections.get(sessionId) !== ticket || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
+    const state = input.state.getSnapshot()
+    if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
+    const ref = JSON.stringify(verified)
+    if (state.occurrences.some(item => item.source === DRAWING_REFERENCE_SOURCE && item.ref === ref)) { input.focus(); return }
+    const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
+    const target = verified.target.type === 'dim' ? `尺寸 ${verified.target.id}` : `图元 ${verified.target.id}`
+    const label = `${target} · ${verified.source.sha256.slice(0, 8)}`
+    if (!input.insertReference({ source: DRAWING_REFERENCE_SOURCE, ref, label, appearance: 'file', clipboardText: drawingReferenceClipboard(ref) }, { start: end, end, draftRev: state.draftRev })) {
+      throw new Error('草稿已变更，请重新添加引用')
+    }
+    input.focus()
+  } finally {
+    unsubscribe()
   }
-  input.focus()
 }
 function addPreviewReferenceToDraft(sessionId, reference) {
   return reference.kind === 'camind-drawing-ref'

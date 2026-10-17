@@ -30,11 +30,15 @@ function boundedValue(value, depth = 0, truncations, path = 'value') {
     if (truncations && value.length > 1000) truncations.push({ path, originalLength: value.length, returnedLength: 1000 })
     return value.slice(0, 1000)
   }
-  if (Array.isArray(value) && depth < 2) {
+  if ((Array.isArray(value) || isRecord(value)) && depth >= 3) {
+    if (truncations) truncations.push({ path, reason: 'depth', originalType: Array.isArray(value) ? 'array' : 'object' })
+    return undefined
+  }
+  if (Array.isArray(value)) {
     if (truncations && value.length > 32) truncations.push({ path, originalLength: value.length, returnedLength: 32 })
     return value.slice(0, 32).map(item => boundedValue(item, depth + 1, truncations, path)).filter(item => item !== undefined)
   }
-  if (isRecord(value) && depth < 2) {
+  if (isRecord(value)) {
     const entries = Object.entries(value)
     if (truncations && entries.length > 16) truncations.push({ path, originalLength: entries.length, returnedLength: 16 })
     return Object.fromEntries(entries.slice(0, 16)

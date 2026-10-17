@@ -20,8 +20,12 @@ console.log('ok - trusted descriptor contract and content-mode read-only')
 let plugin, sourceDefinition, allow = true, mounted = 's1', deferred = null
 const inserted = [], verifyCalls = [], previewCalls = [], events = []
 let state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [] }
+const stateListeners = new Set()
 const input = {
-  state: { getSnapshot: () => state },
+  state: {
+    getSnapshot: () => state,
+    subscribe: listener => { stateListeners.add(listener); return () => stateListeners.delete(listener) },
+  },
   focus: () => { events.push('focus') },
   insertReference(ref, span) {
     const expected = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
@@ -38,6 +42,10 @@ const input = {
     }
     return true
   },
+}
+function publish(patch) {
+  state = { ...state, ...patch, draftRev: state.draftRev + 1 }
+  for (const listener of stateListeners) listener(state)
 }
 async function fetch(url, options = {}) {
   if (!url.includes('/refs/verify')) throw new Error(`unexpected fetch: ${url}`)
@@ -139,3 +147,19 @@ assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3])
 assert.ok(state.draft.includes('新文字'), 'verification re-reads and preserves the latest draft snapshot')
 deferred = null
 console.log('ok - concurrent picks are sequenced and draft snapshots refresh after verification')
+
+deferred = claimed => new Promise(resolve => {
+  pending.set(claimed.target.id, () => resolve({
+    ok: true,
+    json: async () => ({ reference: claimed, targetContent: {} }),
+  }))
+})
+const fourth = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 4 } })
+publish({ phase: 'submitting' })
+publish({ phase: 'plain', draft: '新问题' })
+pending.get(4)()
+await fourth
+assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3], 'a pending pick cannot cross a submit/reset boundary into a new question')
+assert.equal(stateListeners.size, 0, 'verification subscriptions are always released')
+deferred = null
+console.log('ok - pending references are discarded across submit/reset boundaries')
