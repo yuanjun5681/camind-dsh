@@ -51,7 +51,13 @@ function checkBodies(p, add, profile) {
     const layers = p.layers, ltypes = p.linetypes, styles = p.text_styles;
     const viewIds = new Set([0, ...(p.views ?? []).map(v => v?.id)]);
     const ents = p.entities;
-    const dims = p.dims ?? [];
+    const rawDims = p.dims ?? [];
+    for (const d of rawDims) {
+        if (d === null || typeof d !== "object" || Array.isArray(d)) {
+            add("DRAFT_E_SHAPE:dims 元素应为对象");
+        }
+    }
+    const dims = rawDims.map(d => d !== null && typeof d === "object" && !Array.isArray(d) ? d : {});
     const dimIds = new Set(dims.map(d => d?.id));
 
     if (p.units !== "mm") add("DRAFT_E_UNITS:units 恒 mm(源单位见 source_units)");
@@ -174,14 +180,26 @@ function checkBodies(p, add, profile) {
     };
     if (scanStr(p)) add("DRAFT_E_REPLACEMENT");
 
-    // ── I9 反向 ──
+    // ── I9 双向 + dims 载荷 schema(reader 档同样拒绝畸形载荷)──
     for (const d of dims) {
-        for (const eid of d.entity_ids ?? []) {
-            const ref = Number.isInteger(eid) && eid >= 0 && eid < ents.length ? ents[eid] : null;
+        const entityIds = Array.isArray(d.entity_ids) ? d.entity_ids : [];
+        for (const eid of entityIds) {
+            if (!Number.isInteger(eid) || eid < 0) {
+                add(`DRAFT_E_SHAPE:dims.${JSON.stringify(d.id)} entity_ids 应为非负整数下标`);
+                continue;
+            }
+            const ref = eid < ents.length ? ents[eid] : null;
             if (!ref) add(`DRAFT_E_DIM_REF:dims.${JSON.stringify(d.id)} 引用不存在的实体`);
             else if (ref.dim_id !== d.id) {
                 add(`DRAFT_E_DIM_REF:dims.${JSON.stringify(d.id)} 引用实体 ${JSON.stringify(eid)} 未回带 dim_id`);
             }
+        }
+        const defPoints = Array.isArray(d.def_points) ? d.def_points : [];
+        for (const q of defPoints) {
+            if (!_pt(q)) add(`DRAFT_E_SHAPE:dims.${JSON.stringify(d.id)} def_points 应为 [x,y] 有限二元组`);
+        }
+        if (d.dimlfac !== undefined && !_isNum(d.dimlfac)) {
+            add(`DRAFT_E_SHAPE:dims.${JSON.stringify(d.id)} dimlfac 应为有限数`);
         }
         if (!viewIds.has(d.view_id)) add(`DRAFT_E_VIEW_REF:dims ${JSON.stringify(d.view_id)}`);
     }

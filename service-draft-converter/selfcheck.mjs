@@ -159,6 +159,22 @@ ok("出身/单位");
     assert.ok(errs2.some(e => e.startsWith("DRAFT_E_DIM_REF")), errs2.join(";"));
     ok("packcheck I9 正向拒绝");
 }
+// dims 载荷形状:writer/reader 都拒绝，不能只在反向引用闭合时顺带检查。
+for (const profile of ["writer", "reader"]) {
+    const bad = JSON.parse(JSON.stringify(pack));
+    bad.dims[0].def_points = [[0, 0], [1, "bad"]];
+    bad.dims[0].dimlfac = "1.0";
+    const dimErrs = checkDraftPack(bad, profile);
+    assert.ok(dimErrs.some(e => e.startsWith("DRAFT_E_SHAPE") && e.includes("def_points")), dimErrs.join(";"));
+    assert.ok(dimErrs.some(e => e.startsWith("DRAFT_E_SHAPE") && e.includes("dimlfac")), dimErrs.join(";"));
+
+    const badIds = JSON.parse(JSON.stringify(pack));
+    badIds.dims[0].entity_ids = [-1];
+    const idErrs = checkDraftPack(badIds, profile);
+    assert.ok(idErrs.some(e => e.startsWith("DRAFT_E_SHAPE") && e.includes("entity_ids")), idErrs.join(";"));
+}
+ok("packcheck dims 载荷 writer/reader 双档拒绝");
+
 // 未知类型:writer 拒 / reader 跳
 {
     const bad = JSON.parse(JSON.stringify(pack));
