@@ -64,3 +64,21 @@ node service-draft-converter/selfcheck.mjs          # 合成用例 + SVG 与 wor
 DRAFT_GOLDEN_DWG=/path/x.dwg DRAFT_GOLDEN_PY=/path/python版包.json \
   node service-draft-converter/selfcheck.mjs
 ```
+
+## Python / JS / TS 三方 packcheck 差分
+
+先在 Camind-desktop 检出中生成并自验共享夹具，再从本仓库根目录运行差分器：
+
+```sh
+cd /path/to/Camind-desktop
+python3 tools/gen_draft_fixtures.py --selfcheck
+cd /path/to/camind-dsh
+DESKTOP_REPO=/path/to/Camind-desktop CAM_AGENT_REPO=/path/to/CAM-Agent \
+  node service-draft-converter/selfcheck-three-way.mjs
+# Python 不在默认位置时可显式指定：CAM_AGENT_PYTHON=/path/to/python
+```
+
+差分器读取 Desktop `tests/fixtures/draft/manifest.json`，对同一批好包/坏包在 writer/reader
+双档逐包比较标准化错误码集合，并比较 reader 的 `skipped`。当前基线含圆 bbox 漏检、畸形
+`def_points` + 字符串 `dimlfac`、非数组 dims 容器三组 M0 反例。任何一方不一致都会整体失败；
+全部通过只证明校验器行为一致，不代表图纸已审或尺寸正确。
