@@ -32,6 +32,28 @@
 
 独立插件的 `index.js` 和 `lib/models.js` 编排 Host 服务；`src/client.ts` 接入 dsh 席位。输出 `lib/client.js` 为 dsh module-loader 格式，浏览器不包含 Node 内建依赖。
 
+## 漂移审计与本地补丁清单
+
+2026-10-18 以 `320dd531` 为共同基线完成三方审计，完整决策见
+[docs/viewer-3d-drift-audit.md](../docs/viewer-3d-drift-audit.md)。当前不能宣称本地 3D 与上游功能等价：
+上游已新增多体显隐、边线显隐、CPU 可见性谓词、声明体选择语义、排除体清单和帧时统计；
+本地同时保留 PRT/NC 联合查看、播放和引用能力。后续同步按审计顺序实施，不整文件覆盖。
+
+| 本地分叉文件 | 分叉理由与内容 | 对应验证 | 来源映射 |
+|---|---|---|---|
+| `src/viewer/geom_view.ts` | 事件释放、pointercancel、初始化失败反馈、播放区间、face/path 拾取模式 | `selfcheck-controls.mjs`、`selfcheck-playback.mjs`、`acceptance-desktop.mjs` | 上游 `packages/viewer/src/geom_view.ts`；另见审计的状态机冲突项 |
+| `src/viewer/scene_renderer.ts` | 播放区间、未来段和 path 拾取 | `selfcheck-playback.mjs` 与场景渲染测试 | 上游 `packages/viewer/src/scene_renderer.ts`；合并时须同时保留上游面/边可见索引 |
+| `src/viewer/shaders.ts` | 播放、未来段和刀路显示语义 | `selfcheck-playback.mjs` | 上游 `packages/viewer/src/shaders.ts`；保留分叉，合并时不得覆盖 |
+| `src/client.ts`、`controls.ts`、`scene.ts`、`styles.ts` | PRT/NC 联合查看、工位/工序、源码定位、引用和扩大视区 | `selfcheck-joint.mjs`、播放/布局与桌面验收 | 本地宿主适配，无上游同构单文件；保留分叉并评审是否回上游 |
+| `src/core/nc/parser.ts` | 无分叉，与上游字节一致 | `packages/core/test/nc.test.ts` 与 `diff -q` | 上游 `packages/core/src/nc/parser.ts` |
+
+同步纪律：
+
+1. 每次同步都记录上游 commit、同步日期和来源文件映射；新增补丁必须同时写理由、对应测试和映射，不能只写同步日期。
+2. 先审 `docs/viewer-3d-drift-audit.md` 的决策，再实施；上游 hiddenBodies/可见索引与本地播放/拾取必须做组合验收。
+3. 构建复用 ui-shell 的 esbuild，产物必须可重现；运行 `node ui-model-viewer/build.mjs` 和适用自检后再进入 Codex 审核，按意见修正并复审。
+4. 2D Draft 归独立 `ui-drawing-viewer`，不得重新塞进本插件形成第二份核心。
+
 ## 工序驱动联合检查
 
 `cam.model.preview` 与 `cam.nc.preview` 现在由同一个 WebGL2 GeomView 渲染。旧 `ui-toolpath-viewer` 插件已删除（2026-10-12 并入本插件；NC 解析器已直译为 `src/core/nc/parser.ts`）。纯 PRT 和纯 NC 都可以独立使用；纯 NC 不调用 NX。
