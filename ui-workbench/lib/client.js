@@ -875,6 +875,17 @@ async function addDrawingReferenceToDraft(sessionId, reference) {
 function addPreviewReferenceToDraft(sessionId, reference) {
   if (!reference) {
     drawingReferenceSelections.set(sessionId, (drawingReferenceSelections.get(sessionId) ?? 0) + 1)
+    const input = sessionInput(sessionId)
+    if (input) {
+      const state = input.state.getSnapshot()
+      const owned = state.occurrences.filter(item => item.source === DRAWING_REFERENCE_SOURCE)
+      if (owned.length > 1) throw new Error('当前图纸引用无法清除，请清理后重试')
+      if (owned[0] && state.phase === 'plain') {
+        const scope = applyCtx.get('sessions').scope(sessionId)
+        const span = drawingQuestionSpan(state, owned[0])
+        if (!scope?.bail('slash/input-consume-token', { guard: { kind: 'span', span } })) throw new Error('当前引用暂时无法清除，请稍后重试')
+      }
+    }
     return
   }
   return reference.kind === 'camind-drawing-ref'

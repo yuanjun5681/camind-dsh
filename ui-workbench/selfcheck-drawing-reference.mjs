@@ -80,7 +80,23 @@ const ctx = {
   slots: { inject: (_name, fn) => fn(), register: () => {} },
   effect: (fn, label) => { if (label?.includes('native drawing references')) fn() },
   get: name => {
-    if (name === 'sessions') return { scope: () => ({ get: () => ({ input: { for: () => input } }) }) }
+    if (name === 'sessions') return {
+      scope: () => ({
+        get: () => ({ input: { for: () => input } }),
+        bail: (_token, { guard }) => {
+          const owned = state.occurrences.filter(item => item.source === 'cam-drawing-ref')
+          if (!owned.length) return false
+          const previous = owned[0]
+          const before = state.occurrences.filter(item => item.offset < previous.offset)
+          const expectedStart = previous.offset - before.reduce((sum, item) => sum + item.length - 1, 0)
+          assert.equal(guard.span.start, expectedStart)
+          assert.equal(guard.span.end, expectedStart + 1)
+          assert.equal(guard.span.draftRev, state.draftRev)
+          state = { ...state, occurrences: state.occurrences.filter(item => item !== previous), draftRev: state.draftRev + 1 }
+          return true
+        },
+      }),
+    }
     if (name === 'sidebarRight') return { mounted: { getSnapshot: () => mounted } }
     if (name === 'inputTriggers') return { registerSource: definition => { sourceDefinition = definition; return () => {} } }
     if (name === 'filePreview') return { preview: (sessionId, uri) => { previewCalls.push([sessionId, uri]) } }
@@ -205,3 +221,9 @@ await sixth
 assert.deepEqual(state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).target.id), [7], 'superseded verification failures cannot overwrite the current selection')
 deferred = null
 console.log('ok - superseded verification failures are suppressed')
+
+api.addPreviewReferenceToDraft('s1', null)
+assert.equal(state.occurrences.some(item => item.source === 'cam-drawing-ref'), false, 'source invalidation removes the stale chip')
+assert.equal(state.occurrences[0].source, 'file', 'unrelated references survive chip invalidation')
+assert.ok(state.draft.includes('新问题'), 'question text survives chip invalidation')
+console.log('ok - source invalidation consumes stale chips without deleting question content')
