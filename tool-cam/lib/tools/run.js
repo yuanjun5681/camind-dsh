@@ -349,10 +349,14 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   const job = jobFile.value
   const fingerprint = fingerprintOfJob(jobFile.raw)
 
-  if (existsSync(statePath)) {
+  const stateExists = existsSync(statePath)
+  if (stateExists) {
     const stateFile = readJsonFile(statePath)
     if (stateFile.error) return failStage('load', { errorType: 'local_io', msg: `runstate.json 无法解析：${stateFile.error}。保险起见请人工检查 run 目录后继续。` })
     state = stateFile.value
+  }
+  if (stateExists && (state === null || typeof state !== 'object' || Array.isArray(state) || !Array.isArray(state.ops))) {
+    return failStage('load', { errorType: 'invalid_state', msg: 'runstate.json 不是含 ops 数组的有效状态对象，无法证明是否存在待重算刀路；已阻断本次执行，请人工核对或重新 cam_plan。' })
   }
   if (resume) {
     if (!state) {
@@ -365,12 +369,6 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
           + '如确要按新工序单执行，请重新 cam_plan 落盘（产生新 run_id）后对新 run 首跑。',
       })
     }
-    if (!Array.isArray(state.ops)) {
-      return failStage('load', { errorType: 'invalid_state', msg: 'runstate.json 的 ops 不是数组，无法证明是否存在待重算刀路；已阻断 resume，请人工核对。' })
-    }
-  }
-  if (state && !Array.isArray(state.ops)) {
-    return failStage('load', { errorType: 'invalid_state', msg: 'runstate.json 的 ops 不是数组，无法证明是否存在待重算刀路；已阻断本次执行，请人工核对或重新 cam_plan。' })
   }
 
   const suffix = resume ? state.suffix : generateSuffix()
@@ -420,6 +418,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   // 不能用同 run 非 resume 重跑清掉 pending。只允许写本地 runstate 阻断留痕。
   if (pendingState) {
     state = pendingState
+    if (!Array.isArray(state.history)) state.history = []
     summary.suffix = state.suffix ?? suffix
     const { overall, reason } = overallOf(state.ops, null)
     // decision 记录本次阻断；status 保留上次终态供 overall/报告使用。

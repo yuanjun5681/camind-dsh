@@ -191,6 +191,7 @@ try {
   const scopedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
   scopedState.ops.push({ index: 1, name: 'OUTSIDE_JOB', type: 'from_scratch_workpiece_op', status: 'ok', other_operations_pending_regeneration: [scopedState.ops[0].name] })
   scopedState.cleanup = { status: 'pending', work_copy: 'synthetic-work.prt', reason: 'synthetic unfinished cleanup' }
+  delete scopedState.history
   await fs.writeFile(scopedStatePath, JSON.stringify(scopedState))
   calls = []
   await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id, resume: true }, exec)
@@ -207,12 +208,17 @@ try {
   assert.equal(blockedState.execution_overall, 'incomplete')
   assert.equal(blockedState.history.at(-1).stage, 'regeneration_blocked')
   assert.equal(blockedState.cleanup.status, 'pending')
+  delete blockedState.history
+  await fs.writeFile(scopedStatePath, JSON.stringify(blockedState))
   postFailure = false; calls = []
   await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id }, exec)
   const scopedFreshBlocked = JSON.parse((await done).result)
   assert.equal(scopedFreshBlocked.overall, 'incomplete')
   assert.deepEqual(scopedFreshBlocked.ops.map(op => op.decision), ['stop', 'stop'])
   assert.deepEqual(calls, [])
+  const freshBlockedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
+  assert.equal(freshBlockedState.history.at(-1).stage, 'regeneration_blocked')
+  assert.equal(freshBlockedState.cleanup.status, 'pending')
   const malformedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
   malformedState.ops = { unreadable: true }
   await fs.writeFile(scopedStatePath, JSON.stringify(malformedState))
@@ -224,6 +230,17 @@ try {
   assert.equal(malformedDelivery.status, 'error')
   assert.equal(malformedDelivery.stage, 'load')
   assert.deepEqual(calls, [])
+  await assert.rejects(fs.access(path.join(ordinaryPost.run_dir, 'delivery')))
+  for (const invalidState of [null, false, 0]) {
+    const raw = JSON.stringify(invalidState)
+    await fs.writeFile(scopedStatePath, raw)
+    calls = []
+    const invalidSummary = await executeCamRun({ camPipeline: pipeline, runDir: ordinaryPost.run_dir, runId: ordinaryPost.run_id, resume: false, dshHome: home, isCancelled: () => false })
+    assert.equal(invalidSummary.overall, 'error')
+    assert.equal(invalidSummary.failed_stage, 'load')
+    assert.deepEqual(calls, [])
+    assert.equal(await fs.readFile(scopedStatePath, 'utf8'), raw)
+  }
   // T-501: refusal is an error, never a normal generated state, and no authorization flag is injected.
   const refusedT501 = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   postFailure = 't501'; calls = []
@@ -253,7 +270,7 @@ try {
     await fs.mkdir(runDir)
     await fs.writeFile(path.join(runDir, 'job.json'), JSON.stringify({
       prt: 'input/part.prt', out_dir: 'output', post_name: 'MILL_3_AXIS',
-      operations: [{ ...task.operations[0], type: 'copy_postprocess', template: 'TEMPLATE_OP', new_name: 'COPY_{suffix}' }],
+      operations: [{ ...task.operations[0], type: 'copy_postprocess', template: 'TEMPLATE_OP', new_name: 'COPY_{suffix}', allow_regenerate_toolpaths: true }],
     }))
     return { camPipeline: pipeline, runDir, runId, dshHome: home, isCancelled: () => false }
   }
@@ -274,6 +291,11 @@ try {
   assert.equal(copyOkSummary.ops[0].nc_files.length, 1)
   assert.equal(calls.some(call => call.endpoint === '/cam_copy_postprocess'), true)
   assert.equal(calls.some(call => call.endpoint === '/cam_build_workpiece_op'), false)
+  const copyCall = calls.find(call => call.endpoint === '/cam_copy_postprocess')
+  assert.equal(copyCall.params.template, 'TEMPLATE_OP')
+  assert.equal(copyCall.params.generate, true)
+  assert.equal(copyCall.params.post_name, 'MILL_3_AXIS')
+  assert.equal(calls.every(call => !Object.hasOwn(call.params, 'allow_regenerate_toolpaths')), true)
   const copyPendingArgs = await copyRunArgs('copy-pending')
   copySuccess = 'pending'; calls = []
   const copyPendingSummary = await executeCamRun({ ...copyPendingArgs, resume: false })
@@ -326,8 +348,8 @@ try {
   await fs.mkdir(crossDir)
   await fs.writeFile(path.join(crossDir, 'job.json'), JSON.stringify({
     prt: 'input/part.prt', out_dir: 'output', post_name: 'MILL_3_AXIS', operations: [
-      { ...task.operations[0], new_name: 'A_{suffix}' },
-      { ...task.operations[0], id: 'op2', new_name: 'B_{suffix}' },
+      { ...task.operations[0], new_name: 'A_{suffix}', allow_regenerate_toolpaths: true },
+      { ...task.operations[0], id: 'op2', new_name: 'B_{suffix}', allow_regenerate_toolpaths: true },
     ],
   }))
   const crossArgs = { camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', dshHome: home, isCancelled: () => false }
@@ -337,17 +359,22 @@ try {
   assert.equal(crossT501Summary.ops[0].status, 'generated', JSON.stringify(crossT501Summary.ops))
   assert.equal(crossT501Summary.ops[1].status, 'ok')
   assert.deepEqual(crossT501Summary.ops[1].other_operations_pending_regeneration, [{ operation: crossT501Summary.ops[0].name }])
+  assert.equal(calls.every(call => !Object.hasOwn(call.params, 'allow_regenerate_toolpaths')), true)
   calls = []
   const crossResumeSummary = await executeCamRun({ ...crossArgs, resume: true })
   assert.deepEqual(crossResumeSummary.ops.map(op => op.decision), ['stop', 'stop'])
   assert.equal(crossResumeSummary.ops[0].status, 'generated')
   assert.deepEqual(calls, [])
   assert.match(crossResumeSummary.reason, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
+  const crossState = JSON.parse(await fs.readFile(path.join(crossDir, 'runstate.json'), 'utf8'))
+  crossState.ops.push({ index: 2, name: 'OUTSIDE_DELIVERY', type: 'from_scratch_workpiece_op', status: 'ok', other_operations_pending_regeneration: [{ operation: 'DELIVERY_TARGET', tool: 'AP_MILL_D10', reason: 'job 外 pending' }] })
+  await fs.writeFile(path.join(crossDir, 'runstate.json'), JSON.stringify(crossState))
   const crossDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', tasks, sessionId: 's1' })
   assert.equal(crossDelivery.package_kind, 'process')
   const crossManifest = JSON.parse(await fs.readFile(path.join(crossDir, 'delivery/manifest.json'), 'utf8'))
   assert.equal(crossManifest.package_complete, false)
   assert.ok(crossManifest.blockers.some(text => text.includes(`待重算刀路：${crossT501Summary.ops[0].name}`)))
+  assert.ok(crossManifest.blockers.some(text => text.includes('DELIVERY_TARGET') && text.includes('AP_MILL_D10')))
   const crossReport = await fs.readFile(path.join(crossDir, 'delivery/delivery_report.md'), 'utf8')
   assert.match(crossReport, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
   assert.match(crossReport, /未获生产放行；本包仅供过程追溯/)
