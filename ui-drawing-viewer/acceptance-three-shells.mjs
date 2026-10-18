@@ -75,6 +75,7 @@ async function cancelConversion(page, sid, before, shell) {
   await fs.writeFile(file, makeDxf(50000))
   const base = `/camind/api/drawings/sessions/${encodeURIComponent(sid)}/packs`
   const sourceUri = path.relative(cwd, file)
+  const statusOf = jobId => page.evaluate(async ({ base, jobId }) => (await (await fetch(`${base}/${jobId}/status`)).json()), { base, jobId })
   try {
     const started = await page.evaluate(async ({ base, sourceUri }) => {
       const response = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: sourceUri }) })
@@ -82,17 +83,32 @@ async function cancelConversion(page, sid, before, shell) {
     }, { base, sourceUri })
     assert.equal(started.status, 202, JSON.stringify(started.body))
     const jobId = started.body.jobId
+    let converting = false
+    for (let i = 0; i < 360 && !converting; i++) {
+      const job = await statusOf(jobId)
+      if (job.state === 'ready') throw new Error('Conversion completed before cancellation could start')
+      converting = job.stage === 'converting'
+      if (!converting) await page.waitForTimeout(50)
+    }
+    assert(converting, 'Conversion did not start before cancellation')
+    const cacheDir = path.join(root, '.dsh/draft-previews', sid)
+    const beforeCache = await fs.readdir(cacheDir).catch(() => [])
     await page.evaluate(async ({ base, jobId }) => (await fetch(`${base}/${jobId}/cancel`, { method: 'POST' })), { base, jobId })
+    let cancelledJob
     for (let i = 0; i < 360; i++) {
-      const job = await page.evaluate(async ({ base, jobId }) => (await (await fetch(`${base}/${jobId}/status`)).json()), { base, jobId })
-      if (job.state === 'error') {
-        assert.equal(job.error.code, 'cancelled')
-        return
-      }
+      const job = await statusOf(jobId)
+      if (job.state === 'error') { cancelledJob = job; break }
       if (job.state === 'ready') throw new Error('Cancellation arrived after conversion completed')
       await page.waitForTimeout(100)
     }
-    throw new Error('Cancellation did not reach a terminal state')
+    assert.equal(cancelledJob?.error?.code, 'cancelled')
+    await page.waitForTimeout(1000)
+    const finalJob = await statusOf(jobId)
+    assert.equal(finalJob.state, 'error')
+    assert(!finalJob.result, 'Cancelled conversion must not publish a late result')
+    const afterCache = await fs.readdir(cacheDir).catch(() => [])
+    assert.deepEqual(afterCache.sort(), beforeCache.sort(), 'Cancelled conversion must not write a late cache pack')
+    return { started: true, noLateResult: true, cacheStable: true }
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }
@@ -180,7 +196,7 @@ async function verifyShell({ page, sid, shell, cdp }) {
   const readyMs = Date.now() - loadStart
   const { pack, packHitMs } = await preparePack(page, sid, before.inputs.dwg.uri)
   await verifyReference(page, sid, before, pack)
-  await cancelConversion(page, sid, before, shell)
+  const cancelEvidence = await cancelConversion(page, sid, before, shell)
   const themes = {}, originalTheme = (await themePreference(page)).value.preference
   try {
     for (const theme of ['light', 'dark', 'system']) {
@@ -198,7 +214,7 @@ async function verifyShell({ page, sid, shell, cdp }) {
     await cdp.send('Emulation.setEmulatedMedia', { features: [] })
   }
   assert.deepEqual(await taskOf(page, sid), before)
-  return { real_shell: shell, boot: true, pack_sha256_verified: true, native_reference_verified: true, cancelled: true, themes, readyMs, packHitMs, formal_task_unchanged: true }
+  return { real_shell: shell, boot: true, pack_sha256_verified: true, native_reference_verified: true, cancelled: cancelEvidence, themes, readyMs, packHitMs, formal_task_unchanged: true }
 }
 const desktopBrowser = await chromium.connectOverCDP('http://127.0.0.1:9236')
 let sid
