@@ -81,7 +81,7 @@ try {
     return Boolean(host?.dataset.camera && gl && gl.width > 100 && host.getBoundingClientRect().width > 100)
   })
 
-  const nativeDpr = await page.evaluate(() => devicePixelRatio), baselineDpr = nativeDpr === 1 ? 2 : 1
+  const nativeDpr = Math.min(await page.evaluate(() => devicePixelRatio), 2), baselineDpr = nativeDpr === 1 ? 2 : 1
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 800, deviceScaleFactor: baselineDpr, mobile: false })
   await page.waitForFunction(expected => {
     const host = document.querySelector('#viewer .cdv-canvas'), gl = host?.querySelector('canvas')
