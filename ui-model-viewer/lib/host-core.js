@@ -112,7 +112,29 @@ function parseBodies(value, bodyCount, file) {
     if (layer !== null) b.layer = layer;
     const color = optionalInt(item, "color");
     if (color !== null) b.color = color;
+    if (typeof item.blanked === "boolean") b.blanked = item.blanked;
+    if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
     out.push(b);
+  }
+  return out;
+}
+function parseExcludedBodies(value, file) {
+  if (!Array.isArray(value))
+    fail("BadJson", file + ":excluded_bodies \u5E94\u4E3A\u6570\u7EC4", file);
+  const out = [];
+  for (let i = 0; i < value.length; ++i) {
+    const item = value[i];
+    if (typeof item !== "object" || item === null)
+      fail("BadJson", file + ":excluded_bodies \u7684\u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61", file);
+    const key = strOr(item, "key", "");
+    if (!key.trim())
+      fail("InvalidValue", file + ":excluded_bodies \u7B2C " + i + " \u9879\u7684 key \u4E0D\u80FD\u4E3A\u7A7A", file);
+    out.push({
+      key,
+      name: strOr(item, "name", ""),
+      reason: strOr(item, "reason", ""),
+      detail: strOr(item, "detail", "")
+    });
   }
   return out;
 }
@@ -169,13 +191,37 @@ function parseManifest(text) {
       fail("InvalidValue", "\u6E05\u5355\u91CC\u7684\u6587\u4EF6\u540D\u4E0D\u5408\u6CD5:" + e.name, file);
     return e;
   });
-  if ("body_count" in doc) {
-    const v = integer(doc.body_count);
-    if (v !== null && v >= 0 && v <= 4294967295)
-      m.bodyCount = v;
-  }
+  if ("body_count" in doc)
+    m.bodyCount = intInRange(doc, "body_count", file, 0, 4294967295);
   if ("bodies" in doc && doc.bodies !== null)
     m.bodies = parseBodies(doc.bodies, m.bodyCount ?? null, file);
+  if ("excluded_bodies" in doc) {
+    m.excludedBodies = parseExcludedBodies(doc.excluded_bodies, file);
+    if (!("enumerated_body_count" in doc) || m.bodyCount === void 0 || m.bodies === void 0) {
+      fail(
+        "CountMismatch",
+        file + ":excluded_bodies \u51FA\u73B0\u65F6 enumerated_body_count\u3001body_count\u3001bodies[] \u5FC5\u987B\u9F50\u5907",
+        file
+      );
+    }
+    m.enumeratedBodyCount = intInRange(doc, "enumerated_body_count", file, 0, 4294967295);
+    if (m.enumeratedBodyCount !== m.bodyCount + m.excludedBodies.length) {
+      fail(
+        "CountMismatch",
+        file + ":\u5BF9\u8D26\u4E0D\u6210\u7ACB enumerated_body_count(" + m.enumeratedBodyCount + ") != body_count(" + m.bodyCount + ") + excluded_bodies(" + m.excludedBodies.length + ")",
+        file
+      );
+    }
+  }
+  if (m.bodyCount === 0) {
+    const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
+    if (coords.some((value) => value !== 0))
+      fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
+  }
+  if ("exclusion_policy" in doc && typeof doc.exclusion_policy === "string")
+    m.exclusionPolicy = doc.exclusion_policy;
+  const revision = optionalInt(doc, "manifest_revision");
+  if (revision !== null && revision >= 0) m.manifestRevision = revision;
   return m;
 }
 function findEntry(manifest, role, lod = "") {
@@ -679,9 +725,59 @@ function readZipEntry(bytes, wantName) {
   }
   return null;
 }
+
+// ui-model-viewer/src/core/geompack/excluded.ts
+var EXCLUDED_REASON_ORDER = ["conversion_failed", "sheet_body", "auxiliary_body", "hidden_by_layer", "hidden_by_blank", "other"];
+var REASON_LABELS = /* @__PURE__ */ new Map([
+  ["conversion_failed", "\u8F6C\u6362\u5931\u8D25"],
+  ["sheet_body", "\u7247\u4F53"],
+  ["auxiliary_body", "\u8F85\u52A9\u4F53(\u52A0\u5DE5\u8FC7\u7A0B\u4F53)"],
+  ["hidden_by_layer", "\u4E0D\u53EF\u89C1\u56FE\u5C42\u4E0A\u7684\u4F53"],
+  ["hidden_by_blank", "\u88AB\u9690\u85CF\u7684\u4F53"],
+  ["other", "\u5176\u4ED6\u539F\u56E0"]
+]);
+function normalizeExcludedReason(reason) {
+  return REASON_LABELS.has(reason) ? reason : "other";
+}
+function excludedReasonLabel(reason) {
+  return REASON_LABELS.get(normalizeExcludedReason(reason));
+}
+function excludedSummary(excluded) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const e of excluded) {
+    const key = normalizeExcludedReason(e.reason);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const out = [];
+  for (const reason of EXCLUDED_REASON_ORDER) {
+    const count = counts.get(reason);
+    if (count) out.push({ reason, label: excludedReasonLabel(reason), count });
+  }
+  return out;
+}
+function excludedAllLine(excluded) {
+  const groups = excludedSummary(excluded).map((g) => `${g.label} ${g.count}`);
+  return `\u5168\u90E8 ${excluded.length} \u4E2A\u4F53\u672A\u8FDB\u5165\u51E0\u4F55\u5305:${groups.join("\u3001")}`;
+}
+function zeroBodyLine(m) {
+  if (m.excludedBodies === void 0) return "";
+  const enumerated = m.enumeratedBodyCount ?? 0;
+  if (enumerated === 0) return "\u6E90\u6587\u4EF6\u6CA1\u6709\u53EF\u679A\u4E3E\u7684\u5B9E\u4F53\u3002";
+  return excludedAllLine(m.excludedBodies) + "\u3002";
+}
+function clampDetail(detail) {
+  const chars = [...detail];
+  return chars.length > 200 ? chars.slice(0, 200).join("") + "\u2026" : detail;
+}
 export {
   Package,
+  clampDetail,
+  excludedAllLine,
+  excludedReasonLabel,
+  excludedSummary,
+  normalizeExcludedReason,
   parseFaces,
   parseManifest,
-  readZipEntry
+  readZipEntry,
+  zeroBodyLine
 };

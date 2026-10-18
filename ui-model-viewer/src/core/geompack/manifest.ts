@@ -12,6 +12,15 @@ export interface FileEntry {
 export interface BodyInfo {
     body: number; nFaces: number;
     name?: string; layer?: number; color?: number; translucency?: number;
+    /** 仅作初始显隐；拾取跟当前有效显隐。 */
+    blanked?: boolean;
+    /** 跨包标识；稳定性验证通过前不作关联依赖。 */
+    stableKey?: string;
+}
+
+/** 未进包清单逐体记录；未知 reason 按 other 展示，不拒包。 */
+export interface ExcludedBody {
+    key: string; name: string; reason: string; detail: string;
 }
 
 export interface Manifest {
@@ -22,6 +31,11 @@ export interface Manifest {
     faceCount: number; edgeCount: number;
     bodyCount?: number;
     bodies?: BodyInfo[];
+    /** undefined=未提供排除信息；[] = 枚举范围内无排除。 */
+    excludedBodies?: ExcludedBody[];
+    enumeratedBodyCount?: number;
+    exclusionPolicy?: string;
+    manifestRevision?: number;
     files: FileEntry[];
 }
 
@@ -135,7 +149,30 @@ function parseBodies(value: any, bodyCount: number | null, file: string): BodyIn
         if (layer !== null) b.layer = layer;
         const color = optionalInt(item, "color");
         if (color !== null) b.color = color;
+        if (typeof item.blanked === "boolean") b.blanked = item.blanked;
+        if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
         out.push(b);
+    }
+    return out;
+}
+
+function parseExcludedBodies(value: any, file: string): ExcludedBody[] {
+    if (!Array.isArray(value))
+        fail("BadJson", file + ":excluded_bodies 应为数组", file);
+    const out: ExcludedBody[] = [];
+    for (let i = 0; i < value.length; ++i) {
+        const item = value[i];
+        if (typeof item !== "object" || item === null)
+            fail("BadJson", file + ":excluded_bodies 的元素应为对象", file);
+        const key = strOr(item, "key", "");
+        if (!key.trim())
+            fail("InvalidValue", file + ":excluded_bodies 第 " + i + " 项的 key 不能为空", file);
+        out.push({
+            key,
+            name: strOr(item, "name", ""),
+            reason: strOr(item, "reason", ""),
+            detail: strOr(item, "detail", ""),
+        });
     }
     return out;
 }
@@ -195,13 +232,34 @@ export function parseManifest(text: string): Manifest {
     });
 
     // ★可选 body_count 与体表(拍板 #3:整数字面量形式不作为校验依据,数值为整数即收)。
-    if ("body_count" in doc) {
-        const v = integer(doc.body_count);
-        if (v !== null && v >= 0 && v <= 0xFFFFFFFF)
-            m.bodyCount = v;
-    }
+    if ("body_count" in doc)
+        m.bodyCount = intInRange(doc, "body_count", file, 0, 0xFFFFFFFF);
     if ("bodies" in doc && doc.bodies !== null)
         m.bodies = parseBodies(doc.bodies, m.bodyCount ?? null, file);
+
+    // excluded_bodies 出现时三项计数必须齐备且对账成立；undefined 与 [] 语义不同。
+    if ("excluded_bodies" in doc) {
+        m.excludedBodies = parseExcludedBodies(doc.excluded_bodies, file);
+        if (!("enumerated_body_count" in doc) || m.bodyCount === undefined || m.bodies === undefined) {
+            fail("CountMismatch",
+                file + ":excluded_bodies 出现时 enumerated_body_count、body_count、bodies[] 必须齐备", file);
+        }
+        m.enumeratedBodyCount = intInRange(doc, "enumerated_body_count", file, 0, 0xFFFFFFFF);
+        if (m.enumeratedBodyCount !== m.bodyCount + m.excludedBodies.length) {
+            fail("CountMismatch",
+                file + ":对账不成立 enumerated_body_count(" + m.enumeratedBodyCount
+                + ") != body_count(" + m.bodyCount + ") + excluded_bodies(" + m.excludedBodies.length + ")", file);
+        }
+    }
+    if (m.bodyCount === 0) {
+        const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
+        if (coords.some(value => value !== 0))
+            fail("InvalidValue", file + ":零体包的 bbox_relative 必须全为 0", file);
+    }
+    if ("exclusion_policy" in doc && typeof doc.exclusion_policy === "string")
+        m.exclusionPolicy = doc.exclusion_policy;
+    const revision = optionalInt(doc, "manifest_revision");
+    if (revision !== null && revision >= 0) m.manifestRevision = revision;
     return m;
 }
 
