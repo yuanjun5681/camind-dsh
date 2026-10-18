@@ -40,7 +40,7 @@ import path from 'node:path'
 import { readZipEntry } from '../delivery-route.js'
 import { resolveRunDir, RUN_ID_PATTERN } from '../gate.js'
 import { buildDeliveryReport, buildSetupSheet, opStatusCn } from '../report.js'
-import { overallOf, reconcileNc } from './run.js'
+import { overallOf, reconcileNc, regenerationItemsOf } from './run.js'
 import { safeSessionId } from './survey.js'
 
 function json(payload) {
@@ -220,15 +220,13 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
     if (!spindleFound || !feedFound) blockers.push(`${op.name}：冻结转速/进给在 NC 中未完成回读匹配`)
     return { operation: op.name, expected_tool: pocket?.control_tool_id, toolNumbers, toolMatches, spindleFound, feedFound, coverage: 'ASCII command presence only; not full simulation' }
   }) : []
-  const pendingRegeneration = stateOps.flatMap(op => [
-    ...(op.other_operations_pending_regeneration ?? []),
-    ...(op.regeneration_required ?? []),
-    ...(op.error_detail?.regeneration_required ?? []),
-  ])
+  const pendingRegeneration = stateOps.flatMap(regenerationItemsOf)
+  const pendingKeys = new Set()
   for (const item of pendingRegeneration) {
-    const operation = typeof item === 'string' ? item : item?.operation ?? item?.tool ?? '未知工序'
-    const reason = typeof item === 'object' ? item.reason : undefined
-    blockers.push(`待重算刀路：${operation}（${reason ?? '需人工复核并显式授权'}）`)
+    const key = JSON.stringify([item.operation, item.reason ?? null])
+    if (pendingKeys.has(key)) continue
+    pendingKeys.add(key)
+    blockers.push(`待重算刀路：${item.operation}（${item.reason ?? '需人工复核并显式授权'}）`)
   }
   const sourceLabels = { user: '用户确认', drawing: '图纸原文', nx: 'NX 实测', recommendation: 'Agent 建议' }
   const problemNote = formal ? `问题包：禁止作为已放行生产程序\n生产检查未完成：\n${blockers.map(text => `- ${text}`).join('\n')}\n冻结规划来源：\n${Object.entries(frozenScheme.setup).map(([id, item]) => `- ${id}：${item.value}（${sourceLabels[item.source?.kind] || '来源未核验'}）`).join('\n')}\nNC 回读：\n${ncAudit.map(item => `- ${item.operation}：预期 ${item.expected_tool || '未知'}；实际 ${item.toolNumbers.join('/') || '未读到'}；刀号${item.toolMatches ? '匹配' : '不匹配'}；转速${item.spindleFound ? '已匹配' : '未匹配'}；进给${item.feedFound ? '已匹配' : '未匹配'}`).join('\n')}\n${note ?? ''}` : note

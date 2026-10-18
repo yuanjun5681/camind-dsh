@@ -6,7 +6,7 @@ import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { createCamTasks, digest } from './lib/tasks.js'
 import { registerCamPlan } from './lib/tools/plan.js'
-import { registerCamRun } from './lib/tools/run.js'
+import { executeCamRun, registerCamRun, regenerationItemsOf, resumeDecisionOf } from './lib/tools/run.js'
 import { executeCamDeliver } from './lib/tools/deliver.js'
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cam-execution-')), previous = process.env.DSH_HOME
 process.env.DSH_HOME = home
@@ -24,7 +24,7 @@ try {
   task = await tasks.finishReview('s1', task.version, task.review.fingerprint, task.requirement_summary.draft.map(item => item.id))
   task = await tasks.authorize('s1', task.version, task.fingerprint, { op1: { feed: [80, 120] } })
   const tools = new Map(), services = new Map([['camTasks', tasks]])
-  let done, ncName, calls = [], stopBeforeNext = false, invalidToolReadback = false, failedFinalize = false, throwFinalize = false, postFailure = false, pendingRegeneration = false
+  let done, ncName, calls = [], stopBeforeNext = false, invalidToolReadback = false, failedFinalize = false, throwFinalize = false, postFailure = false, pendingRegeneration = false, crossOperationPending = false
   const ctx = { get: name => services.get(name), tools: { register: tool => tools.set(tool.name, tool) } }
   const exec = { agent: { id: 's1', session: { header: { cwd: home } } } }
   registerCamPlan(ctx, { machineRegistry: registry })
@@ -42,11 +42,18 @@ try {
       if (endpoint === '/cam_finalize_work_copy') return { status: 'ok', data: { ok: !failedFinalize, saved: true, save_verified: true, modified_after_save: false, closed: !failedFinalize, error: failedFinalize ? 'close refused' : undefined } }
       if (endpoint === '/cam_set_tool_numbers') {
         const after = { num: 3, adj: 3, cutcom: 3, num_tog: null, adj_tog: null, cutcom_tog: null }
-        if (invalidToolReadback) after[invalidToolReadback] = invalidToolReadback.endsWith('_tog') ? 0 : 1
+        if (typeof invalidToolReadback === 'string' && invalidToolReadback.startsWith('missing_')) delete after[invalidToolReadback.slice(8)]
+        else if (invalidToolReadback) after[invalidToolReadback] = invalidToolReadback.endsWith('_tog') ? 0 : 1
         return { status: 'ok', data: { ok: true, saved: true, tools: { AP_MILL_D10: { after } } } }
       }
       if (endpoint === '/cam_copy_postprocess' && postFailure === 't501') return { status: 'error', errorType: 'FieldGuardError', errorClass: 'refused', errorDetail: { regeneration_required: [{ operation: params.new_name, tool: 'AP_MILL_D10', reason: 'missing T/H/D or definition bits' }], confirmation_param: 'allow_regenerate_toolpaths' } }
       if (endpoint === '/cam_build_workpiece_op') return { status: 'ok', data: { created: true, path_exists: true, toolpath_length: 10 } }
+      if (endpoint === '/postprocess' && crossOperationPending) {
+        const name = params.operations[0]
+        if (name.startsWith('A_')) return { status: 'error', errorType: 'WorkerError', msg: 'ordinary post failure', errorDetail: { posts: ['MILL_3_AXIS'] } }
+        ncName = name + '.nc'
+        return { status: 'ok', data: { files: { [name]: ncName }, regenerated_operations: [name], other_operations_pending_regeneration: [name.replace(/^B_/, 'A_')] } }
+      }
       if (endpoint === '/postprocess' && postFailure === 'ordinary') return { status: 'error', errorType: 'FieldGuardError', errorClass: 'refused', errorDetail: { posts: ['MILL_3_AXIS'] } }
       if (endpoint === '/postprocess' && postFailure === 't501') return { status: 'error', errorType: 'FieldGuardError', errorClass: 'refused', errorDetail: { regeneration_required: [{ operation: params.operations[0], tool: 'AP_MILL_D10', reason: 'missing T/H/D or definition bits' }], confirmation_param: 'allow_regenerate_toolpaths' } }
       if (endpoint === '/postprocess') {
@@ -70,7 +77,7 @@ try {
   } })
   registerCamRun(ctx, pipeline)
   const accepted = JSON.parse(await tools.get('cam_run').execute({ run_id: planned.run_id }, exec)); assert.equal(accepted.status, 'accepted')
-  const outcome = await done; assert.equal(outcome.status, 'completed'); assert.equal(typeof outcome.result, 'string', 'DSH 0.2 terminal payload is result')
+  const outcome = await done; assert.equal(outcome.status, 'completed', JSON.stringify(outcome)); assert.equal(typeof outcome.result, 'string', 'DSH 0.2 terminal payload is result')
   const summary = JSON.parse(outcome.result); assert.equal(summary.overall, 'ok')
   assert.equal(calls.find(c => c.endpoint === '/cam_build_workpiece_op').params.feed, 100)
   assert.deepEqual(calls.find(c => c.endpoint === '/cam_set_tool_numbers').params.numbers, { AP_MILL_D10: 3 })
@@ -113,8 +120,8 @@ try {
   assert.equal(thrownSummary.overall, 'ok')
   assert.equal(thrownSummary.cleanup.status, 'pending')
   throwFinalize = false
-  // Any mismatched T/H/D register or definition bit halts before toolpath generation or posting.
-  for (const field of ['num', 'adj', 'cutcom', 'num_tog', 'adj_tog', 'cutcom_tog']) {
+  // Any mismatched/missing T/H/D register or undefined definition bit halts before generation or posting.
+  for (const field of ['num', 'adj', 'cutcom', 'num_tog', 'adj_tog', 'cutcom_tog', 'missing_num_tog', 'missing_adj_tog', 'missing_cutcom_tog']) {
     const badBinding = JSON.parse(await tools.get('cam_plan').execute(args, exec))
     calls = []; invalidToolReadback = field
     await tools.get('cam_run').execute({ run_id: badBinding.run_id }, exec)
@@ -123,6 +130,12 @@ try {
     assert.equal(calls.some(c => ['/cam_build_workpiece_op', '/postprocess'].includes(c.endpoint)), false)
   }
   invalidToolReadback = false
+  assert.deepEqual(regenerationItemsOf({ other_operations_pending_regeneration: [], regeneration_required: false, error_detail: { regeneration_required: {} } }), [])
+  assert.equal(resumeDecisionOf('ok', { other_operations_pending_regeneration: [] }), 'skip')
+  assert.deepEqual(regenerationItemsOf({ error_detail: { regeneration_required: [null, ' A ', { operation: 'B', reason: '需重算' }, true, {}] } }), [{ operation: 'A' }, { operation: 'B', reason: '需重算' }, { operation: '未知工序' }])
+  assert.deepEqual(regenerationItemsOf({ regeneration_required: { operations: ['C', 'D'] } }), [{ operation: 'C' }, { operation: 'D' }])
+  assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: true } }), 'stop')
+  assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: 'A' } }), 'stop')
   // Ordinary post failures retain generated/resume-post semantics; only T-501 becomes a hard error.
   const ordinaryPost = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   postFailure = 'ordinary'; calls = []
@@ -170,6 +183,7 @@ try {
   await tools.get('cam_run').execute({ run_id: pendingT501.run_id }, exec)
   const pendingT501Summary = JSON.parse((await done).result)
   assert.equal(pendingT501Summary.overall, 'incomplete')
+  assert.match(pendingT501Summary.reason, /待重算刀路：OTHER/)
   assert.equal(pendingT501Summary.ops[0].status, 'ok')
   assert.equal(pendingT501Summary.ops[0].other_operations_pending_regeneration[0], 'OTHER')
   assert.equal(pendingT501Summary.ops[0].regenerated_operations[0], pendingT501Summary.ops[0].name)
@@ -179,6 +193,7 @@ try {
   const pendingManifest = JSON.parse(await fs.readFile(path.join(pendingT501.run_dir, 'delivery/manifest.json'), 'utf8'))
   assert.equal(pendingManifest.package_complete, false)
   assert.ok(pendingManifest.blockers.some(text => typeof text === 'string' && text.includes('待重算刀路：OTHER')))
+  assert.match(await fs.readFile(path.join(pendingT501.run_dir, 'delivery/delivery_report.md'), 'utf8'), /待重算刀路：OTHER/)
   const postCallsBeforeResume = calls.filter(call => call.endpoint === '/postprocess').length
   await tools.get('cam_run').execute({ run_id: pendingT501.run_id, resume: true }, exec)
   const resumeT501Summary = JSON.parse((await done).result)
@@ -186,6 +201,27 @@ try {
   assert.equal(resumeT501Summary.ops[0].decision, 'stop')
   assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, postCallsBeforeResume)
   pendingRegeneration = false
+  // A later operation can name an earlier one as pending; resume must scan all records before any retry.
+  const crossDir = path.join(home, 'cross-t501')
+  await fs.mkdir(crossDir)
+  await fs.writeFile(path.join(crossDir, 'job.json'), JSON.stringify({
+    prt: 'input/part.prt', out_dir: 'output', post_name: 'MILL_3_AXIS', operations: [
+      { ...task.operations[0], new_name: 'A_{suffix}' },
+      { ...task.operations[0], id: 'op2', new_name: 'B_{suffix}' },
+    ],
+  }))
+  const crossArgs = { camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', dshHome: home, isCancelled: () => false }
+  crossOperationPending = true; calls = []
+  const crossT501Summary = await executeCamRun({ ...crossArgs, resume: false })
+  assert.equal(crossT501Summary.ops[0].status, 'generated', JSON.stringify(crossT501Summary.ops))
+  assert.equal(crossT501Summary.ops[1].status, 'ok')
+  assert.deepEqual(crossT501Summary.ops[1].other_operations_pending_regeneration, [crossT501Summary.ops[0].name])
+  calls = []
+  const crossResumeSummary = await executeCamRun({ ...crossArgs, resume: true })
+  assert.deepEqual(crossResumeSummary.ops.map(op => op.decision), ['stop', 'stop'])
+  assert.equal(calls.some(call => ['/cam_build_workpiece_op', '/postprocess'].includes(call.endpoint)), false)
+  assert.match(crossResumeSummary.reason, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
+  crossOperationPending = false
   // Task stop prevents the next NX submission, without claiming an in-flight cancellation.
   const second = JSON.parse(await tools.get('cam_plan').execute(args, exec)); stopBeforeNext = true; calls = []
   await tools.get('cam_run').execute({ run_id: second.run_id }, exec); const stopped = JSON.parse((await done).result)

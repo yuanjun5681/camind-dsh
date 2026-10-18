@@ -144,10 +144,39 @@ export function createdMetricsOf(data) {
   return { created, path_exists: pathExists, toolpath_length: toolpathLength, error, detail }
 }
 
+function normalizeRegeneration(value) {
+  if (Array.isArray(value)) return value.flatMap(normalizeRegeneration)
+  if (typeof value === 'string') return value.trim() ? [{ operation: value.trim() }] : []
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.operations)) return normalizeRegeneration(value.operations)
+    if (Object.keys(value).length === 0) return []
+    const operation = typeof value.operation === 'string' && value.operation.trim() ? value.operation.trim()
+      : typeof value.tool === 'string' && value.tool.trim() ? value.tool.trim() : '未知工序'
+    const reason = typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim() : undefined
+    return [{ operation, ...(reason ? { reason } : {}) }]
+  }
+  return value ? [{ operation: '未知工序' }] : []
+}
+
+// 执行与交付共用同一份归一化：上游当前返回名称数组/对象数组；异常形态也只
+// 能向 fail-closed 收敛，不能把布尔、字符串或 null 直接展开进交付逻辑。
+export function regenerationItemsOf(op) {
+  const items = [
+    ...normalizeRegeneration(op?.other_operations_pending_regeneration),
+    ...normalizeRegeneration(op?.regeneration_required),
+    ...normalizeRegeneration(op?.error_detail?.regeneration_required),
+  ]
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = JSON.stringify([item.operation, item.reason ?? null])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function hasPendingRegeneration(op) {
-  return Boolean(op?.other_operations_pending_regeneration?.length
-    || op?.regeneration_required?.length
-    || op?.error_detail?.regeneration_required?.length)
+  return regenerationItemsOf(op).length > 0
 }
 
 function t501FieldsOf(data, errorDetail) {
@@ -155,6 +184,7 @@ function t501FieldsOf(data, errorDetail) {
   return {
     ...(data?.regenerated_operations !== undefined ? { regenerated_operations: data.regenerated_operations } : {}),
     ...(data?.other_operations_pending_regeneration !== undefined ? { other_operations_pending_regeneration: data.other_operations_pending_regeneration } : {}),
+    ...(data?.regeneration_required !== undefined ? { regeneration_required: data.regeneration_required } : {}),
     ...(data?.tool_numbers_fixed !== undefined ? { tool_numbers_fixed: data.tool_numbers_fixed } : {}),
     ...(detail !== undefined ? { error_detail: detail } : {}),
   }
@@ -193,9 +223,10 @@ export function overallOf(opEntries, check) {
   if (failed.length > 0) {
     return { overall: 'error', reason: `有工序执行失败：${failed.map((o) => o.name).join('、')}` }
   }
-  const pending = opEntries.filter(hasPendingRegeneration)
+  const pending = opEntries.flatMap(regenerationItemsOf)
   if (pending.length > 0) {
-    return { overall: 'incomplete', reason: `存在待重算刀路：${pending.map((o) => o.name).join('、')}；未经显式授权不得交付或自动续跑。` }
+    const names = [...new Set(pending.map((item) => item.operation))]
+    return { overall: 'incomplete', reason: `存在待重算刀路：${names.join('、')}；未经显式授权不得交付或自动续跑。` }
   }
   const notOk = opEntries.filter((o) => o.status !== OP_OK)
   if (notOk.length > 0) {
@@ -556,9 +587,12 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   }
 
   mark({ stage: 'ops', total: resolved.length })
+  // pending 可能由后序工序记录、却点名前序工序；先扫完整 runstate，再决定
+  // 是否允许任何续跑动作，避免先执行 A、走到 B 才发现 A 待重算。
+  const stopAllForRegeneration = resume && resolved.some(entry => hasPendingRegeneration(state.ops[entry.index]))
   for (const entry of resolved) {
     const prev = state.ops[entry.index]
-    const decision = resume ? resumeDecisionOf(prev?.status, prev) : 'rerun'
+    const decision = stopAllForRegeneration ? 'stop' : resume ? resumeDecisionOf(prev?.status, prev) : 'rerun'
     if (decision === 'skip') {
       summary.ops.push({ ...prev, decision: 'skip' })
       mark({ stage: 'op', index: entry.index, name: entry.name, status: 'skip' })
@@ -567,6 +601,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     if (decision === 'stop') {
       summary.ops.push({ ...prev, decision: 'stop' })
       mark({ stage: 'op', index: entry.index, name: entry.name, status: 'stop' })
+      if (stopAllForRegeneration) continue
       break
     }
     if (isCancelled()) {
