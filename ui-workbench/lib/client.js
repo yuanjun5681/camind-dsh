@@ -833,7 +833,7 @@ async function addSelectionToDraft(sessionId, reference) {
 }
 
 const DRAWING_REFERENCE_SOURCE = 'cam-drawing-ref'
-const drawingReferenceSelections = new Map()
+const drawingReferenceControllers = new Map()
 function drawingReferenceClipboard(ref) {
   return `[CAM_DRAWING_REFERENCE]\n${ref}\n[/CAM_DRAWING_REFERENCE]`
 }
@@ -845,56 +845,38 @@ async function verifyDrawingReference(sessionId, reference, signal) {
   if (!response.ok || !body.reference) throw new Error(body.message || '图纸引用核验失败')
   return body
 }
-async function addDrawingReferenceToDraft(sessionId, reference) {
+function drawingReferenceController(sessionId) {
   const input = sessionInput(sessionId)
   if (!input) throw new Error('原生输入框未就绪，请稍后重试')
-  const ticket = (drawingReferenceSelections.get(sessionId) ?? 0) + 1
-  drawingReferenceSelections.set(sessionId, ticket)
-  if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-  let crossedBoundary = false
-  const unsubscribe = input.state.subscribe?.(() => { if (input.state.getSnapshot().phase !== 'plain') crossedBoundary = true }) ?? (() => {})
-  try {
-    let verified
-    try {
-      const result = await verifyDrawingReference(sessionId, reference)
-      verified = result.reference
-    } catch (error) {
-      if (drawingReferenceSelections.get(sessionId) !== ticket || crossedBoundary || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
-      throw error
-    }
-    if (crossedBoundary || drawingReferenceSelections.get(sessionId) !== ticket || applyCtx.get('sidebarRight').mounted.getSnapshot() !== sessionId) return
-    const state = input.state.getSnapshot()
-    if (state.phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-    const ref = JSON.stringify(verified)
-    const owned = state.occurrences.filter(item => item.source === DRAWING_REFERENCE_SOURCE)
-    if (owned.length > 1) throw new Error('当前图纸引用无法替换，请清理后重试')
-    if (owned.some(item => item.ref === ref)) { input.focus(); return }
-    const end = state.draft.length - state.occurrences.reduce((n, item) => n + item.length - 1, 0)
-    const target = verified.target.type === 'dim' ? `尺寸 ${verified.target.id}` : `图元 ${verified.target.id}`
-    const label = `${target} · ${verified.source.sha256.slice(0, 8)}`
-    const span = owned[0] ? drawingQuestionSpan(state, owned[0]) : { start: end, end, draftRev: state.draftRev }
-    if (!input.insertReference({ source: DRAWING_REFERENCE_SOURCE, ref, label, appearance: 'file', clipboardText: drawingReferenceClipboard(ref) }, span)) {
-      throw new Error('草稿已变更，请重新添加引用')
-    }
-    input.focus()
-  } finally {
-    unsubscribe()
+  const scope = applyCtx.get('sessions').scope(sessionId)
+  const admitted = applyCtx.get('uiConversation').binding(sessionId).target('chat')
+  const pending = applyCtx.get('sessions').binding?.(sessionId)?.session
+  const previous = drawingReferenceControllers.get(sessionId)
+  if (previous && (previous.input !== input || previous.admitted !== admitted || previous.pending !== pending)) {
+    previous.dispose(); drawingReferenceControllers.delete(sessionId)
   }
+  if (!drawingReferenceControllers.has(sessionId)) {
+    drawingReferenceControllers.set(sessionId, createDrawingQuestionController({
+      input, admitted, pending,
+      source: DRAWING_REFERENCE_SOURCE, placement: 'end', clipboard: drawingReferenceClipboard, verifyHandoff: true, labelPrefix: '',
+      consume: span => scope.bail('slash/input-consume-token', { guard: { kind: 'span', span } }) === true,
+      validate: async reference => (await verifyDrawingReference(sessionId, reference)).reference,
+      isCurrent: () => applyCtx.get('sidebarRight').mounted.getSnapshot() === sessionId,
+      stale: () => false,
+      present: checked => {
+        const target = checked.target.type === 'dim' ? `尺寸 ${checked.target.id}` : `图元 ${checked.target.id}`
+        return { reference: checked, ref: JSON.stringify(checked), label: `${target} · ${checked.source.sha256.slice(0, 8)}` }
+      },
+    }))
+  }
+  return drawingReferenceControllers.get(sessionId)
+}
+function addDrawingReferenceToDraft(sessionId, reference) {
+  return drawingReferenceController(sessionId).select(reference)
 }
 function addPreviewReferenceToDraft(sessionId, reference) {
   if (!reference) {
-    drawingReferenceSelections.set(sessionId, (drawingReferenceSelections.get(sessionId) ?? 0) + 1)
-    const input = sessionInput(sessionId)
-    if (input) {
-      const state = input.state.getSnapshot()
-      const owned = state.occurrences.filter(item => item.source === DRAWING_REFERENCE_SOURCE)
-      if (owned.length > 1) throw new Error('当前图纸引用无法清除，请清理后重试')
-      if (owned[0] && state.phase === 'plain') {
-        const scope = applyCtx.get('sessions').scope(sessionId)
-        const span = drawingQuestionSpan(state, owned[0])
-        if (!scope?.bail('slash/input-consume-token', { guard: { kind: 'span', span } })) throw new Error('当前引用暂时无法清除，请稍后重试')
-      }
-    }
+    if (sessionInput(sessionId)) drawingReferenceController(sessionId).clear()
     return
   }
   return reference.kind === 'camind-drawing-ref'
@@ -1589,22 +1571,54 @@ function drawingQuestionSpan(state, occurrence) {
   return { start, end: start + 1, draftRev: state.draftRev }
 }
 // One owned native chip is the send snapshot; retained selection never rewrites a submitted request.
-function createDrawingQuestionController({ input, consume, validate, isCurrent, admitted }) {
+function createDrawingQuestionController(options) {
+  const { input, consume, validate, isCurrent, admitted, pending } = options
+  const source = options.source ?? DRAWING_QUESTION_SOURCE, placement = options.placement ?? 'start'
+  const clipboard = options.clipboard ?? (ref => `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]`)
+  const labelPrefix = options.labelPrefix ?? '针对：', verifyHandoff = options.verifyHandoff === true
+  const present = options.present ?? ((checked, chip) => ({
+    reference: checked, ref: chip?.ref ?? JSON.stringify(checked),
+    label: checked.entities?.[0]?.text || chip?.label.replace(/^针对：/, '') || '图纸文字',
+  }))
   let snapshot = { active: null, hasChip: false }, sequence = 0, editing = false, handoff = false, disposed = false, version = null, invalidNotice = false
   const listeners = new Set()
   const publish = next => { snapshot = next; for (const listener of listeners) listener() }
-  const owned = state => state.occurrences.filter(item => item.source === DRAWING_QUESTION_SOURCE)
-  const stale = ref => version && (ref.source_sha256 !== version.source || (ref.kind === 'drawing-target' && version.preview && ref.preview_sha256 !== version.preview))
+  const owned = state => state.occurrences.filter(item => item.source === source)
+  const stale = options.stale ?? (ref => version && (ref.source_sha256 !== version.source || (ref.kind === 'drawing-target' && version.preview && ref.preview_sha256 !== version.preview)))
   const invalidate = () => { handoff = false; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
   const insert = active => {
     const state = input.state.getSnapshot(), chips = owned(state)
     if (state.phase !== 'plain' || chips.length > 1) return false
-    const span = chips[0] ? drawingQuestionSpan(state, chips[0]) : { start: 0, end: 0, draftRev: state.draftRev }
+    const end = state.draft.length - state.occurrences.reduce((sum, item) => sum + item.length - 1, 0)
+    const start = chips[0] ? null : placement === 'end' ? end : 0
+    const span = chips[0] ? drawingQuestionSpan(state, chips[0]) : { start, end: start, draftRev: state.draftRev }
     editing = true
-    try { return input.insertReference({ source: DRAWING_QUESTION_SOURCE, ref: active.ref, label: `针对：${active.label}`, appearance: 'file', clipboardText: `[CAM_OBJECT]\n${active.ref}\n[/CAM_OBJECT]` }, span) }
+    try { return input.insertReference({ source, ref: active.ref, label: `${labelPrefix}${active.label}`, appearance: 'file', clipboardText: clipboard(active.ref) }, span) }
     finally { editing = false }
   }
-  const fromChip = chip => { try { const reference = JSON.parse(chip.ref); return { ref: chip.ref, reference, label: reference.entities?.[0]?.text || chip.label.replace(/^针对：/, '') } } catch { return null } }
+  const fromChip = chip => { try { return present(JSON.parse(chip.ref), chip) } catch { return null } }
+  let reattaching = false
+  const reattach = async () => {
+    if (reattaching || !handoff || !snapshot.active || snapshot.hasChip) return
+    reattaching = true
+    const ticket = sequence, retained = snapshot.active
+    try {
+      const checked = await validate(retained.reference)
+      if (disposed || ticket !== sequence || !isCurrent() || !handoff || snapshot.active?.ref !== retained.ref || snapshot.hasChip) return
+      if (stale(checked)) { invalidate(); return }
+      const active = present(checked)
+      if (!insert(active)) return
+      handoff = false; publish({ active, hasChip: true })
+    } catch (error) {
+      if (!disposed && ticket === sequence && handoff) input.notify?.('error', error instanceof Error ? error.message : String(error))
+    } finally {
+      reattaching = false
+    }
+  }
+  const attachRetained = () => {
+    if (verifyHandoff) { void reattach(); return }
+    if (insert(snapshot.active)) { handoff = false; sync() }
+  }
   const sync = () => {
     if (editing || disposed) return
     const state = input.state.getSnapshot(), chip = owned(state)[0]
@@ -1626,11 +1640,25 @@ function createDrawingQuestionController({ input, consume, validate, isCurrent, 
     }
     if (!chip && snapshot.active && stale(snapshot.active.reference)) { invalidate(); return }
     // A new draft can start before admission settles. Only attach once it contains new user work.
-    if (handoff && snapshot.active && !snapshot.hasChip && state.phase === 'plain' && (state.draft.trim() || state.attachmentIds?.length)) {
-      if (insert(snapshot.active)) { handoff = false; sync() }
-    }
+    if (handoff && snapshot.active && !snapshot.hasChip && state.phase === 'plain' && (state.draft.trim() || state.attachmentIds?.length)) attachRetained()
   }
-  const unsubscribe = input.state.subscribe(sync)
+  let lastPhase = input.state.getSnapshot().phase
+  const unsubscribe = input.state.subscribe(() => {
+    if (disposed) return
+    const phase = input.state.getSnapshot().phase
+    if (phase !== lastPhase) { if (phase !== 'plain') sequence++; lastPhase = phase }
+    sync()
+  })
+  const seenSubmissions = new Set((pending?.getSnapshot()?.pendingSubmissions ?? []).map(item => item.requestId))
+  const unsubscribePending = pending?.subscribe?.(() => {
+    if (disposed) return
+    let crossed = false
+    for (const item of pending.getSnapshot()?.pendingSubmissions ?? []) {
+      if (!item.requestId || seenSubmissions.has(item.requestId)) continue
+      seenSubmissions.add(item.requestId); crossed = true
+    }
+    if (crossed) sequence++
+  })
   let lastTurn = admitted?.getSnapshot()?.legacy?.nodes?.findLast(node => node.kind === 'user')?.turn
   const unsubscribeAdmitted = admitted?.subscribe(() => {
     if (!isCurrent()) return
@@ -1639,17 +1667,24 @@ function createDrawingQuestionController({ input, consume, validate, isCurrent, 
     catch { return } // The upstream session reference can be released during navigation.
     if (turn === undefined || turn === lastTurn) return
     lastTurn = turn
-    if (handoff && snapshot.active && !snapshot.hasChip && insert(snapshot.active)) { handoff = false; sync() }
+    if (handoff && snapshot.active && !snapshot.hasChip) attachRetained()
   })
   sync()
   return {
-    input, admitted,
+    input, admitted, pending,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot,
     async select(reference, shouldFocus = () => true) {
-      const ticket = ++sequence, checked = await validate(reference)
+      if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
+      const ticket = ++sequence
+      let checked
+      try { checked = await validate(reference) }
+      catch (error) {
+        if (disposed || ticket !== sequence || !isCurrent()) return false
+        throw error
+      }
       if (disposed || ticket !== sequence || !isCurrent()) return false
       if (stale(checked)) throw new Error('图纸或预览已更新，请重新选择提问对象')
-      const active = { reference: checked, ref: JSON.stringify(checked), label: checked.entities?.[0]?.text || '图纸文字' }
+      const active = present(checked)
       if (snapshot.active?.ref === active.ref && snapshot.hasChip) { if (shouldFocus()) input.focus(); return true }
       const focus = shouldFocus()
       if (!insert(active)) throw new Error('输入框正在提交或引用无法替换，请稍后重选')
@@ -1664,11 +1699,11 @@ function createDrawingQuestionController({ input, consume, validate, isCurrent, 
       handoff = false; publish({ active: null, hasChip: false })
     },
     beginSend(ref) { if (snapshot.active?.ref === ref) handoff = true },
-    setVersion(source, preview) {
-      if (version?.source !== source || version?.preview !== preview) { sequence++; version = { source, preview }; sync() }
+    setVersion(sourceValue, preview) {
+      if (version?.source !== sourceValue || version?.preview !== preview) { sequence++; version = { source: sourceValue, preview }; sync() }
       if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
     },
-    dispose() { disposed = true; sequence++; unsubscribe(); unsubscribeAdmitted?.(); listeners.clear() },
+    dispose() { disposed = true; sequence++; unsubscribe(); unsubscribePending?.(); unsubscribeAdmitted?.(); listeners.clear() },
   }
 }
 function drawingQuestion(sessionId) {
@@ -2029,6 +2064,7 @@ function apply(ctx) {
         checkSession()
         const { reference: verified, targetContent } = await verifyDrawingReference(reference.session, reference, signal)
         checkSession()
+        drawingReferenceController(reference.session).beginSend(ref)
         const detail = targetContent ? `\n已核验图纸对象内容：${JSON.stringify(targetContent)}` : ''
         return `${drawingReferenceClipboard(JSON.stringify(verified))}${detail}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
       },
@@ -2059,7 +2095,11 @@ function apply(ctx) {
     },
     openReference({ sessionId }, { ref }) { if (JSON.parse(ref).session_id !== sessionId) return false; openView(sessionId, VIEW_ID); return true },
   }), 'ui-workbench: native task references')
-  ctx.effect(() => () => { for (const controller of drawingQuestions.values()) controller.dispose(); drawingQuestions.clear(); drawingReferenceSelections.clear() }, 'ui-workbench: drawing questions')
+  ctx.effect(() => () => {
+    for (const controller of drawingQuestions.values()) controller.dispose()
+    for (const controller of drawingReferenceControllers.values()) controller.dispose()
+    drawingQuestions.clear(); drawingReferenceControllers.clear()
+  }, 'ui-workbench: drawing questions')
 
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view', id: VIEW_ID, order: -10, label: () => '工作台',

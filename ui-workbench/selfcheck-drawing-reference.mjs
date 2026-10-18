@@ -18,15 +18,25 @@ assert.deepEqual(drawingReferences({
 console.log('ok - trusted descriptor contract and content-mode read-only')
 
 let plugin, sourceDefinition, allow = true, mounted = 's1', deferred = null
-const inserted = [], verifyCalls = [], previewCalls = [], events = []
-let state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [] }
-const stateListeners = new Set()
+const inserted = [], verifyCalls = [], previewCalls = [], events = [], disposers = []
+let state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [], attachmentIds: [] }
+const stateListeners = new Set(), submissionListeners = new Set(), admittedListeners = new Set()
+let submissionSnapshot = { pendingSubmissions: [] }, admittedSnapshot = { legacy: { nodes: [] } }
+const submissionFace = {
+  getSnapshot: () => submissionSnapshot,
+  subscribe: listener => { submissionListeners.add(listener); return () => submissionListeners.delete(listener) },
+}
+const admittedFace = {
+  getSnapshot: () => admittedSnapshot,
+  subscribe: listener => { admittedListeners.add(listener); return () => admittedListeners.delete(listener) },
+}
 const input = {
   state: {
     getSnapshot: () => state,
     subscribe: listener => { stateListeners.add(listener); return () => stateListeners.delete(listener) },
   },
   focus: () => { events.push('focus') },
+  notify: () => { events.push('notify') },
   insertReference(ref, span) {
     assert.equal(span.draftRev, state.draftRev)
     events.push('insert')
@@ -59,6 +69,15 @@ function publish(patch) {
   state = { ...state, ...patch, draftRev: state.draftRev + 1 }
   for (const listener of stateListeners) listener()
 }
+function publishPending(pendingSubmissions) {
+  submissionSnapshot = { pendingSubmissions }
+  for (const listener of submissionListeners) listener()
+}
+function publishAdmitted(nodes) {
+  admittedSnapshot = { legacy: { nodes } }
+  for (const listener of admittedListeners) listener()
+}
+const tick = () => new Promise(resolve => setImmediate(resolve))
 async function fetch(url, options = {}) {
   if (!url.includes('/refs/verify')) throw new Error(`unexpected fetch: ${url}`)
   const claimed = JSON.parse(options.body)
@@ -78,9 +97,14 @@ async function fetch(url, options = {}) {
 }
 const ctx = {
   slots: { inject: (_name, fn) => fn(), register: () => {} },
-  effect: (fn, label) => { if (label?.includes('native drawing references')) fn() },
+  effect: (fn, label) => {
+    if (!label?.includes('native drawing references') && !label?.includes('drawing questions')) return
+    const dispose = fn()
+    if (typeof dispose === 'function') disposers.push(dispose)
+  },
   get: name => {
     if (name === 'sessions') return {
+      binding: () => ({ session: submissionFace }),
       scope: () => ({
         get: () => ({ input: { for: () => input } }),
         bail: (_token, { guard }) => {
@@ -97,6 +121,7 @@ const ctx = {
         },
       }),
     }
+    if (name === 'uiConversation') return { binding: () => ({ target: () => admittedFace }) }
     if (name === 'sidebarRight') return { mounted: { getSnapshot: () => mounted } }
     if (name === 'inputTriggers') return { registerSource: definition => { sourceDefinition = definition; return () => {} } }
     if (name === 'filePreview') return { preview: (sessionId, uri) => { previewCalls.push([sessionId, uri]) } }
@@ -193,7 +218,7 @@ publish({ phase: 'plain', draft: '新问题' })
 pending.get(4)()
 await fourth
 assert.deepEqual(inserted.map(ref => JSON.parse(ref.ref).target.id), [2, 3], 'a pending pick cannot cross a submit/reset boundary into a new question')
-assert.equal(stateListeners.size, 0, 'verification subscriptions are always released')
+assert.equal(stateListeners.size, 1, 'one persistent controller subscription remains for send handoff')
 console.log('ok - pending references are discarded across submit/reset boundaries')
 
 const fifth = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 5 } })
@@ -227,3 +252,125 @@ assert.equal(state.occurrences.some(item => item.source === 'cam-drawing-ref'), 
 assert.equal(state.occurrences[0].source, 'file', 'unrelated references survive chip invalidation')
 assert.ok(state.draft.includes('新问题'), 'question text survives chip invalidation')
 console.log('ok - source invalidation consumes stale chips without deleting question content')
+
+state = { draft: '', phase: 'plain', draftRev: 100, occurrences: [], attachmentIds: [] }
+inserted.length = 0
+deferred = null; allow = true; mounted = 's1'
+const ownedIds = () => state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).target.id)
+async function selectId(id) {
+  const candidate = { ...reference, target: { type: 'entity', id } }
+  assert.equal(await api.addPreviewReferenceToDraft('s1', candidate), true)
+  return JSON.stringify(candidate)
+}
+async function serializeAndClear(ref, requestId) {
+  const serialized = await sourceDefinition.codec.serialize(ref, new AbortController().signal)
+  publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+  publishPending([{ requestId, placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
+  return serialized
+}
+
+const ref10 = await selectId(10)
+const afterSelect10 = inserted.length
+const sent10 = await serializeAndClear(ref10, 'request-10')
+assert.deepEqual(ownedIds(), [])
+publishAdmitted([{ kind: 'user', turn: 1 }])
+await tick()
+assert.deepEqual(ownedIds(), [10], 'admission reattaches the current object exactly once')
+assert.equal(inserted.length, afterSelect10 + 1)
+assert.equal(verifyCalls.filter(call => call.claimed.target.id === 10).length, 3, 'select, send and readmission each verify independently')
+const afterAdmission10 = inserted.length
+publishAdmitted([{ kind: 'user', turn: 1 }])
+await tick()
+assert.equal(inserted.length, afterAdmission10, 'duplicate admission cannot duplicate the chip')
+assert.match(sent10, /"id":10/)
+console.log('ok - immutable send snapshot and verified admission reattach')
+
+const ref11 = await selectId(11)
+const sent11 = await serializeAndClear(ref11, 'request-11')
+publish({ draft: '追问：保留这段文字 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+await tick()
+assert.deepEqual(ownedIds(), [11], 'typing a follow-up before admission admits the retained object early')
+assert.ok(state.draft.startsWith('追问：保留这段文字 '), 'early reattach preserves the new question text')
+const afterEarly11 = inserted.length
+publishAdmitted([{ kind: 'user', turn: 2 }])
+await tick()
+assert.equal(inserted.length, afterEarly11, 'later admission cannot attach a second copy')
+assert.match(sent11, /"id":11/)
+console.log('ok - early follow-up reattach preserves text and admits once')
+
+const ref12 = await selectId(12)
+const sent12 = await serializeAndClear(ref12, 'request-12')
+await selectId(13)
+publishAdmitted([{ kind: 'user', turn: 3 }])
+await tick()
+assert.deepEqual(ownedIds(), [13], 'a later pick supersedes the sent object before admission')
+assert.match(sent12, /"id":12/)
+assert.equal(sent12.includes('"id":13'), false, 'the earlier send snapshot is not rewritten by a later pick')
+console.log('ok - late selection cannot rewrite an in-flight request')
+
+const ref14 = await selectId(14)
+const restoredDraft = state.draft, restoredOccurrences = state.occurrences
+const sent14 = await serializeAndClear(ref14, 'request-14')
+publishPending([])
+const beforeRestore14 = inserted.length
+publish({ draft: restoredDraft, occurrences: restoredOccurrences, attachmentIds: [], phase: 'plain' })
+publishAdmitted([{ kind: 'user', turn: 4 }])
+await tick()
+assert.deepEqual(ownedIds(), [14])
+assert.equal(inserted.length, beforeRestore14, 'native failure restoration must not add another chip')
+assert.match(sent14, /"id":14/)
+console.log('ok - failed-send snapshot restore does not duplicate references')
+
+deferred = claimed => new Promise(resolve => {
+  pending.set(claimed.target.id, () => resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) }))
+})
+const detached15 = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 15 } })
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+publishPending([{ requestId: 'request-detached-15', placement: 'transcript', time: 1, text: 'other', attachments: [] }])
+pending.get(15)()
+await detached15
+assert.equal(ownedIds().includes(15), false, 'detached plain-phase send invalidates a pending old selection')
+deferred = null
+console.log('ok - pendingSubmissions closes the plain-phase submission boundary')
+
+const ref16 = await selectId(16)
+await serializeAndClear(ref16, 'request-16')
+api.addPreviewReferenceToDraft('s1', null)
+publishAdmitted([{ kind: 'user', turn: 5 }])
+await tick()
+assert.equal(ownedIds().includes(16), false, 'clearing selection before admission cancels retained handoff')
+const ref17 = await selectId(17)
+await serializeAndClear(ref17, 'request-17')
+mounted = 's2'
+api.addPreviewReferenceToDraft('s1', null)
+publishAdmitted([{ kind: 'user', turn: 6 }])
+await tick()
+assert.equal(ownedIds().includes(17), false, 'session navigation invalidation prevents stale readmission')
+mounted = 's1'
+console.log('ok - clear and session invalidation cancel retained handoff')
+
+const ref18 = await selectId(18)
+await serializeAndClear(ref18, 'request-18')
+allow = false
+publishAdmitted([{ kind: 'user', turn: 7 }])
+await tick()
+assert.equal(ownedIds().includes(18), false, 'failed readmission verification cannot restore a chip')
+allow = true
+console.log('ok - readmission remains fail-closed')
+
+const ref19 = await selectId(19)
+allow = false
+await assert.rejects(sourceDefinition.codec.serialize(ref19, new AbortController().signal), /失效/)
+allow = true
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+publishAdmitted([{ kind: 'user', turn: 8 }])
+await tick()
+assert.equal(ownedIds().includes(19), false, 'failed serialization must not arm retained handoff when the restored chip is later removed')
+console.log('ok - serialization failure does not arm retained handoff')
+
+api.addPreviewReferenceToDraft('s1', null)
+for (const dispose of disposers) dispose()
+assert.equal(stateListeners.size, 0)
+assert.equal(submissionListeners.size, 0)
+assert.equal(admittedListeners.size, 0)
+console.log('M4-04 drawing reference handoff selfcheck complete')
