@@ -1493,7 +1493,11 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
         h(DrawingTool, { name: 'fit', label: '适配全图 (F)', disabled: !controller, onClick: () => controller?.fit() }),
         h(DrawingTool, { name: 'box', label: '框选放大', 'aria-pressed': boxMode, disabled: !controller, onClick: () => { boxDrag.current = null; setBoxRect(null); setBoxMode(old => !old) } }),
         h(DrawingTool, { name: 'annotations', label: '查找图纸文字', 'aria-pressed': open, onClick: () => setOpen(old => !old) }),
-        h('details', null,
+        h('details', { onKeyDown: event => {
+          if (event.key !== 'Escape') return
+          event.preventDefault(); event.currentTarget.open = false
+          event.currentTarget.querySelector('summary')?.focus()
+        } },
           h('summary', { 'aria-label': '更多图纸选项', title: '更多图纸选项' }, h(DrawingIcon, { name: 'more' })),
           h('div', { className: 'wb-drawing-menu' },
             h('label', null, h('input', { type: 'checkbox', checked: originalColors, onChange: event => setOriginalColors(event.target.checked) }), '原始配色'),

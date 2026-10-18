@@ -234,6 +234,15 @@ assert.ok(text(tree).includes('2 个图片对象未显示'))
 assert.ok(text(tree).includes('proxy'))
 console.log('ok - readable/original colors and copyable conversion diagnostics')
 
+const options = one(node => node.type === 'details' && text(node).includes('原始配色'), 'drawing options')
+let summaryFocus = 0, escapePrevented = 0
+const optionsEvent = { open: true, querySelector: () => ({ focus: () => { summaryFocus++ } }), preventDefault: () => { escapePrevented++ } }
+options.props.onKeyDown({ key: 'Escape', currentTarget: optionsEvent, preventDefault: optionsEvent.preventDefault })
+assert.equal(optionsEvent.open, false, 'Escape closes the drawing options menu')
+assert.equal(summaryFocus, 1, 'Escape returns focus to the options summary')
+assert.equal(escapePrevented, 1)
+console.log('ok - options menu Escape dismissal and focus restoration')
+
 one(node => node.type === 'button' && node.props['aria-label'] === '放大图纸', 'zoom in').props.onClick()
 one(node => node.type === 'button' && node.props['aria-label'] === '缩小图纸', 'zoom out').props.onClick()
 one(node => node.type === 'button' && node.props['aria-label'] === '适配全图 (F)', 'fit').props.onClick()
