@@ -276,6 +276,8 @@ assert.equal(drawingVerifiedSelection(verifiedDescriptor, { active: { reference:
 assert.deepEqual(normalize(drawingVerifiedSelection(verifiedDescriptor, { active: { reference: verifiedReference }, hasChip: true, pending: false }, [{ type: 'entity', id: 99 }])), [verifiedTarget], 'a stale highlight is restored to the verified chip target')
 const otherDescriptor = { ...verifiedDescriptor, source: { ...verifiedDescriptor.source, sha256: '9'.repeat(64) } }
 assert.equal(drawingVerifiedSelection(otherDescriptor, { active: { reference: verifiedReference }, hasChip: true, pending: false }, [{ type: 'entity', id: 99 }]), null, 'a chip from another source or pack is not replayed')
+const changedPackDescriptor = { ...verifiedDescriptor, pack: { ...verifiedDescriptor.pack, sha256: '4'.repeat(64) } }
+assert.equal(drawingVerifiedSelection(changedPackDescriptor, { active: { reference: verifiedReference }, hasChip: false, pending: false }, [verifiedTarget]), 'invalidate', 'same-source pack changes invalidate the retained chip')
 console.log('ok - pane selection follows the verified native reference state')
 
 const adapterSource = DrawingWorkbenchAdapter.toString()

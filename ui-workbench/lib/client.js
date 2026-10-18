@@ -1347,13 +1347,14 @@ function drawingEntityText(entity) {
 function drawingVerifiedSelection(descriptor, question, selection) {
   if (!question || question.pending) return null
   if (!question.active) return selection.length ? [] : null
-  if (!question.hasChip) return null
-  const reference = question.active.reference, target = reference?.target
+  const reference = question.active.reference
+  const sameSource = descriptor.session === reference.session && descriptor.source?.uri === reference.source?.uri
+    && descriptor.source?.sha256 === reference.source?.sha256
+  const samePack = descriptor.pack?.sha256 === reference.pack?.sha256 && descriptor.pack?.identity === reference.pack?.identity
+  if (sameSource && !samePack) return 'invalidate'
+  if (!question.hasChip || !sameSource || !samePack) return null
+  const target = reference.target
   if (!target) return selection.length ? [] : null
-  const samePreview = descriptor.session === reference.session && descriptor.source?.uri === reference.source?.uri
-    && descriptor.source?.sha256 === reference.source?.sha256 && descriptor.pack?.sha256 === reference.pack?.sha256
-    && descriptor.pack?.identity === reference.pack?.identity
-  if (!samePreview) return null
   return selection.some(item => item.id === target.id && item.type === target.type) ? null : [target]
 }
 function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef, degraded }) {
@@ -1374,6 +1375,11 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
   useEffect(() => {
     if (!controller) return
     const next = drawingVerifiedSelection(descriptor, verifiedQuestion, selection)
+    if (next === 'invalidate') {
+      drawingReferenceController(descriptor.session).clear(verifiedQuestion.active.reference)
+      controller.clearSelection(false)
+      return
+    }
     if (next?.length) controller.setSelection(next, false)
     else if (next) controller.clearSelection(false)
   }, [controller, verifiedQuestion, selection])
