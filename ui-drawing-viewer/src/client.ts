@@ -5,7 +5,7 @@ import { descriptorProvenance, drawingReferences, validateDescriptor, type Drawi
 import { drawingCss } from './styles.ts'
 
 const h = React.createElement
-type ReferenceHandler = (reference: DrawingReferenceCandidate | null) => void | Promise<void>
+type ReferenceHandler = (reference: DrawingReferenceCandidate | null, origin?: DrawingDescriptor) => void | Promise<void>
 type Loaded = Extract<PaneViewerMessage, { type: 'loaded' }>
 type DrawingTarget = DrawingReferenceCandidate['target']
 type DrawingRect = { x: number; y: number; width: number; height: number }
@@ -34,6 +34,7 @@ type DrawingAdapter = (props: DrawingAdapterProps) => React.ReactElement
 export function DrawingPreview({ descriptor, onReference, adapter }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler; adapter?: DrawingAdapter }): React.ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const middleDrag = useRef<{ x: number; y: number } | null>(null)
+  const lastMiddleClick = useRef(0)
   const callback = useRef<ReferenceHandler | undefined>(onReference)
   callback.current = onReference
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -43,7 +44,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
   const [selection, setSelectionState] = useState<DrawingTarget[]>([])
 
   useEffect(() => {
-    middleDrag.current = null
+    middleDrag.current = null; lastMiddleClick.current = 0
     setLoaded(null); setDegraded(null); setError(''); setController(null); setSelectionState([])
     const container = host.current
     if (!container) return
@@ -71,7 +72,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           if (suppressReferences) return
           if (targets.length === 0) {
             void (async () => {
-              try { await callback.current?.(null) }
+              try { await callback.current?.(null, descriptor) }
               catch (e) { fail(e) }
             })()
             return
@@ -79,7 +80,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           setError('')
           for (const reference of drawingReferences(descriptor, targets)) {
             void (async () => {
-              try { await callback.current?.(reference) }
+              try { await callback.current?.(reference, descriptor) }
               catch (e) { fail(e) }
             })()
           }
@@ -124,7 +125,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
     }
     return () => {
       disposed = true
-      void (async () => { try { await callback.current?.(null) } catch { /* Disposal ignores stale invalidation failures. */ } })()
+      void (async () => { try { await callback.current?.(null, descriptor) } catch { /* Disposal ignores stale invalidation failures. */ } })()
       pane?.dispose()
       container.textContent = ''
     }
@@ -168,6 +169,13 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           if (!middleDrag.current) return
           event.preventDefault(); middleDrag.current = null
           event.currentTarget.releasePointerCapture?.(event.pointerId)
+        },
+        onAuxClick: (event: React.MouseEvent<HTMLDivElement>) => {
+          if (event.button !== 1) return
+          event.preventDefault()
+          const now = Date.now()
+          if (now - lastMiddleClick.current < 350) { controller?.fit(); lastMiddleClick.current = 0 }
+          else lastMiddleClick.current = now
         },
         onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
           if (!controller) return

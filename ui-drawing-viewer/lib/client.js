@@ -2655,6 +2655,7 @@ var h = import_react.default.createElement;
 function DrawingPreview({ descriptor, onReference, adapter }) {
   const host = (0, import_react.useRef)(null);
   const middleDrag = (0, import_react.useRef)(null);
+  const lastMiddleClick = (0, import_react.useRef)(0);
   const callback = (0, import_react.useRef)(onReference);
   callback.current = onReference;
   const [loaded, setLoaded] = (0, import_react.useState)(null);
@@ -2664,6 +2665,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
   const [selection, setSelectionState] = (0, import_react.useState)([]);
   (0, import_react.useEffect)(() => {
     middleDrag.current = null;
+    lastMiddleClick.current = 0;
     setLoaded(null);
     setDegraded(null);
     setError("");
@@ -2698,7 +2700,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           if (targets.length === 0) {
             void (async () => {
               try {
-                await callback.current?.(null);
+                await callback.current?.(null, descriptor);
               } catch (e) {
                 fail(e);
               }
@@ -2709,7 +2711,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           for (const reference of drawingReferences(descriptor, targets)) {
             void (async () => {
               try {
-                await callback.current?.(reference);
+                await callback.current?.(reference, descriptor);
               } catch (e) {
                 fail(e);
               }
@@ -2772,7 +2774,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
       disposed = true;
       void (async () => {
         try {
-          await callback.current?.(null);
+          await callback.current?.(null, descriptor);
         } catch {
         }
       })();
@@ -2830,6 +2832,15 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           event.preventDefault();
           middleDrag.current = null;
           event.currentTarget.releasePointerCapture?.(event.pointerId);
+        },
+        onAuxClick: (event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          const now = Date.now();
+          if (now - lastMiddleClick.current < 350) {
+            controller?.fit();
+            lastMiddleClick.current = 0;
+          } else lastMiddleClick.current = now;
         },
         onKeyDown: (event) => {
           if (!controller) return;

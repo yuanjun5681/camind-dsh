@@ -873,9 +873,14 @@ function drawingReferenceController(sessionId) {
 function addDrawingReferenceToDraft(sessionId, reference) {
   return drawingReferenceController(sessionId).select(reference)
 }
-function addPreviewReferenceToDraft(sessionId, reference) {
+function sameDrawingIdentity(reference, origin) {
+  return Boolean(reference && origin && reference.session === origin.session
+    && reference.source?.uri === origin.source?.uri && reference.source?.sha256 === origin.source?.sha256
+    && reference.pack?.sha256 === origin.pack?.sha256 && reference.pack?.identity === origin.pack?.identity)
+}
+function addPreviewReferenceToDraft(sessionId, reference, origin) {
   if (!reference) {
-    if (sessionInput(sessionId)) drawingReferenceController(sessionId).clear()
+    if (sessionInput(sessionId)) drawingReferenceController(sessionId).clear(origin)
     return
   }
   return reference.kind === 'camind-drawing-ref'
@@ -1607,7 +1612,7 @@ function createDrawingQuestionController(options) {
     reference: checked, ref: chip?.ref ?? JSON.stringify(checked),
     label: checked.entities?.[0]?.text || chip?.label.replace(/^针对：/, '') || '图纸文字',
   }))
-  let snapshot = { active: null, hasChip: false }, pendingSelections = 0, sequence = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
+  let snapshot = { active: null, hasChip: false }, pendingSelections = 0, pendingReference = null, sequence = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
   const listeners = new Set()
   const publish = next => { snapshot = { ...next, pending: pendingSelections > 0 }; for (const listener of listeners) listener() }
   const owned = state => state.occurrences.filter(item => item.source === source)
@@ -1754,6 +1759,7 @@ function createDrawingQuestionController(options) {
     async select(reference, shouldFocus = () => true) {
       if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
       const ticket = ++sequence; handoffSequence++; handoffFailure = null
+      pendingReference = reference
       pendingSelections++; publish({ ...snapshot })
       try {
         let checked
@@ -1772,11 +1778,19 @@ function createDrawingQuestionController(options) {
         if (invalidNotice) { input.notify?.('info', ''); invalidNotice = false }
         if (focus) input.focus(); return true
       } finally {
+        if (pendingReference === reference) pendingReference = null
         pendingSelections--; publish({ ...snapshot })
       }
     },
-    clear() {
-      sequence++; handoffSequence++; handoffFailure = null
+    clear(origin) {
+      if (origin) {
+        const pendingMatches = pendingReference && sameDrawingIdentity(pendingReference, origin)
+        if (pendingMatches) { sequence++; pendingReference = null }
+        if (!sameDrawingIdentity(snapshot.active?.reference, origin)) return
+        handoffSequence++; handoffFailure = null
+      } else {
+        sequence++; handoffSequence++; handoffFailure = null; pendingReference = null
+      }
       const state = input.state.getSnapshot(), chips = owned(state)
       if (chips.length > 1 || (chips[0] && (state.phase !== 'plain' || !consume(drawingQuestionSpan(state, chips[0]))))) throw new Error('当前引用暂时无法清除，请稍后重试')
       handoff = false; sendPending = null; publish({ active: null, hasChip: false })
@@ -1795,7 +1809,7 @@ function createDrawingQuestionController(options) {
       if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
     },
     dispose() {
-      disposed = true; sequence++; handoffSequence++; sendPending = null
+      disposed = true; sequence++; handoffSequence++; sendPending = null; pendingReference = null
       if (verifyHandoff && input.submit === guardedSubmit) input.submit = originalSubmit
       unsubscribe(); unsubscribeAdmitted?.()
       for (const listener of listeners) listener()
@@ -2007,7 +2021,7 @@ function WorkbenchView({ sessionId }) {
   const [panel, setPanel] = useState(() => readBenchPreference(sessionId).panel || '')
   const [wizard, setWizard] = useState(false)
   const [heading, setHeading] = useState(null)
-  const preference = useRef(readBenchPreference(sessionId)), loaded = useRef('')
+  const preference = useRef(readBenchPreference(sessionId)), loaded = useRef(''), refreshingTaskDrawing = useRef(false)
   const record = useFormalTask(sessionId), task = record.task
   const [, questionController] = useDrawingQuestion(sessionId)
   useEffect(() => { if (task) questionController.setVersion(task.inputs.dwg?.sha256) }, [task?.inputs.dwg?.sha256])
@@ -2022,10 +2036,12 @@ function WorkbenchView({ sessionId }) {
     openTaskModelPreview(sessionId, task)
   }, [sessionId, task?.inputs.prt?.sha256])
   useEffect(() => {
-    if (mode === 'drawing' && task?.inputs.dwg) openTaskDrawingPreview(sessionId, task)
-  }, [sessionId, mode, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
+    if (!task?.inputs.dwg) return
+    refreshingTaskDrawing.current = true
+    try { openTaskDrawingPreview(sessionId, task) } finally { refreshingTaskDrawing.current = false }
+  }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model'), 'model'), [sessionId])
-  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('drawing'), 'drawing'), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, () => { if (!refreshingTaskDrawing.current) setMode('drawing') }, 'drawing'), [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, () => setMode('preview'), 'default'), [sessionId])
   // Auto-open the newest available PRT in the canvas: first detection switches,
   // each newly appearing PRT switches again; re-polls of the same file do not.
@@ -2070,9 +2086,9 @@ function WorkbenchView({ sessionId }) {
       !wizard && !running && h(SchemeWorkflow, { key: sessionId, sessionId, record })),
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
-        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        h('div', { className: 'wb-preview-stage', hidden: mode !== 'preview' }, Preview ? h(Preview, { sessionId, channel: 'default', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'preview' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin) => addPreviewReferenceToDraft(sessionId, reference, origin) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'preview' }, Preview ? h(Preview, { sessionId, channel: 'default', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'preview' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin) => addPreviewReferenceToDraft(sessionId, reference, origin) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin) => addPreviewReferenceToDraft(sessionId, reference, origin) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
       panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },

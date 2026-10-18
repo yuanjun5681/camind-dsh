@@ -205,5 +205,11 @@ canvas.props.onPointerMove({ pointerId: 7, clientX: 15, clientY: 32, currentTarg
 canvas.props.onPointerUp({ pointerId: 7, currentTarget: eventTarget, preventDefault() {} })
 canvas.props.onPointerMove({ pointerId: 7, clientX: 50, clientY: 60, currentTarget: eventTarget, preventDefault() {} })
 assert.deepEqual(pans, [[-40, 0], [0, 120], [5, 12]])
+const fits = [], coreFit = controls.controller.fit
+controls.controller.fit = () => { fits.push(true); coreFit() }
+canvas.props.onAuxClick({ button: 1, preventDefault() {} })
+canvas.props.onAuxClick({ button: 1, preventDefault() {} })
+assert.equal(fits.length, 1, 'middle-button double-click must fit the drawing')
 console.log('ok - public controller maps CSS controls to pane v2 and restores native selection')
 console.log('ok - arrow keys and middle-button dragging preserve drawing pan controls')
+console.log('ok - middle-button double-click preserves fit gesture')

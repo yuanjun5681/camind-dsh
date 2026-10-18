@@ -149,6 +149,8 @@ assert.equal(inserted[0].source, 'cam-drawing-ref')
 assert.deepEqual(JSON.parse(inserted[0].ref), reference)
 assert.match(inserted[0].label, /dim-1/)
 assert.ok(state.draft.startsWith('问题'), 'existing draft must be preserved')
+api.addPreviewReferenceToDraft('s1', null, { ...reference, source: { ...reference.source, sha256: '9'.repeat(64) } })
+assert.equal(state.occurrences.filter(item => item.source === 'cam-drawing-ref').length, 1, 'cleanup from another preview identity cannot remove the active chip')
 await api.addPreviewReferenceToDraft('s1', reference)
 assert.equal(inserted.length, 1, 'identical verified reference is idempotent')
 console.log('ok - verify-before-insert and native chip creation preserve drafts')
@@ -549,6 +551,20 @@ assert.equal(submitCalls.length, 2, 'editing the draft after Enter cancels the d
 assert.deepEqual(ownedIds(), [28], 'handoff may finish, but the changed submission is not sent')
 assert.match(sent28, /"id":28/)
 console.log('ok - deferred submit is cancelled when its draft changes')
+
+const otherReference = { ...reference, source: { ...reference.source, sha256: '9'.repeat(64) } }
+await api.addPreviewReferenceToDraft('s1', otherReference)
+deferred = claimed => new Promise(resolve => {
+  pending.set(claimed.target.id, () => resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) }))
+})
+const pending30 = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 30 } })
+api.addPreviewReferenceToDraft('s1', null, reference)
+pending.get(30)()
+await pending30
+assert.equal(ownedIds().includes(30), false, 'cleanup cancels only the pending selection from that preview identity')
+assert.deepEqual(state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).source.sha256), ['9'.repeat(64)], 'cleanup cannot remove a different active preview reference')
+deferred = null
+console.log('ok - preview cleanup is scoped to its source and pack identity')
 
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()
