@@ -20,6 +20,7 @@ assert.ok(source.includes('task?.inputs.dwg?.sha256])'), 'source SHA changes mus
 assert.ok(source.includes('useDrawingReferenceQuestion(sessionId)'), 'composer controls must observe the new drawing-reference controller')
 assert.ok(source.includes('[data-composer-chip="cam-drawing-ref"]'), 'composer clear action must recognize the migrated native chip')
 assert.ok(source.includes('.cmv-stage, .cdv-canvas'), 'composer positioning must include the new drawing viewport')
+assert.equal((source.match(/preview\(sessionId, newest.path, 'model'\)/g) ?? []).length, 2, 'both automatic PRT producers must use the model channel')
 assert.ok(source.includes("active?.source?.uri?.startsWith('task-input://')"), 'initial task load must also compare retained references with the frozen input')
 const code = source.replace('exports.apply = apply', 'exports.__drawingTaskTest = { openTaskDrawingPreview, openTaskModelPreview }; exports.apply = apply')
 let plugin

@@ -794,7 +794,7 @@ function BenchHeaderButton({ sessionId }) {
         if (!response.ok) return
         const body = await response.json()
         const newest = body.files?.filter(file => file.available !== false && /\.prt$/i.test(file.name)).pop()
-        if (!controller.signal.aborted && store.getSnapshot().view === null && newest) { openView(sessionId, VIEW_ID); previewService()?.preview(sessionId, newest.path) }
+        if (!controller.signal.aborted && store.getSnapshot().view === null && newest) { openView(sessionId, VIEW_ID); previewService()?.preview(sessionId, newest.path, 'model') }
       } catch { /* Keep manual navigation available if input discovery is unavailable. */ }
       finally { if (!controller.signal.aborted) timer = setTimeout(check, 3000) }
     }
