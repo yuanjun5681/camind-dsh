@@ -144,8 +144,26 @@ export function createdMetricsOf(data) {
   return { created, path_exists: pathExists, toolpath_length: toolpathLength, error, detail }
 }
 
-// 续跑决策（flow.py:488-502）：ok 跳过、generated 只补 post、其余重跑。
-export function resumeDecisionOf(prevStatus) {
+function hasPendingRegeneration(op) {
+  return Boolean(op?.other_operations_pending_regeneration?.length
+    || op?.regeneration_required?.length
+    || op?.error_detail?.regeneration_required?.length)
+}
+
+function t501FieldsOf(data, errorDetail) {
+  const detail = errorDetail ?? data?.error_detail ?? data?.errorDetail
+  return {
+    ...(data?.regenerated_operations !== undefined ? { regenerated_operations: data.regenerated_operations } : {}),
+    ...(data?.other_operations_pending_regeneration !== undefined ? { other_operations_pending_regeneration: data.other_operations_pending_regeneration } : {}),
+    ...(data?.tool_numbers_fixed !== undefined ? { tool_numbers_fixed: data.tool_numbers_fixed } : {}),
+    ...(detail !== undefined ? { error_detail: detail } : {}),
+  }
+}
+
+// 续跑决策（flow.py:488-502）：ok 跳过、generated 只补 post、其余重跑；T-501
+// 待重算不是普通 generated，未授权恢复不得自动续跑。
+export function resumeDecisionOf(prevStatus, op) {
+  if (hasPendingRegeneration(op)) return 'stop'
   if (prevStatus === OP_OK) return 'skip'
   if (prevStatus === OP_GENERATED) return 'post'
   return 'rerun'
@@ -174,6 +192,10 @@ export function overallOf(opEntries, check) {
   const failed = opEntries.filter((o) => o.status === OP_ERROR)
   if (failed.length > 0) {
     return { overall: 'error', reason: `有工序执行失败：${failed.map((o) => o.name).join('、')}` }
+  }
+  const pending = opEntries.filter(hasPendingRegeneration)
+  if (pending.length > 0) {
+    return { overall: 'incomplete', reason: `存在待重算刀路：${pending.map((o) => o.name).join('、')}；未经显式授权不得交付或自动续跑。` }
   }
   const notOk = opEntries.filter((o) => o.status !== OP_OK)
   if (notOk.length > 0) {
@@ -432,7 +454,15 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     if (Object.keys(numbers).length) {
       const result = await camPipeline.run('/cam_set_tool_numbers', { prt: workPrt, numbers, operations: [], regenerate: false, save: true }, { deadlineSeconds: 300 })
       if (result.status !== 'ok') return failStage('tool_numbers', result)
-      if (result.data?.ok !== true || result.data?.saved !== true || Object.entries(numbers).some(([tool, number]) => result.data.tools?.[tool]?.after?.num !== number)) return failStage('tool_numbers', { errorType: 'tool_binding', msg: 'NX 未返回已保存且逐刀匹配的刀号回读；停止生成，不能把建议当作刀号已经应用。' })
+      const registersMatch = Object.entries(numbers).every(([tool, number]) => {
+        const after = result.data.tools?.[tool]?.after
+        // 建工序前 operations=[] 时上游无法经工序读 TOG，会明确返回 null；
+        // 与 _ensure_tool_numbers 同口径：null=该配置不暴露，0 才是未定义。
+        const definitionBitsMatch = [after?.num_tog, after?.adj_tog, after?.cutcom_tog]
+          .every(value => value === 1 || value === null)
+        return after?.num === number && after?.adj === number && after?.cutcom === number && definitionBitsMatch
+      })
+      if (result.data?.ok !== true || result.data?.saved !== true || !registersMatch) return failStage('tool_numbers', { errorType: 'tool_binding', msg: 'NX 未返回已保存且 T/H/D 与定义位逐刀匹配的回读；停止生成，不能把建议当作刀号已经应用。' })
       state.tool_number_binding = result.data
     }
     state.tool_numbers_verified = true; persist(state)
@@ -448,11 +478,12 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       post_name: op.post_name ?? job.post_name,
     }, { deadlineSeconds: opTimeoutOf(op) })
     if (ran.status !== 'ok') {
-      return { status: OP_GENERATED, error: ran.msg, error_type: ran.errorType, ...(ran.errorDetail !== undefined ? { error_detail: ran.errorDetail } : {}), ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
+      const fields = t501FieldsOf(ran.data, ran.errorDetail)
+      return { status: hasPendingRegeneration(fields) ? OP_ERROR : OP_GENERATED, error: ran.msg, error_type: ran.errorType, ...fields, ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
     }
     const { nc, postError } = ncOf(ran.data, name)
-    if (nc) return { status: OP_OK, nc_files: [nc] }
-    return { status: OP_GENERATED, error: postError ?? 'postprocess 未返回 NC' }
+    if (nc) return { status: OP_OK, nc_files: [nc], ...t501FieldsOf(ran.data) }
+    return { status: OP_GENERATED, error: postError ?? 'postprocess 未返回 NC', ...t501FieldsOf(ran.data) }
   }
 
   const copyPostprocess = async ({ op, name }) => {
@@ -466,7 +497,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       generate: op.generate ?? true,
     }, { deadlineSeconds: opTimeoutOf(op) })
     if (ran.status !== 'ok') {
-      return { status: OP_ERROR, error: ran.msg, error_type: ran.errorType, ...(ran.errorDetail !== undefined ? { error_detail: ran.errorDetail } : {}), ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
+      return { status: OP_ERROR, error: ran.msg, error_type: ran.errorType, ...t501FieldsOf(ran.data, ran.errorDetail), ...(ran.errorClass !== undefined ? { error_class: ran.errorClass } : {}) }
     }
     const copy = ran.data?.copy ?? {}
     if (!copy.copied) return { status: OP_ERROR, error: copy.error ?? '模板复制失败' }
@@ -477,8 +508,8 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     // 供续跑 postOnly 对准。
     const actualName = typeof copy.new_name === 'string' && copy.new_name.trim() ? copy.new_name.trim() : name
     const { nc, postError } = ncOf(ran.data?.postprocess, actualName)
-    if (nc) return { status: OP_OK, nc_files: [nc], actual_name: actualName }
-    return { status: OP_GENERATED, error: postError ?? '未返回 NC', actual_name: actualName }
+    if (nc) return { status: OP_OK, nc_files: [nc], actual_name: actualName, ...t501FieldsOf(ran.data?.postprocess) }
+    return { status: OP_GENERATED, error: postError ?? '未返回 NC', actual_name: actualName, ...t501FieldsOf(ran.data?.postprocess) }
   }
 
   const fromScratch = async ({ op, name }) => {
@@ -527,11 +558,16 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   mark({ stage: 'ops', total: resolved.length })
   for (const entry of resolved) {
     const prev = state.ops[entry.index]
-    const decision = resume ? resumeDecisionOf(prev?.status) : 'rerun'
+    const decision = resume ? resumeDecisionOf(prev?.status, prev) : 'rerun'
     if (decision === 'skip') {
       summary.ops.push({ ...prev, decision: 'skip' })
       mark({ stage: 'op', index: entry.index, name: entry.name, status: 'skip' })
       continue
+    }
+    if (decision === 'stop') {
+      summary.ops.push({ ...prev, decision: 'stop' })
+      mark({ stage: 'op', index: entry.index, name: entry.name, status: 'stop' })
+      break
     }
     if (isCancelled()) {
       summary.aborted = true
@@ -552,9 +588,9 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       // init 条目算好的限时随执行记录走（record 整体覆盖 init 条目）。
       timeout_seconds: prev?.timeout_seconds ?? opTimeoutOf(entry.op),
       ...(result.actual_name && result.actual_name !== entry.name ? { actual_name: result.actual_name } : {}),
+      ...t501FieldsOf(result),
       ...(result.nc_files ? { nc_files: result.nc_files } : {}),
       ...(result.error ? { error: result.error } : {}),
-      ...(result.error_detail !== undefined ? { error_detail: result.error_detail } : {}),
       ...(result.error_type !== undefined ? { error_type: result.error_type } : {}),
       ...(result.error_class !== undefined ? { error_class: result.error_class } : {}),
     }
@@ -562,6 +598,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     persist(state)
     summary.ops.push({ ...record, decision })
     mark({ stage: 'op', index: entry.index, name: entry.name, status: result.status })
+    if (hasPendingRegeneration(result)) break
   }
 
   if (summary.aborted) {
