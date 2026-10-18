@@ -1580,12 +1580,12 @@ function createDrawingQuestionController(options) {
     reference: checked, ref: chip?.ref ?? JSON.stringify(checked),
     label: checked.entities?.[0]?.text || chip?.label.replace(/^针对：/, '') || '图纸文字',
   }))
-  let snapshot = { active: null, hasChip: false }, sequence = 0, editing = false, handoff = false, disposed = false, version = null, invalidNotice = false
+  let snapshot = { active: null, hasChip: false }, sequence = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
   const listeners = new Set()
   const publish = next => { snapshot = next; for (const listener of listeners) listener() }
   const owned = state => state.occurrences.filter(item => item.source === source)
   const stale = options.stale ?? (ref => version && (ref.source_sha256 !== version.source || (ref.kind === 'drawing-target' && version.preview && ref.preview_sha256 !== version.preview)))
-  const invalidate = () => { handoff = false; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
+  const invalidate = () => { handoffSequence++; handoff = false; sendPending = null; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
   const insert = active => {
     const state = input.state.getSnapshot(), chips = owned(state)
     if (state.phase !== 'plain' || chips.length > 1) return false
@@ -1601,21 +1601,22 @@ function createDrawingQuestionController(options) {
   const reattach = async () => {
     if (reattaching || !handoff || !snapshot.active || snapshot.hasChip) return
     reattaching = true
-    const ticket = sequence, retained = snapshot.active
+    const ticket = handoffSequence, retained = snapshot.active
     try {
       const checked = await validate(retained.reference)
-      if (disposed || ticket !== sequence || !isCurrent() || !handoff || snapshot.active?.ref !== retained.ref || snapshot.hasChip) return
+      if (disposed || ticket !== handoffSequence || !isCurrent() || !handoff || snapshot.active?.ref !== retained.ref || snapshot.hasChip) return
       if (stale(checked)) { invalidate(); return }
       const active = present(checked)
       if (!insert(active)) return
       handoff = false; publish({ active, hasChip: true })
     } catch (error) {
-      if (!disposed && ticket === sequence && handoff) input.notify?.('error', error instanceof Error ? error.message : String(error))
+      if (!disposed && ticket === handoffSequence && handoff) input.notify?.('error', error instanceof Error ? error.message : String(error))
     } finally {
       reattaching = false
     }
   }
   const attachRetained = () => {
+    if (verifyHandoff && sendPending) return
     if (verifyHandoff) { void reattach(); return }
     if (insert(snapshot.active)) { handoff = false; sync() }
   }
@@ -1623,7 +1624,7 @@ function createDrawingQuestionController(options) {
     if (editing || disposed) return
     const state = input.state.getSnapshot(), chip = owned(state)[0]
     if (chip) {
-      if (!snapshot.hasChip) handoff = false
+      if (!snapshot.hasChip) { handoff = false; sendPending = null }
       const active = fromChip(chip)
       if (active && stale(active.reference)) {
         if (state.phase === 'plain') {
@@ -1635,7 +1636,7 @@ function createDrawingQuestionController(options) {
       }
       if (snapshot.active?.ref !== active?.ref || !snapshot.hasChip) publish({ active, hasChip: true })
     } else if (snapshot.hasChip) {
-      if (!handoff) { sequence++; publish({ active: null, hasChip: false }) }
+      if (!handoff) { sequence++; handoffSequence++; publish({ active: null, hasChip: false }) }
       else publish({ active: snapshot.active, hasChip: false })
     }
     if (!chip && snapshot.active && stale(snapshot.active.reference)) { invalidate(); return }
@@ -1646,7 +1647,7 @@ function createDrawingQuestionController(options) {
   const unsubscribe = input.state.subscribe(() => {
     if (disposed) return
     const phase = input.state.getSnapshot().phase
-    if (phase !== lastPhase) { if (phase !== 'plain') sequence++; lastPhase = phase }
+    if (phase !== lastPhase) { if (phase !== 'plain') { sequence++; handoffSequence++ } lastPhase = phase }
     sync()
   })
   const seenSubmissions = new Set((pending?.getSnapshot()?.pendingSubmissions ?? []).map(item => item.requestId))
@@ -1675,7 +1676,7 @@ function createDrawingQuestionController(options) {
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot,
     async select(reference, shouldFocus = () => true) {
       if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-      const ticket = ++sequence
+      const ticket = ++sequence; handoffSequence++
       let checked
       try { checked = await validate(reference) }
       catch (error) {
@@ -1688,22 +1689,24 @@ function createDrawingQuestionController(options) {
       if (snapshot.active?.ref === active.ref && snapshot.hasChip) { if (shouldFocus()) input.focus(); return true }
       const focus = shouldFocus()
       if (!insert(active)) throw new Error('输入框正在提交或引用无法替换，请稍后重选')
-      handoff = false; publish({ active, hasChip: true })
+      handoff = false; sendPending = null; publish({ active, hasChip: true })
       if (invalidNotice) { input.notify?.('info', ''); invalidNotice = false }
       if (focus) input.focus(); return true
     },
     clear() {
-      sequence++
+      sequence++; handoffSequence++
       const state = input.state.getSnapshot(), chips = owned(state)
       if (chips.length > 1 || (chips[0] && (state.phase !== 'plain' || !consume(drawingQuestionSpan(state, chips[0]))))) throw new Error('当前引用暂时无法清除，请稍后重试')
-      handoff = false; publish({ active: null, hasChip: false })
+      handoff = false; sendPending = null; publish({ active: null, hasChip: false })
     },
-    beginSend(ref) { if (snapshot.active?.ref === ref) handoff = true },
+    beginSend(ref) { if (snapshot.active?.ref === ref) { handoffSequence++; handoff = true; sendPending = verifyHandoff ? ref : null } },
+    confirmSend(ref) { if (sendPending === ref) { sendPending = null; sync() } },
+    cancelSend(ref) { if (sendPending === ref) { sendPending = null; handoff = false; sync() } },
     setVersion(sourceValue, preview) {
-      if (version?.source !== sourceValue || version?.preview !== preview) { sequence++; version = { source: sourceValue, preview }; sync() }
+      if (version?.source !== sourceValue || version?.preview !== preview) { sequence++; handoffSequence++; version = { source: sourceValue, preview }; sync() }
       if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
     },
-    dispose() { disposed = true; sequence++; unsubscribe(); unsubscribePending?.(); unsubscribeAdmitted?.(); listeners.clear() },
+    dispose() { disposed = true; sequence++; handoffSequence++; sendPending = null; unsubscribe(); unsubscribePending?.(); unsubscribeAdmitted?.(); listeners.clear() },
   }
 }
 function drawingQuestion(sessionId) {
@@ -2062,11 +2065,18 @@ function apply(ctx) {
         const reference = JSON.parse(ref)
         const checkSession = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session) throw new Error('图纸引用不属于当前会话，请重新选择') }
         checkSession()
-        const { reference: verified, targetContent } = await verifyDrawingReference(reference.session, reference, signal)
-        checkSession()
-        drawingReferenceController(reference.session).beginSend(ref)
-        const detail = targetContent ? `\n已核验图纸对象内容：${JSON.stringify(targetContent)}` : ''
-        return `${drawingReferenceClipboard(JSON.stringify(verified))}${detail}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
+        const controller = drawingReferenceController(reference.session)
+        controller.beginSend(ref)
+        try {
+          const { reference: verified, targetContent } = await verifyDrawingReference(reference.session, reference, signal)
+          checkSession()
+          controller.confirmSend(ref)
+          const detail = targetContent ? `\n已核验图纸对象内容：${JSON.stringify(targetContent)}` : ''
+          return `${drawingReferenceClipboard(JSON.stringify(verified))}${detail}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
+        } catch (error) {
+          controller.cancelSend(ref)
+          throw error
+        }
       },
     },
     openReference({ sessionId }, { ref }) {

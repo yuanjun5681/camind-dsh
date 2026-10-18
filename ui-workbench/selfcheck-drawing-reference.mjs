@@ -263,8 +263,9 @@ async function selectId(id) {
   return JSON.stringify(candidate)
 }
 async function serializeAndClear(ref, requestId) {
-  const serialized = await sourceDefinition.codec.serialize(ref, new AbortController().signal)
+  const flight = sourceDefinition.codec.serialize(ref, new AbortController().signal)
   publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+  const serialized = await flight
   publishPending([{ requestId, placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
   return serialized
 }
@@ -359,14 +360,47 @@ allow = true
 console.log('ok - readmission remains fail-closed')
 
 const ref19 = await selectId(19)
+const restoreDraft19 = state.draft, restoreOccurrences19 = state.occurrences
 allow = false
-await assert.rejects(sourceDefinition.codec.serialize(ref19, new AbortController().signal), /失效/)
+const failed19 = sourceDefinition.codec.serialize(ref19, new AbortController().signal)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+await assert.rejects(failed19, /失效/)
 allow = true
+publish({ draft: restoreDraft19, occurrences: restoreOccurrences19, attachmentIds: [], phase: 'plain' })
 publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
 publishAdmitted([{ kind: 'user', turn: 8 }])
 await tick()
 assert.equal(ownedIds().includes(19), false, 'failed serialization must not arm retained handoff when the restored chip is later removed')
-console.log('ok - serialization failure does not arm retained handoff')
+console.log('ok - serialization failure cancels provisional handoff')
+
+const ref20 = await selectId(20)
+let codec20 = true, release20
+deferred = claimed => {
+  if (claimed.target.id === 20 && codec20) {
+    return new Promise(resolve => {
+      release20 = () => {
+        codec20 = false; deferred = null
+        resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+      }
+    })
+  }
+  return { ok: true, json: async () => ({ reference: claimed, targetContent: {} }) }
+}
+const flight20 = sourceDefinition.codec.serialize(ref20, new AbortController().signal)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+const beforeFollowUp20 = inserted.length
+publish({ draft: '核验期间的追问 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+await tick()
+assert.equal(ownedIds().includes(20), false, 'provisional handoff must not reattach before serialization succeeds')
+assert.equal(inserted.length, beforeFollowUp20)
+release20()
+const sent20 = await flight20
+publishPending([{ requestId: 'request-20', placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
+await tick()
+assert.deepEqual(ownedIds(), [20], 'confirmation releases the retained object into the follow-up draft')
+assert.ok(state.draft.startsWith('核验期间的追问 '))
+assert.match(sent20, /"id":20/)
+console.log('ok - provisional handoff waits for serialization confirmation')
 
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()
