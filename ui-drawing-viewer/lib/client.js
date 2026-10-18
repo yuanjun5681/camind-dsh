@@ -2228,7 +2228,7 @@ var DraftPane = class {
     this.clickTimer = null;
   }
   bindInteractions() {
-    const dprOf = () => this.glCanvas.width / (this.container.clientWidth || 1);
+    const dprOf = () => this.glCanvas.width / (this.glCanvas.getBoundingClientRect().width || 1);
     const onWheel = (e) => {
       e.preventDefault();
       this.cancelClickTimer();

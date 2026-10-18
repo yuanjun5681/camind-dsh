@@ -334,7 +334,7 @@ export class DraftPane {
     }
 
     private bindInteractions(): void {
-        const dprOf = (): number => this.glCanvas.width / (this.container.clientWidth || 1);
+        const dprOf = (): number => this.glCanvas.width / (this.glCanvas.getBoundingClientRect().width || 1);
         const onWheel = (e: WheelEvent): void => {
             e.preventDefault();
             this.cancelClickTimer();
