@@ -43,6 +43,7 @@ try {
         if (stopBeforeNext) { const now = await tasks.read('s1'); await tasks.stop('s1', now.version) }
         return { status: 'ok', data: { ok: true } }
       }
+      if (endpoint === '/cam_init_setup') return { status: 'ok', data: { has_cam_setup: true, saved: true, geometry_groups: ['MCS_MAIN'] } }
       if (endpoint === '/cam_finalize_work_copy' && throwFinalize) throw Error('unexpected finalize failure')
       if (endpoint === '/cam_finalize_work_copy') return { status: 'ok', data: { ok: !failedFinalize, saved: true, save_verified: true, modified_after_save: false, closed: !failedFinalize, error: failedFinalize ? 'close refused' : undefined } }
       if (endpoint === '/cam_set_tool_numbers') {
@@ -154,6 +155,9 @@ try {
   assert.equal(resumeDecisionOf('ok', { other_operations_pending_regeneration: [] }), 'skip')
   assert.deepEqual(regenerationItemsOf({ error_detail: { regeneration_required: [null, ' A ', { operation: 'B', tool: 'D8', reason: '需重算' }, true, {}] } }), [{ operation: 'A' }, { operation: 'B', tool: 'D8', reason: '需重算' }, { operation: '未知工序' }])
   assert.deepEqual(regenerationItemsOf({ regeneration_required: { operations: ['C', 'D'] } }), [{ operation: 'C' }, { operation: 'D' }])
+  assert.deepEqual(regenerationItemsOf({ regeneration_required: { operations: [] } }), [])
+  assert.deepEqual(regenerationItemsOf({ regeneration_required: { operations: [], tool: 'D10' } }), [{ operation: '未知工序', tool: 'D10' }])
+  assert.deepEqual(regenerationItemsOf({ regeneration_required: { tool: 'D10' } }), [{ operation: '未知工序', tool: 'D10' }])
   assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: true } }), 'stop')
   assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: 'A' } }), 'stop')
   const splitFields = t501FieldsOf({
@@ -226,6 +230,7 @@ try {
   const malformedSummary = await executeCamRun({ camPipeline: pipeline, runDir: ordinaryPost.run_dir, runId: ordinaryPost.run_id, resume: true, dshHome: home, isCancelled: () => false })
   assert.equal(malformedSummary.overall, 'error')
   assert.equal(malformedSummary.failed_stage, 'load')
+  assert.deepEqual(JSON.parse(await fs.readFile(scopedStatePath, 'utf8')).ops, { unreadable: true })
   const malformedDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: ordinaryPost.run_dir, runId: ordinaryPost.run_id, tasks, sessionId: 's1' })
   assert.equal(malformedDelivery.status, 'error')
   assert.equal(malformedDelivery.stage, 'load')
@@ -347,7 +352,7 @@ try {
   const crossDir = path.join(home, 'cross-t501')
   await fs.mkdir(crossDir)
   await fs.writeFile(path.join(crossDir, 'job.json'), JSON.stringify({
-    prt: 'input/part.prt', out_dir: 'output', post_name: 'MILL_3_AXIS', operations: [
+    prt: 'input/part.prt', out_dir: 'output', post_name: 'MILL_3_AXIS', prepare: { init_setup: {} }, operations: [
       { ...task.operations[0], new_name: 'A_{suffix}', allow_regenerate_toolpaths: true },
       { ...task.operations[0], id: 'op2', new_name: 'B_{suffix}', allow_regenerate_toolpaths: true },
     ],
@@ -366,6 +371,11 @@ try {
   assert.equal(crossResumeSummary.ops[0].status, 'generated')
   assert.deepEqual(calls, [])
   assert.match(crossResumeSummary.reason, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
+  calls = []
+  const crossFreshBlocked = await executeCamRun({ ...crossArgs, resume: false })
+  assert.equal(crossFreshBlocked.overall, 'incomplete')
+  assert.deepEqual(crossFreshBlocked.ops.map(op => op.decision), ['stop', 'stop'])
+  assert.deepEqual(calls, [])
   const crossState = JSON.parse(await fs.readFile(path.join(crossDir, 'runstate.json'), 'utf8'))
   crossState.ops.push({ index: 2, name: 'OUTSIDE_DELIVERY', type: 'from_scratch_workpiece_op', status: 'ok', other_operations_pending_regeneration: [{ operation: 'DELIVERY_TARGET', tool: 'AP_MILL_D10', reason: 'job 外 pending' }] })
   await fs.writeFile(path.join(crossDir, 'runstate.json'), JSON.stringify(crossState))

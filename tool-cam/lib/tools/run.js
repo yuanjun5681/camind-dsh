@@ -148,10 +148,10 @@ function normalizeRegeneration(value) {
   if (Array.isArray(value)) return value.flatMap(normalizeRegeneration)
   if (typeof value === 'string') return value.trim() ? [{ operation: value.trim() }] : []
   if (value && typeof value === 'object') {
-    if (Array.isArray(value.operations)) return normalizeRegeneration(value.operations)
-    if (Object.keys(value).length === 0) return []
-    const operation = typeof value.operation === 'string' && value.operation.trim() ? value.operation.trim()
-      : typeof value.tool === 'string' && value.tool.trim() ? value.tool.trim() : '未知工序'
+    const keys = Object.keys(value)
+    if (Array.isArray(value.operations) && value.operations.length > 0) return normalizeRegeneration(value.operations)
+    if (keys.length === 0 || (keys.length === 1 && Array.isArray(value.operations))) return []
+    const operation = typeof value.operation === 'string' && value.operation.trim() ? value.operation.trim() : '未知工序'
     const tool = typeof value.tool === 'string' && value.tool.trim() ? value.tool.trim() : undefined
     const reason = typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim() : undefined
     return [{ operation, ...(tool ? { tool } : {}), ...(reason ? { reason } : {}) }]
@@ -407,13 +407,6 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     persist(state)
   }
 
-  if (isCancelled()) {
-    summary.aborted = true
-    summary.overall = 'error'
-    summary.error = { error_type: 'cancelled', msg: '任务在开始执行前被取消。' }
-    return summary
-  }
-
   // 任何既有 pending 都在首个 proxy 调用前阻断本次执行，无论 resume 与否；
   // 不能用同 run 非 resume 重跑清掉 pending。只允许写本地 runstate 阻断留痕。
   if (pendingState) {
@@ -437,6 +430,13 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     if (reason) summary.reason = reason
     summary.advice.push('存在待重算刀路，已阻断本次执行；请人工核对，重新 cam_plan 生成新 run_id 并显式审核后再执行。')
     mark({ stage: 'regeneration_blocked', msg: reason ?? '存在待重算刀路，未调用 proxy。' })
+    return summary
+  }
+
+  if (isCancelled()) {
+    summary.aborted = true
+    summary.overall = 'error'
+    summary.error = { error_type: 'cancelled', msg: '任务在开始执行前被取消。' }
     return summary
   }
 
