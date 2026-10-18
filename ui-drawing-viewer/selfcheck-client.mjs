@@ -185,6 +185,15 @@ controls.controller.locateTarget({ type: 'dim', id: 'D2A/30' }, true)
 assert.equal(controllerReferences.at(-1).target.id, 'D2A/30')
 controls.controller.clearSelection()
 assert.equal(controllerReferences.at(-1), null)
+const silentReferenceCount = controllerReferences.length
+controls.controller.setSelection([{ type: 'entity', id: 0 }], false)
+assert.equal(controllerReferences.length, silentReferenceCount, 'programmatic selection restore must not issue a new reference')
+renderAdapter()
+assert.deepEqual(JSON.parse(JSON.stringify(adapterNode(tree).props.selection)), [{ type: 'entity', id: 0 }])
+controls.controller.clearSelection(false)
+assert.equal(controllerReferences.length, silentReferenceCount, 'programmatic clear must not consume the verified chip')
+controls.controller.clearSelection()
+assert.equal(controllerReferences.at(-1), null)
 const pans = [], corePan = controls.controller.pan
 controls.controller.pan = (dx, dy) => { pans.push([dx, dy]); corePan(dx, dy) }
 const canvas = findNode(tree, node => node?.props?.className === 'cdv-canvas')

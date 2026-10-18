@@ -208,6 +208,10 @@ assert.ok(text(tree).includes('±0.05'))
 one(node => node.type === 'button' && text(node) === '清除当前提问对象', 'clear selection').props.onClick()
 assert.equal(callsOf('clearSelection').length, 1)
 assert.equal(drawingDimensionComparison({ display_text: '50', measured: 51, dimlfac: 1 }), 'mismatch')
+assert.equal(drawingDimensionComparison({ display_text: '10.12', measured: 10.123456, dimlfac: 1 }), 'match', 'converter rounding must not become a false mismatch')
+assert.equal(drawingDimensionComparison({ display_text: '10.123456', measured: 10.1234564995, dimlfac: 1 }), 'match')
+assert.equal(drawingDimensionComparison({ display_text: '10000.13', measured: 10000.125, dimlfac: 1 }), 'match')
+assert.equal(drawingDimensionComparison({ display_text: '10.12', measured: 10.125, dimlfac: 1 }), 'mismatch')
 assert.equal(drawingDimensionComparison({ display_text: '50' }), 'no-measured')
 assert.equal(drawingToleranceText({ tolerance: { upper: 0.02, lower: -0.01 } }), '+0.02/−0.01')
 props = { ...props, selection: [] }
@@ -259,11 +263,19 @@ assert.equal(nodes(node => node.props.className === 'wb-drawing-box-surface').le
 console.log('ok - fit, zoom, rubber-band zoomToRect and Escape')
 
 const normalize = value => JSON.parse(JSON.stringify(value)), verifiedTarget = { type: 'dim', id: 'D1' }
-assert.equal(drawingVerifiedSelection(null, [verifiedTarget]), null)
-assert.deepEqual(normalize(drawingVerifiedSelection({ active: null, hasChip: false }, [verifiedTarget])), [])
-assert.equal(drawingVerifiedSelection({ active: { reference: { target: verifiedTarget } }, hasChip: false }, [verifiedTarget]), null, 'retained handoff selection is not cleared')
-assert.equal(drawingVerifiedSelection({ active: { reference: { target: verifiedTarget } }, hasChip: true }, [verifiedTarget]), null)
-assert.deepEqual(normalize(drawingVerifiedSelection({ active: { reference: { target: verifiedTarget } }, hasChip: true }, [{ type: 'entity', id: 99 }])), [verifiedTarget], 'a stale highlight is restored to the verified chip target')
+const verifiedDescriptor = {
+  session: 's1', source: { uri: 'upload://batch/part.dxf', sha256: '1'.repeat(64), name: 'part.dxf' },
+  pack: { sha256: '2'.repeat(64), identity: '3'.repeat(64) },
+}
+const verifiedReference = { ...verifiedDescriptor, target: verifiedTarget }
+assert.equal(drawingVerifiedSelection(verifiedDescriptor, null, [verifiedTarget]), null)
+assert.deepEqual(normalize(drawingVerifiedSelection(verifiedDescriptor, { active: null, hasChip: false, pending: false }, [verifiedTarget])), [])
+assert.equal(drawingVerifiedSelection(verifiedDescriptor, { active: null, hasChip: false, pending: true }, [verifiedTarget]), null, 'a pending pick is not cleared before verification settles')
+assert.equal(drawingVerifiedSelection(verifiedDescriptor, { active: { reference: verifiedReference }, hasChip: false, pending: false }, [verifiedTarget]), null, 'retained handoff selection is not cleared')
+assert.equal(drawingVerifiedSelection(verifiedDescriptor, { active: { reference: verifiedReference }, hasChip: true, pending: false }, [verifiedTarget]), null)
+assert.deepEqual(normalize(drawingVerifiedSelection(verifiedDescriptor, { active: { reference: verifiedReference }, hasChip: true, pending: false }, [{ type: 'entity', id: 99 }])), [verifiedTarget], 'a stale highlight is restored to the verified chip target')
+const otherDescriptor = { ...verifiedDescriptor, source: { ...verifiedDescriptor.source, sha256: '9'.repeat(64) } }
+assert.equal(drawingVerifiedSelection(otherDescriptor, { active: { reference: verifiedReference }, hasChip: true, pending: false }, [{ type: 'entity', id: 99 }]), null, 'a chip from another source or pack is not replayed')
 console.log('ok - pane selection follows the verified native reference state')
 
 const adapterSource = DrawingWorkbenchAdapter.toString()

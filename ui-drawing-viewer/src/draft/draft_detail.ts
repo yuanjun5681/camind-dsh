@@ -21,7 +21,7 @@ export function dimTypeLabel(type: number): string {
 /**
  * display_text 与 measured 比对(4B-4 验收:不一致标红)。
  * 口径:display_text 去前缀符号(Ø/R/M/°)后取首个数(负号/小数),× dimlfac 与
- * measured 比对(相对容差 1e-6);measured 缺席按降级提示而非错判(LibreDWG subclass
+ * measured 按显示小数位舍入容差比对;measured 缺席按降级提示而非错判(LibreDWG subclass
  * marker 缺失是已知形态,契约 §4)。
  */
 export function compareDim(dim: DraftDim): "match" | "mismatch" | "no-measured" | "unparseable" {
@@ -31,8 +31,9 @@ export function compareDim(dim: DraftDim): "match" | "mismatch" | "no-measured" 
     const shown = Number(m[0]);
     const lfac = Number.isFinite(dim.dimlfac) ? dim.dimlfac : 1; // 缺席=1;0/负保留乘算(loader 已按契约取)
     const ref = dim.measured * lfac; // 显示 = 测量 × 比例因子(契约 §4;dimlfac=0 → ref=0,不得假匹配)
-    const tol = Math.max(Math.abs(ref) * 1e-6, 1e-9); // 相对容差 + 绝对下限(近零/显示舍入不误红)
-    return Math.abs(shown - ref) <= tol ? "match" : "mismatch";
+    const decimals = m[0].includes(".") ? m[0].split(".")[1].length : 0;
+    const rounded = decimals <= 100 ? Number(ref.toFixed(decimals)) : ref; // 与转换器同精度舍入后再比对
+    return rounded === shown ? "match" : "mismatch";
 }
 
 /** 公差文案:对称 → "±x";不对称 → "+上/−下";fit 原样。 */

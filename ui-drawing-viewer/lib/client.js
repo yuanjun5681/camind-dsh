@@ -1839,8 +1839,9 @@ function compareDim(dim) {
   const shown = Number(m[0]);
   const lfac = Number.isFinite(dim.dimlfac) ? dim.dimlfac : 1;
   const ref = dim.measured * lfac;
-  const tol = Math.max(Math.abs(ref) * 1e-6, 1e-9);
-  return Math.abs(shown - ref) <= tol ? "match" : "mismatch";
+  const decimals = m[0].includes(".") ? m[0].split(".")[1].length : 0;
+  const rounded = decimals <= 100 ? Number(ref.toFixed(decimals)) : ref;
+  return rounded === shown ? "match" : "mismatch";
 }
 function formatTolerance(dim) {
   const { upper, lower, fit } = dim.tolerance;
@@ -2672,7 +2673,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
     if (!container) return;
     let disposed = false;
     container.textContent = "";
-    let pane = null;
+    let pane = null, suppressReferences = 0;
     try {
       validateDescriptor(descriptor);
       const provenance = descriptorProvenance(descriptor);
@@ -2693,6 +2694,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
         else if (msg.type === "selectionChanged") {
           const targets = msg.targets.map((target) => ({ ...target }));
           setSelectionState(targets);
+          if (suppressReferences) return;
           if (targets.length === 0) {
             void (async () => {
               try {
@@ -2734,11 +2736,21 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
         locateTarget: (target, zoom = true) => {
           currentPane.handle({ type: "locateTarget", messageVersion: 2, target, zoom });
         },
-        setSelection: (targets) => {
-          currentPane.handle({ type: "setSelection", messageVersion: 2, targets });
+        setSelection: (targets, notify = true) => {
+          if (!notify) suppressReferences++;
+          try {
+            currentPane.handle({ type: "setSelection", messageVersion: 2, targets });
+          } finally {
+            if (!notify) suppressReferences--;
+          }
         },
-        clearSelection: () => {
-          currentPane.handle({ type: "clearSelection", messageVersion: 2 });
+        clearSelection: (notify = true) => {
+          if (!notify) suppressReferences++;
+          try {
+            currentPane.handle({ type: "clearSelection", messageVersion: 2 });
+          } finally {
+            if (!notify) suppressReferences--;
+          }
         },
         zoomToRect: (rect) => {
           const scale = dpr();

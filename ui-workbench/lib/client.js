@@ -1314,8 +1314,9 @@ function drawingDimensionComparison(dim) {
   const match = String(dim.display_text ?? '').replace(/[ØRrM°\s]/g, '').match(/-?\d+(?:\.\d+)?/)
   if (!match) return 'unparseable'
   const reference = dim.measured * (Number.isFinite(dim.dimlfac) ? dim.dimlfac : 1)
-  const tolerance = Math.max(Math.abs(reference) * 1e-6, 1e-9)
-  return Math.abs(Number(match[0]) - reference) <= tolerance ? 'match' : 'mismatch'
+  const decimals = match[0].includes('.') ? match[0].split('.')[1].length : 0
+  const rounded = decimals <= 100 ? Number(reference.toFixed(decimals)) : reference
+  return rounded === Number(match[0]) ? 'match' : 'mismatch'
 }
 function drawingToleranceText(dim) {
   const { upper, lower, fit } = dim.tolerance ?? {}
@@ -1331,12 +1332,16 @@ function drawingEntityText(entity) {
   const cells = (entity.cells ?? []).map(cell => typeof cell?.text === 'string' ? cell.text : '').filter(Boolean)
   return [direct, ...cells].filter(Boolean).join(' ').trim()
 }
-function drawingVerifiedSelection(question, selection) {
-  if (!question) return null
+function drawingVerifiedSelection(descriptor, question, selection) {
+  if (!question || question.pending) return null
   if (!question.active) return selection.length ? [] : null
   if (!question.hasChip) return null
-  const target = question.active.reference?.target
+  const reference = question.active.reference, target = reference?.target
   if (!target) return selection.length ? [] : null
+  const samePreview = descriptor.session === reference.session && descriptor.source?.uri === reference.source?.uri
+    && descriptor.source?.sha256 === reference.source?.sha256 && descriptor.pack?.sha256 === reference.pack?.sha256
+    && descriptor.pack?.identity === reference.pack?.identity
+  if (!samePreview) return null
   return selection.some(item => item.id === target.id && item.type === target.type) ? null : [target]
 }
 function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef, degraded }) {
@@ -1356,9 +1361,9 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
   }, [descriptor.session])
   useEffect(() => {
     if (!controller) return
-    const next = drawingVerifiedSelection(verifiedQuestion, selection)
-    if (next?.length) controller.setSelection(next)
-    else if (next) controller.clearSelection()
+    const next = drawingVerifiedSelection(descriptor, verifiedQuestion, selection)
+    if (next?.length) controller.setSelection(next, false)
+    else if (next) controller.clearSelection(false)
   }, [controller, verifiedQuestion, selection])
   useEffect(() => { setQuery(''); setLimit(100); setBoxMode(false); setBoxRect(null); boxDrag.current = null }, [descriptor])
   useEffect(() => {
@@ -1602,9 +1607,9 @@ function createDrawingQuestionController(options) {
     reference: checked, ref: chip?.ref ?? JSON.stringify(checked),
     label: checked.entities?.[0]?.text || chip?.label.replace(/^针对：/, '') || '图纸文字',
   }))
-  let snapshot = { active: null, hasChip: false }, sequence = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
+  let snapshot = { active: null, hasChip: false }, pendingSelections = 0, sequence = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
   const listeners = new Set()
-  const publish = next => { snapshot = next; for (const listener of listeners) listener() }
+  const publish = next => { snapshot = { ...next, pending: pendingSelections > 0 }; for (const listener of listeners) listener() }
   const owned = state => state.occurrences.filter(item => item.source === source)
   const stale = options.stale ?? (ref => version && (ref.source_sha256 !== version.source || (ref.kind === 'drawing-target' && version.preview && ref.preview_sha256 !== version.preview)))
   const invalidate = () => { handoffSequence++; handoffFailure = null; handoff = false; sendPending = null; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
@@ -1749,21 +1754,26 @@ function createDrawingQuestionController(options) {
     async select(reference, shouldFocus = () => true) {
       if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
       const ticket = ++sequence; handoffSequence++; handoffFailure = null
-      let checked
-      try { checked = await validate(reference) }
-      catch (error) {
+      pendingSelections++; publish({ ...snapshot })
+      try {
+        let checked
+        try { checked = await validate(reference) }
+        catch (error) {
+          if (disposed || ticket !== sequence || !isCurrent()) return false
+          throw error
+        }
         if (disposed || ticket !== sequence || !isCurrent()) return false
-        throw error
+        if (stale(checked)) throw new Error('图纸或预览已更新，请重新选择提问对象')
+        const active = present(checked)
+        if (snapshot.active?.ref === active.ref && snapshot.hasChip) { if (shouldFocus()) input.focus(); return true }
+        const focus = shouldFocus()
+        if (!insert(active)) throw new Error('输入框正在提交或引用无法替换，请稍后重选')
+        handoffFailure = null; handoff = false; sendPending = null; publish({ active, hasChip: true })
+        if (invalidNotice) { input.notify?.('info', ''); invalidNotice = false }
+        if (focus) input.focus(); return true
+      } finally {
+        pendingSelections--; publish({ ...snapshot })
       }
-      if (disposed || ticket !== sequence || !isCurrent()) return false
-      if (stale(checked)) throw new Error('图纸或预览已更新，请重新选择提问对象')
-      const active = present(checked)
-      if (snapshot.active?.ref === active.ref && snapshot.hasChip) { if (shouldFocus()) input.focus(); return true }
-      const focus = shouldFocus()
-      if (!insert(active)) throw new Error('输入框正在提交或引用无法替换，请稍后重选')
-      handoffFailure = null; handoff = false; sendPending = null; publish({ active, hasChip: true })
-      if (invalidNotice) { input.notify?.('info', ''); invalidNotice = false }
-      if (focus) input.focus(); return true
     },
     clear() {
       sequence++; handoffSequence++; handoffFailure = null
@@ -2168,7 +2178,7 @@ function apply(ctx) {
     openReference({ sessionId }, { ref }) {
       const reference = JSON.parse(ref)
       if (reference.session !== sessionId) return false
-      previewService()?.preview(sessionId, reference.source.uri, 'drawing', reference.source.sha256)
+      previewService()?.preview(sessionId, reference.source.uri, 'default', reference.source.sha256)
       return true
     },
   }), 'ui-workbench: native drawing references')

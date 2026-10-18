@@ -127,7 +127,7 @@ const ctx = {
     if (name === 'uiConversation') return { binding: () => ({ target: () => admittedFace }) }
     if (name === 'sidebarRight') return { mounted: { getSnapshot: () => mounted } }
     if (name === 'inputTriggers') return { registerSource: definition => { sourceDefinition = definition; return () => {} } }
-    if (name === 'filePreview') return { preview: (sessionId, uri) => { previewCalls.push([sessionId, uri]) } }
+    if (name === 'filePreview') return { preview: (sessionId, uri, channel, version) => { previewCalls.push([sessionId, uri, channel, version]) } }
     return null
   },
 }
@@ -176,7 +176,7 @@ console.log('ok - failed or cross-session verification cannot be sent')
 
 assert.equal(sourceDefinition.openReference({ sessionId: 's2' }, { ref: JSON.stringify(reference) }), false)
 assert.equal(sourceDefinition.openReference({ sessionId: 's1' }, { ref: JSON.stringify(reference) }), true)
-assert.deepEqual(previewCalls, [['s1', reference.source.uri]])
+assert.deepEqual(previewCalls, [['s1', reference.source.uri, 'default', reference.source.sha256]], 'generic drawing references open the rendered default channel')
 console.log('ok - openReference returns to the authorized drawing preview')
 
 state = {

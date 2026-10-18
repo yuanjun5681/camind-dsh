@@ -15,8 +15,8 @@ export interface DrawingController {
   zoom: (factor: number) => void
   pan: (dx: number, dy: number) => void
   locateTarget: (target: DrawingTarget, zoom?: boolean) => void
-  setSelection: (targets: DrawingTarget[]) => void
-  clearSelection: () => void
+  setSelection: (targets: DrawingTarget[], notify?: boolean) => void
+  clearSelection: (notify?: boolean) => void
   zoomToRect: (rect: DrawingRect) => void
   setViewportInsets: (insets: DrawingInsets) => void
   setColorMode: (mode: 'readable' | 'original') => void
@@ -49,7 +49,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
     if (!container) return
     let disposed = false
     container.textContent = '' // B 失败不得把保留的 A 错标为 B
-    let pane: DraftPane | null = null
+    let pane: DraftPane | null = null, suppressReferences = 0
     try {
       validateDescriptor(descriptor)
       const provenance = descriptorProvenance(descriptor)
@@ -68,6 +68,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
         else if (msg.type === 'selectionChanged') {
           const targets = msg.targets.map(target => ({ ...target }))
           setSelectionState(targets)
+          if (suppressReferences) return
           if (targets.length === 0) {
             void (async () => {
               try { await callback.current?.(null) }
@@ -97,8 +98,16 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
         },
         pan: (dx, dy) => { const scale = dpr(); currentPane.handle({ type: 'pan', messageVersion: 2, dx: dx * scale, dy: dy * scale }) },
         locateTarget: (target, zoom = true) => { currentPane.handle({ type: 'locateTarget', messageVersion: 2, target, zoom }) },
-        setSelection: targets => { currentPane.handle({ type: 'setSelection', messageVersion: 2, targets }) },
-        clearSelection: () => { currentPane.handle({ type: 'clearSelection', messageVersion: 2 }) },
+        setSelection: (targets, notify = true) => {
+          if (!notify) suppressReferences++
+          try { currentPane.handle({ type: 'setSelection', messageVersion: 2, targets }) }
+          finally { if (!notify) suppressReferences-- }
+        },
+        clearSelection: (notify = true) => {
+          if (!notify) suppressReferences++
+          try { currentPane.handle({ type: 'clearSelection', messageVersion: 2 }) }
+          finally { if (!notify) suppressReferences-- }
+        },
         zoomToRect: rect => {
           const scale = dpr()
           currentPane.handle({ type: 'zoomToRect', messageVersion: 2, rect: { x: rect.x * scale, y: rect.y * scale, width: rect.width * scale, height: rect.height * scale } })
