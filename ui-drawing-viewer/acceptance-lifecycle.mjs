@@ -307,7 +307,7 @@ assert.equal(listenerCount(aCanvas.listeners), 0, 'old A canvas listeners must b
 assert.equal(aObserver.active, false, 'old A ResizeObserver must be disconnected')
 assertGpuDisposed(aGl, 'A session switch')
 assert.equal(activeObservers(), 1, 'B must own exactly one ResizeObserver')
-assert.equal(windowListenerCount(), 3, 'B must own only pointermove/up/cancel window listeners')
+assert.equal(windowListenerCount(), 4, 'B must own pointermove/up/cancel/resize window listeners')
 assertCamera(lastCameraUniform(bGl), fitView(goodPack.bbox, bCanvas.width, bCanvas.height))
 assert.notDeepEqual(lastCameraUniform(bGl), pannedA, 'B must not inherit A\'s panned camera')
 
@@ -367,7 +367,7 @@ for (let attempt = 0; attempt < 3; attempt++) {
   const canvas = container.children[0]
   const mock = canvas.glMocks[0]
   assert.equal(activeObservers(), 1)
-  assert.equal(windowListenerCount(), 3)
+  assert.equal(windowListenerCount(), 4)
   unmountPreview()
   assertGpuDisposed(mock, `React remount ${attempt + 1}`)
   assert.equal(listenerCount(canvas.listeners), 0)

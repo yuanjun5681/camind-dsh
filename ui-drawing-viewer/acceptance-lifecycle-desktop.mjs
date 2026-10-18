@@ -23,7 +23,8 @@ const { outputFiles } = await build({
       viewer.id = 'viewer';
       viewer.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:600px;z-index:99999;background:#1e2023';
       document.body.appendChild(viewer);
-      const root = createRoot(viewer), refs = [], goodText = ${JSON.stringify(goodText)};
+      let root = createRoot(viewer);
+      const refs = [], goodText = ${JSON.stringify(goodText)};
       const Adapter = ({ controller }) => {
         React.useEffect(() => { controller?.setViewportInsets({ top: 0, right: 0, bottom: 0, left: 0 }) }, [controller]);
         return null;
@@ -34,7 +35,9 @@ const { outputFiles } = await build({
           pack: { sha256: '${'2'.repeat(64)}', identity: '${'3'.repeat(64)}' } };
         root.render(React.createElement(DrawingPreview, { descriptor, onReference: ref => refs.push(ref), adapter: Adapter }));
       };
-      window.__m3 = { root, render, refs };
+      const mount = name => { root = createRoot(viewer); render(name) };
+      const unmount = () => root.unmount();
+      window.__m3 = { render, mount, unmount, refs };
       render('a.dwg');
     `,
   },
@@ -65,8 +68,11 @@ try {
   assert(!((await meta.innerText()).includes('16 实体')), 'A failed B load must not retain A metadata')
   assert(!((await meta.innerText()).includes('a.dwg')))
 
-  await page.evaluate(() => window.__m3.render('a.dwg'))
+  await page.evaluate(() => window.__m3.unmount())
+  assert.equal(await page.locator('#viewer > *').count(), 0)
+  await page.evaluate(() => window.__m3.mount('a.dwg'))
   await canvas.waitFor()
+  assert.match(await meta.innerText(), /a.dwg/)
   await page.evaluate(() => { const el = document.querySelector('#viewer'); el.style.width = '0px'; el.style.height = '0px'; window.__m3.render('a.dwg') })
   await page.waitForTimeout(100)
   await page.evaluate(() => { const el = document.querySelector('#viewer'); el.style.width = '800px'; el.style.height = '600px' })
@@ -75,14 +81,21 @@ try {
     return Boolean(host?.dataset.camera && gl && gl.width > 100 && host.getBoundingClientRect().width > 100)
   })
 
-  const beforeDpr = await canvas.evaluate(el => ({ camera: el.dataset.camera, width: el.querySelector('canvas').width }))
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 800, deviceScaleFactor: 2, mobile: false })
-  await page.waitForFunction(() => {
+  const nativeDpr = await page.evaluate(() => devicePixelRatio), baselineDpr = nativeDpr === 1 ? 2 : 1
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 800, deviceScaleFactor: baselineDpr, mobile: false })
+  await page.waitForFunction(expected => {
     const host = document.querySelector('#viewer .cdv-canvas'), gl = host?.querySelector('canvas')
-    return gl && gl.width >= host.getBoundingClientRect().width * 1.9
-  })
-  assert.equal(await canvas.getAttribute('data-camera'), beforeDpr.camera, 'DPR changes must preserve the camera')
+    return gl && Math.abs(gl.width - host.getBoundingClientRect().width * expected) <= 1
+  }, baselineDpr)
+  const beforeDpr = await canvas.evaluate(el => ({ camera: el.dataset.camera, width: el.querySelector('canvas').width }))
+  const expectedWidth = Math.round(beforeDpr.width * nativeDpr / baselineDpr)
   await cdp.send('Emulation.clearDeviceMetricsOverride')
+  await page.waitForFunction(expected => {
+    const gl = document.querySelector('#viewer .cdv-canvas canvas')
+    return gl && Math.abs(gl.width - expected) <= 1
+  }, expectedWidth)
+  assert.notEqual(expectedWidth, beforeDpr.width, 'DPR acceptance must change the backing store')
+  assert.equal(await canvas.getAttribute('data-camera'), beforeDpr.camera, 'DPR changes must preserve the camera')
 
   const point = await canvas.evaluate(host => {
     const state = JSON.parse(host.dataset.camera), insets = JSON.parse(host.dataset.insets)
@@ -114,7 +127,7 @@ try {
   assert.equal(await canvas.locator('canvas').count(), 2)
   assert.equal(await canvas.getAttribute('data-camera'), beforeLost, 'Context recovery must preserve the camera')
 
-  await page.evaluate(() => window.__m3.root.unmount())
+  await page.evaluate(() => window.__m3.unmount())
   assert.equal(await page.locator('#viewer > *').count(), 0, 'Dispose must remove the mounted preview')
   assert.deepEqual(pageErrors, [])
   const report = { real_desktop: true, valid_ab_replacement: true, failed_b_clears_a: true, react_remount: true, zero_size_recovery: true, dpr_recovery: true, pointercancel: true, webgl_recovery: true, dispose: true, pageerrors: pageErrors, scope: 'Live smoke only; deterministic A/B races and full lifecycle assertions run in acceptance-lifecycle.mjs.' }

@@ -433,21 +433,46 @@ export class DraftPane {
             }
         };
         const onRestored = (): void => { this.restoreContext(); };
+        const onWindowResize = (): void => {
+            if (this.destroyed) return;
+            this.cancelClickTimer();
+            this.applySize();
+            if (this.view) this.view.render();
+        };
+        let dprQuery: MediaQueryList | null = null;
+        const onDprChange = (): void => {
+            if (this.destroyed) return;
+            this.cancelClickTimer();
+            this.applySize();
+            if (this.view) this.view.render();
+            watchDpr();
+        };
+        const watchDpr = (): void => {
+            if (dprQuery) dprQuery.removeEventListener("change", onDprChange);
+            if (typeof window.matchMedia !== "function") { dprQuery = null; return; }
+            dprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+            dprQuery.addEventListener("change", onDprChange);
+        };
+        watchDpr();
         this.glCanvas.addEventListener("wheel", onWheel, { passive: false });
         this.glCanvas.addEventListener("pointerdown", onDown);
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
         window.addEventListener("pointercancel", onCancel);
+        window.addEventListener("resize", onWindowResize);
         this.glCanvas.addEventListener("click", onClick);
         this.glCanvas.addEventListener("dblclick", onDblClick);
         this.glCanvas.addEventListener("webglcontextlost", onLost);
         this.glCanvas.addEventListener("webglcontextrestored", onRestored);
         this.disposers.push(() => {
+            if (dprQuery) dprQuery.removeEventListener("change", onDprChange);
+            dprQuery = null;
             this.glCanvas.removeEventListener("wheel", onWheel);
             this.glCanvas.removeEventListener("pointerdown", onDown);
             window.removeEventListener("pointermove", onMove);
             window.removeEventListener("pointerup", onUp);
             window.removeEventListener("pointercancel", onCancel);
+            window.removeEventListener("resize", onWindowResize);
             this.glCanvas.removeEventListener("click", onClick);
             this.glCanvas.removeEventListener("dblclick", onDblClick);
             this.glCanvas.removeEventListener("webglcontextlost", onLost);
