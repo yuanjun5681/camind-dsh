@@ -18,7 +18,7 @@ assert.deepEqual(drawingReferences({
 console.log('ok - trusted descriptor contract and content-mode read-only')
 
 let plugin, sourceDefinition, allow = true, mounted = 's1', deferred = null
-const inserted = [], verifyCalls = [], previewCalls = [], events = [], disposers = []
+const inserted = [], verifyCalls = [], previewCalls = [], events = [], disposers = [], submitCalls = []
 let state = { draft: '问题', phase: 'plain', draftRev: 1, occurrences: [], attachmentIds: [] }
 const stateListeners = new Set(), submissionListeners = new Set(), admittedListeners = new Set()
 let submissionSnapshot = { pendingSubmissions: [] }, admittedSnapshot = { legacy: { nodes: [] } }
@@ -37,6 +37,9 @@ const input = {
   },
   focus: () => { events.push('focus') },
   notify: () => { events.push('notify') },
+  submit(...args) {
+    submitCalls.push({ args, targets: state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).target.id) })
+  },
   insertReference(ref, span) {
     assert.equal(span.draftRev, state.draftRev)
     events.push('insert')
@@ -455,6 +458,57 @@ assert.deepEqual(ownedIds(), [23], 'an older failure cannot cancel the newer att
 assert.ok(state.draft.startsWith('第二个请求的追问 '))
 assert.match(sent23, /"id":23/)
 console.log('ok - handoff settlement is isolated by serialization attempt')
+
+const ref24 = await selectId(24)
+let codec24 = true, release24
+deferred = claimed => {
+  if (claimed.target.id === 24 && codec24) {
+    return new Promise(resolve => {
+      release24 = () => {
+        codec24 = false; deferred = null
+        resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+      }
+    })
+  }
+  return { ok: true, json: async () => ({ reference: claimed, targetContent: {} }) }
+}
+const flight24 = sourceDefinition.codec.serialize(ref24, new AbortController().signal)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+publish({ draft: '快速追问必须带上当前对象 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+input.submit('queue', 'click')
+assert.equal(submitCalls.length, 0, 'rapid follow-up submit must wait for retained verification')
+release24()
+const sent24 = await flight24
+publishPending([{ requestId: 'request-24', placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
+await tick()
+assert.equal(submitCalls.length, 1)
+assert.deepEqual(submitCalls[0].targets, [24], 'the deferred follow-up snapshot contains the verified retained object')
+assert.match(sent24, /"id":24/)
+console.log('ok - rapid follow-up submit waits for a verified reference')
+
+const ref25 = await selectId(25)
+await serializeAndClear(ref25, 'request-25')
+let resolve25
+deferred = claimed => new Promise(resolve => {
+  resolve25 = () => {
+    deferred = null
+    resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+  }
+})
+publishAdmitted([{ kind: 'user', turn: 10 }])
+deferred = null
+const ref26 = await selectId(26)
+await serializeAndClear(ref26, 'request-26')
+publishAdmitted([{ kind: 'user', turn: 11 }])
+publish({ draft: 'B 的追问 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+input.submit('queue', 'click')
+assert.equal(submitCalls.length, 1, 'B cannot submit while an obsolete flight blocks its handoff')
+resolve25()
+await tick(); await tick()
+assert.deepEqual(ownedIds(), [26], 'an obsolete flight retries the current handoff after settling')
+assert.equal(submitCalls.length, 2)
+assert.deepEqual(submitCalls.at(-1).targets, [26], 'the retried handoff is present in the follow-up submission')
+console.log('ok - obsolete handoff completion retries the current reference before submit')
 
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()

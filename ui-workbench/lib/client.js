@@ -1584,7 +1584,7 @@ function createDrawingQuestionController(options) {
   const publish = next => { snapshot = next; for (const listener of listeners) listener() }
   const owned = state => state.occurrences.filter(item => item.source === source)
   const stale = options.stale ?? (ref => version && (ref.source_sha256 !== version.source || (ref.kind === 'drawing-target' && version.preview && ref.preview_sha256 !== version.preview)))
-  const invalidate = () => { handoffSequence++; handoff = false; sendPending = null; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
+  const invalidate = () => { handoffSequence++; handoffFailure = null; handoff = false; sendPending = null; publish({ active: null, hasChip: false }); invalidNotice = true; input.notify?.('info', '图纸或预览已更新，请重新选择提问对象') }
   const insert = active => {
     const state = input.state.getSnapshot(), chips = owned(state)
     if (state.phase !== 'plain' || chips.length > 1) return false
@@ -1596,23 +1596,37 @@ function createDrawingQuestionController(options) {
     finally { editing = false }
   }
   const fromChip = chip => { try { return present(JSON.parse(chip.ref), chip) } catch { return null } }
-  let reattaching = false
+  let reattachFlight = null, reattachQueued = false, handoffFailure = null
+  const failRetained = message => {
+    handoffFailure = message
+    publish({ active: snapshot.active, hasChip: false })
+    input.notify?.('error', message)
+  }
   const reattach = async () => {
-    if (reattaching || !handoff || !snapshot.active || snapshot.hasChip) return
-    reattaching = true
-    const ticket = handoffSequence, retained = snapshot.active
+    if (reattachFlight) { reattachQueued = true; return reattachFlight }
+    if (!handoff || !snapshot.active || snapshot.hasChip) return
+    reattachFlight = (async () => {
+      const ticket = handoffSequence, retained = snapshot.active
+      try {
+        const checked = await validate(retained.reference)
+        if (disposed || ticket !== handoffSequence || !isCurrent() || !handoff || snapshot.active?.ref !== retained.ref || snapshot.hasChip) return
+        if (stale(checked)) { invalidate(); return }
+        const active = present(checked)
+        if (!insert(active)) { failRetained('当前图纸引用暂时无法恢复，请重新选择'); return }
+        handoffFailure = null; handoff = false; publish({ active, hasChip: true })
+      } catch (error) {
+        if (!disposed && ticket === handoffSequence && handoff) failRetained(error instanceof Error ? error.message : String(error))
+      }
+    })()
+    const flight = reattachFlight
     try {
-      const checked = await validate(retained.reference)
-      if (disposed || ticket !== handoffSequence || !isCurrent() || !handoff || snapshot.active?.ref !== retained.ref || snapshot.hasChip) return
-      if (stale(checked)) { invalidate(); return }
-      const active = present(checked)
-      if (!insert(active)) return
-      handoff = false; publish({ active, hasChip: true })
-    } catch (error) {
-      if (!disposed && ticket === handoffSequence && handoff) input.notify?.('error', error instanceof Error ? error.message : String(error))
+      await flight
     } finally {
-      reattaching = false
+      reattachFlight = null
+      const retry = reattachQueued; reattachQueued = false
+      if (retry && handoff && snapshot.active && !snapshot.hasChip && !sendPending) void reattach()
     }
+    return flight
   }
   const attachRetained = () => {
     if (verifyHandoff && sendPending) return
@@ -1667,12 +1681,33 @@ function createDrawingQuestionController(options) {
     if (handoff && snapshot.active && !snapshot.hasChip) attachRetained()
   })
   sync()
+  const waitForHandoff = () => new Promise((resolve, reject) => {
+    const cleanup = () => listeners.delete(settle)
+    const settle = () => {
+      if (disposed) { cleanup(); resolve(); return }
+      if (handoffFailure) { const message = handoffFailure; cleanup(); reject(new Error(message)); return }
+      if (!handoff || snapshot.hasChip) { cleanup(); resolve() }
+    }
+    listeners.add(settle); settle()
+  })
+  const originalSubmit = input.submit
+  const guardedSubmit = (...args) => {
+    const state = input.state.getSnapshot()
+    if (!handoff || snapshot.hasChip || state.phase !== 'plain' || (!state.draft.trim() && !state.attachmentIds?.length)) {
+      originalSubmit.apply(input, args)
+      return
+    }
+    void waitForHandoff().then(() => {
+      if (!disposed) originalSubmit.apply(input, args)
+    }).catch(error => { if (error.message !== handoffFailure) input.notify?.('error', error.message) })
+  }
+  if (verifyHandoff) input.submit = guardedSubmit
   return {
     input, admitted,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot,
     async select(reference, shouldFocus = () => true) {
       if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-      const ticket = ++sequence; handoffSequence++
+      const ticket = ++sequence; handoffSequence++; handoffFailure = null
       let checked
       try { checked = await validate(reference) }
       catch (error) {
@@ -1685,30 +1720,36 @@ function createDrawingQuestionController(options) {
       if (snapshot.active?.ref === active.ref && snapshot.hasChip) { if (shouldFocus()) input.focus(); return true }
       const focus = shouldFocus()
       if (!insert(active)) throw new Error('输入框正在提交或引用无法替换，请稍后重选')
-      handoff = false; sendPending = null; publish({ active, hasChip: true })
+      handoffFailure = null; handoff = false; sendPending = null; publish({ active, hasChip: true })
       if (invalidNotice) { input.notify?.('info', ''); invalidNotice = false }
       if (focus) input.focus(); return true
     },
     clear() {
-      sequence++; handoffSequence++
+      sequence++; handoffSequence++; handoffFailure = null
       const state = input.state.getSnapshot(), chips = owned(state)
       if (chips.length > 1 || (chips[0] && (state.phase !== 'plain' || !consume(drawingQuestionSpan(state, chips[0]))))) throw new Error('当前引用暂时无法清除，请稍后重试')
       handoff = false; sendPending = null; publish({ active: null, hasChip: false })
     },
     beginSend(ref) {
       if (snapshot.active?.ref !== ref) return null
-      handoffSequence++; handoff = true
+      handoffSequence++; handoffFailure = null; handoff = true
       const attempt = verifyHandoff ? { ref } : null
       sendPending = attempt
       return attempt
     },
-    confirmSend(attempt) { if (sendPending && sendPending === attempt) { sendPending = null; sync() } },
-    cancelSend(attempt) { if (sendPending && sendPending === attempt) { sendPending = null; handoff = false; sync() } },
+    confirmSend(attempt) { if (sendPending && sendPending === attempt) { handoffFailure = null; sendPending = null; sync() } },
+    cancelSend(attempt) { if (sendPending && sendPending === attempt) { handoffFailure = null; sendPending = null; handoff = false; publish({ active: snapshot.active, hasChip: snapshot.hasChip }); sync() } },
     setVersion(sourceValue, preview) {
       if (version?.source !== sourceValue || version?.preview !== preview) { sequence++; handoffSequence++; version = { source: sourceValue, preview }; sync() }
       if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
     },
-    dispose() { disposed = true; sequence++; handoffSequence++; sendPending = null; unsubscribe(); unsubscribeAdmitted?.(); listeners.clear() },
+    dispose() {
+      disposed = true; sequence++; handoffSequence++; sendPending = null
+      if (verifyHandoff && input.submit === guardedSubmit) input.submit = originalSubmit
+      unsubscribe(); unsubscribeAdmitted?.()
+      for (const listener of listeners) listener()
+      listeners.clear()
+    },
   }
 }
 function drawingQuestion(sessionId) {
