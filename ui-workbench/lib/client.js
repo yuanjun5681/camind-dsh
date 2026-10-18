@@ -1360,7 +1360,7 @@ function drawingVerifiedSelection(descriptor, question, selection) {
   if (!target) return selection.length ? [] : null
   return selection.some(item => item.id === target.id && item.type === target.type) ? null : [target]
 }
-function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef, degraded }) {
+function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef, degraded, active }) {
   const actualDegraded = degraded ?? descriptor.degraded
   const [query, setQuery] = useState(''), [limit, setLimit] = useState(100), [open, setOpen] = useState(false)
   const [originalColors, setOriginalColors] = useState(false), [boxMode, setBoxMode] = useState(false), [boxRect, setBoxRect] = useState(null)
@@ -1375,7 +1375,7 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     update()
     return question.subscribe(update)
   }, [descriptor.session])
-  const paneActive = viewportRef?.current?.closest('.wb-preview-stage')?.hidden !== true
+  const paneActive = active
   useEffect(() => {
     if (!controller || !paneActive) return
     const next = drawingVerifiedSelection(descriptor, verifiedQuestion, selection)
@@ -2130,8 +2130,8 @@ function WorkbenchView({ sessionId }) {
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        h('div', { className: 'wb-preview-stage', hidden: mode !== 'preview' }, Preview ? h(Preview, { sessionId, channel: 'default', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'preview' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'preview' }, Preview ? h(Preview, { sessionId, channel: 'default', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, drawingActive: mode === 'preview', renderHeader: info => heading && mode === 'preview' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, drawingActive: mode === 'drawing', renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
       panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },

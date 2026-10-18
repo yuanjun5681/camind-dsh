@@ -2652,7 +2652,7 @@ var drawingCss = `
 
 // ui-drawing-viewer/src/client.ts
 var h = import_react.default.createElement;
-function DrawingPreview({ descriptor, onReference, adapter }) {
+function DrawingPreview({ descriptor, onReference, adapter, adapterActive = true }) {
   const host = (0, import_react.useRef)(null);
   const currentDescriptor = (0, import_react.useRef)(descriptor);
   currentDescriptor.current = descriptor;
@@ -2852,7 +2852,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           } else lastMiddleClick.current = now;
         },
         onKeyDown: (event) => {
-          if (!controller) return;
+          if (!controller || event.ctrlKey || event.metaKey || event.altKey || event.target !== event.currentTarget) return;
           if (event.key.startsWith("Arrow")) {
             const step = event.shiftKey ? 120 : 40;
             controller.pan(event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0, event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0);
@@ -2864,7 +2864,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           event.preventDefault();
         }
       }),
-      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, degraded: visibleDegraded ?? null, onReference }) : null
+      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, degraded: visibleDegraded ?? null, active: adapterActive, onReference }) : null
     )
   );
 }

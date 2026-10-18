@@ -28,11 +28,12 @@ interface DrawingAdapterProps {
   selection: readonly DrawingTarget[]
   viewportRef: React.RefObject<HTMLDivElement | null>
   degraded: Loaded['degraded'] | null
+  active: boolean
   onReference?: ReferenceHandler
 }
 type DrawingAdapter = (props: DrawingAdapterProps) => React.ReactElement
 
-export function DrawingPreview({ descriptor, onReference, adapter }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler; adapter?: DrawingAdapter }): React.ReactElement {
+export function DrawingPreview({ descriptor, onReference, adapter, adapterActive = true }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler; adapter?: DrawingAdapter; adapterActive?: boolean }): React.ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const currentDescriptor = useRef(descriptor)
   currentDescriptor.current = descriptor
@@ -189,7 +190,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           else lastMiddleClick.current = now
         },
         onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-          if (!controller) return
+          if (!controller || event.ctrlKey || event.metaKey || event.altKey || event.target !== event.currentTarget) return
           if (event.key.startsWith('Arrow')) {
             const step = event.shiftKey ? 120 : 40
             controller.pan(event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0, event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0)
@@ -202,7 +203,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           event.preventDefault()
         },
       }),
-      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, degraded: visibleDegraded ?? null, onReference }) : null))
+      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, degraded: visibleDegraded ?? null, active: adapterActive, onReference }) : null))
 }
 
 export const name = 'camind-ui-drawing-viewer'

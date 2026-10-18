@@ -201,8 +201,8 @@ const pans = [], corePan = controls.controller.pan
 controls.controller.pan = (dx, dy) => { pans.push([dx, dy]); corePan(dx, dy) }
 const canvas = findNode(tree, node => node?.props?.className === 'cdv-canvas')
 const eventTarget = { focus() {}, setPointerCapture() {}, releasePointerCapture() {} }
-canvas.props.onKeyDown({ key: 'ArrowLeft', shiftKey: false, preventDefault() {} })
-canvas.props.onKeyDown({ key: 'ArrowDown', shiftKey: true, preventDefault() {} })
+canvas.props.onKeyDown({ key: 'ArrowLeft', target: eventTarget, currentTarget: eventTarget, shiftKey: false, preventDefault() {} })
+canvas.props.onKeyDown({ key: 'ArrowDown', target: eventTarget, currentTarget: eventTarget, shiftKey: true, preventDefault() {} })
 canvas.props.onPointerDown({ button: 1, pointerId: 7, clientX: 10, clientY: 20, currentTarget: eventTarget, preventDefault() {} })
 canvas.props.onPointerMove({ pointerId: 7, clientX: 15, clientY: 32, currentTarget: eventTarget, preventDefault() {} })
 canvas.props.onPointerUp({ pointerId: 7, currentTarget: eventTarget, preventDefault() {} })
@@ -213,6 +213,10 @@ controls.controller.fit = () => { fits.push(true); coreFit() }
 canvas.props.onAuxClick({ button: 1, preventDefault() {} })
 canvas.props.onAuxClick({ button: 1, preventDefault() {} })
 assert.equal(fits.length, 1, 'middle-button double-click must fit the drawing')
+canvas.props.onKeyDown({ key: 'f', ctrlKey: true, target: eventTarget, currentTarget: eventTarget, preventDefault() {} })
+canvas.props.onKeyDown({ key: 'ArrowRight', target: {}, currentTarget: eventTarget, preventDefault() {} })
+assert.equal(fits.length, 1, 'modified or descendant key events must not fit')
+assert.deepEqual(pans, [[-40, 0], [0, 120], [5, 12]], 'modified or descendant key events must not pan')
 console.log('ok - public controller maps CSS controls to pane v2 and restores native selection')
 console.log('ok - arrow keys and middle-button dragging preserve drawing pan controls')
 console.log('ok - middle-button double-click preserves fit gesture')
