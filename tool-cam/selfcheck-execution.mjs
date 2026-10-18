@@ -31,7 +31,12 @@ try {
   const args = { part_id: 'TEST', part: 'task-input://1/prt', machine_id: 'm1', operations: task.operations }
   const planned = JSON.parse(await tools.get('cam_plan').execute(args, exec)); assert.equal(planned.status, 'ok')
   const dir = planned.run_dir
-  const pipeline = { ensureReady: async () => ({ status: 'ok' }), stat: async () => ({ status: 'ok', data: { exists: true } }), windowsPath: async value => ({ status: 'ok', data: value }),
+  const track = (endpoint, fn) => async (...args) => { calls.push({ endpoint, params: args[0] ?? {} }); return fn(...args) }
+  const pipeline = {
+    ensureReady: track('ensureReady', async () => ({ status: 'ok' })),
+    stat: track('stat', async () => ({ status: 'ok', data: { exists: true } })),
+    windowsPath: track('windowsPath', async value => ({ status: 'ok', data: value })),
+    uploadFile: track('uploadFile', async () => ({ status: 'ok', data: {} })),
     run: async (endpoint, params) => {
       calls.push({ endpoint, params })
       if (endpoint === '/cam_copy_part') {
@@ -71,7 +76,7 @@ try {
         } }
       }
       return { status: 'ok', data: { verdict: 'PASS' } }
-    }, listDir: async () => ({ status: 'ok', data: { entries: [{ name: ncName, is_dir: false }] } }) }
+    }, listDir: track('listDir', async () => ({ status: 'ok', data: { entries: [{ name: ncName, is_dir: false }] } })) }
   services.set('jobs', { start: spec => {
     assert.equal(spec.owner, 's1', 'DSH 0.2 job owner is SessionId, not Agent')
     done = spec.run().done; return 'cam-run-1'
@@ -91,7 +96,7 @@ try {
   assert.equal((await tasks.read('s1')).active_run, null)
   // Central-directory ZIP comes from standard Python zipfile, not hand-forged archive headers.
   const bytes = execFileSync('python3', ['-c', 'import io,sys,zipfile\nb=io.BytesIO()\nwith zipfile.ZipFile(b,"w") as z:z.writestr(sys.argv[1],"G90\\nM30\\n")\nsys.stdout.buffer.write(b.getvalue())', ncName])
-  pipeline.zipDir = async () => ({ status: 'ok', data: { bytes, sha256: digest(bytes) } })
+  pipeline.zipDir = track('zipDir', async () => ({ status: 'ok', data: { bytes, sha256: digest(bytes) } }))
   const delivered = await executeCamDeliver({ camPipeline: pipeline, runDir: dir, runId: planned.run_id, tasks, sessionId: 's1' })
   assert.equal(delivered.package_kind, 'problem'); assert.equal(delivered.overall, 'incomplete')
   task = await tasks.read('s1'); assert.equal(task.deliveries.length, 1)
@@ -155,6 +160,7 @@ try {
   assert.equal(resumeDecisionOf('generated', confirmationConflict), 'stop')
   const otherFields = t501FieldsOf({ error_detail: { other_operations_pending_regeneration: ['OTHER_DATA'] } })
   assert.deepEqual(otherFields.other_operations_pending_regeneration, [{ operation: 'OTHER_DATA' }])
+  assert.deepEqual(t501FieldsOf({ error_detail: { posts: ['MILL_3_AXIS'] } }, {}).error_detail, { posts: ['MILL_3_AXIS'] })
   assert.equal(resumeDecisionOf('generated', { error_detail: { confirmation_param: 'allow_regenerate_toolpaths' } }), 'stop')
   assert.equal(resumeDecisionOf('generated', { error_detail: { confirmation_param: 'other_confirmation' } }), 'post')
   // Ordinary post failures retain generated/resume-post semantics; only T-501 becomes a hard error.
@@ -177,6 +183,9 @@ try {
   await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id, resume: true }, exec)
   const scopedResumeSummary = JSON.parse((await done).result)
   assert.equal(scopedResumeSummary.ops[0].decision, 'stop')
+  assert.equal(scopedResumeSummary.ops[0].status, 'generated')
+  assert.equal(scopedResumeSummary.ops.length, 2)
+  assert.equal(scopedResumeSummary.ops[1].name, 'OUTSIDE_JOB')
   assert.deepEqual(calls, [])
   assert.match(scopedResumeSummary.reason, new RegExp(`待重算刀路：${scopedState.ops[0].name}`))
   postFailure = false
@@ -185,6 +194,14 @@ try {
   assert.equal(scopedClearedSummary.overall, 'ok')
   assert.equal(scopedClearedSummary.ops.length, 1)
   assert.deepEqual(regenerationItemsOf(scopedClearedSummary.ops[0]), [])
+  const malformedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
+  malformedState.ops = { unreadable: true }
+  await fs.writeFile(scopedStatePath, JSON.stringify(malformedState))
+  calls = []
+  const malformedSummary = await executeCamRun({ camPipeline: pipeline, runDir: ordinaryPost.run_dir, runId: ordinaryPost.run_id, resume: true, dshHome: home, isCancelled: () => false })
+  assert.equal(malformedSummary.overall, 'error')
+  assert.equal(malformedSummary.failed_stage, 'load')
+  assert.deepEqual(calls, [])
   // T-501: refusal is an error, never a normal generated state, and no authorization flag is injected.
   const refusedT501 = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   postFailure = 't501'; calls = []
@@ -194,6 +211,8 @@ try {
   assert.equal(refusedT501Summary.ops[0].status, 'error')
   assert.equal(refusedT501Summary.ops[0].error_detail.confirmation_param, 'allow_regenerate_toolpaths')
   assert.equal(calls.every(call => !Object.hasOwn(call.params, 'allow_regenerate_toolpaths')), true)
+  assert.ok(calls.findIndex(call => call.endpoint === '/cam_build_workpiece_op') >= 0)
+  assert.ok(calls.findIndex(call => call.endpoint === '/cam_build_workpiece_op') < calls.findIndex(call => call.endpoint === '/postprocess'))
   calls = []
   await tools.get('cam_run').execute({ run_id: refusedT501.run_id, resume: true }, exec)
   const refusedResumeSummary = JSON.parse((await done).result)
@@ -227,6 +246,7 @@ try {
   assert.equal(pendingT501Summary.ops[0].other_operations_pending_regeneration[0].operation, 'OTHER')
   assert.equal(pendingT501Summary.ops[0].regenerated_operations[0], pendingT501Summary.ops[0].name)
   assert.equal(pendingT501Summary.ops[0].tool_numbers_fixed.AP_MILL_D10, 3)
+  assert.ok(calls.some(call => call.endpoint === '/cam_build_workpiece_op'))
   const pendingDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: pendingT501.run_dir, runId: pendingT501.run_id, tasks, sessionId: 's1' })
   assert.ok(pendingDelivery.blockers.some(text => text.includes('待重算刀路：OTHER')))
   const pendingManifest = JSON.parse(await fs.readFile(path.join(pendingT501.run_dir, 'delivery/manifest.json'), 'utf8'))
@@ -256,6 +276,7 @@ try {
   const crossArgs = { camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', dshHome: home, isCancelled: () => false }
   crossOperationPending = true; calls = []
   const crossT501Summary = await executeCamRun({ ...crossArgs, resume: false })
+  assert.equal(crossT501Summary.overall, 'incomplete')
   assert.equal(crossT501Summary.ops[0].status, 'generated', JSON.stringify(crossT501Summary.ops))
   assert.equal(crossT501Summary.ops[1].status, 'ok')
   assert.deepEqual(crossT501Summary.ops[1].other_operations_pending_regeneration, [{ operation: crossT501Summary.ops[0].name }])
@@ -270,7 +291,9 @@ try {
   const crossManifest = JSON.parse(await fs.readFile(path.join(crossDir, 'delivery/manifest.json'), 'utf8'))
   assert.equal(crossManifest.package_complete, false)
   assert.ok(crossManifest.blockers.some(text => text.includes(`待重算刀路：${crossT501Summary.ops[0].name}`)))
-  assert.match(await fs.readFile(path.join(crossDir, 'delivery/delivery_report.md'), 'utf8'), new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
+  const crossReport = await fs.readFile(path.join(crossDir, 'delivery/delivery_report.md'), 'utf8')
+  assert.match(crossReport, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
+  assert.match(crossReport, /未获生产放行；本包仅供过程追溯/)
   crossOperationPending = false
   // Task stop prevents the next NX submission, without claiming an in-flight cancellation.
   const second = JSON.parse(await tools.get('cam_plan').execute(args, exec)); stopBeforeNext = true; calls = []

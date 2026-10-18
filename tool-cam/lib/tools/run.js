@@ -187,7 +187,9 @@ function hasPendingRegeneration(op) {
 }
 
 export function t501FieldsOf(data, errorDetail) {
-  const detail = errorDetail ?? data?.error_detail ?? data?.errorDetail
+  const details = [errorDetail, data?.error_detail, data?.errorDetail]
+  const detail = details.find(value => value && (typeof value !== 'object' || Object.keys(value).length > 0))
+    ?? details.find(value => value !== undefined)
   const regeneration = [
     data?.regeneration_required,
     data?.error_detail?.regeneration_required,
@@ -363,6 +365,9 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
           + '如确要按新工序单执行，请重新 cam_plan 落盘（产生新 run_id）后对新 run 首跑。',
       })
     }
+    if (!Array.isArray(state.ops)) {
+      return failStage('load', { errorType: 'invalid_state', msg: 'runstate.json 的 ops 不是数组，无法证明是否存在待重算刀路；已阻断 resume，请人工核对。' })
+    }
   }
 
   const suffix = resume ? state.suffix : generateSuffix()
@@ -411,9 +416,12 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   // 写刀号或 finalize，走到 ops 循环才停。只允许写本地 runstate 的阻断留痕。
   if (resume && Array.isArray(state.ops) && state.ops.some(hasPendingRegeneration)) {
     const { overall, reason } = overallOf(state.ops, null)
-    summary.ops = resolved.map((entry) => ({
-      index: entry.index, name: entry.name, type: entry.op?.type ?? 'unknown', status: 'pending',
-      ...state.ops[entry.index], decision: 'stop',
+    // decision 记录本次阻断；status 保留上次终态供 overall/报告使用。
+    summary.ops = state.ops.map((prev, index) => ({
+      index: prev?.index ?? index,
+      name: prev?.name ?? resolved[index]?.name ?? `op_${index}`,
+      type: prev?.type ?? resolved[index]?.op?.type ?? 'unknown',
+      status: 'pending', ...prev, decision: 'stop',
     }))
     summary.execution_overall = overall
     summary.production_check = job.formal_task ? 'incomplete' : 'not_verified'
