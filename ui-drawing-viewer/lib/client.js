@@ -239,6 +239,8 @@ function checkBodies(p, add, skipped, profile) {
   const ltypes = asObj(p["linetypes"]);
   const styles = asObj(p["text_styles"]);
   const views = asArr(p["views"]);
+  if (p["views"] !== void 0 && views.some((v) => v === null || typeof v !== "object" || Array.isArray(v)))
+    add("DRAFT_E_SHAPE:views \u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61");
   const viewIds = new Set(views.map((v) => asObj(v)["id"]).filter(isInt).concat([0]));
   const ents = asArr(p["entities"]).map(asObj);
   for (const dRaw of asArr(p["dims"]))
@@ -251,6 +253,39 @@ function checkBodies(p, add, skipped, profile) {
   if (p["units"] !== "mm") add("DRAFT_E_UNITS:units \u6052 mm(\u6E90\u5355\u4F4D\u89C1 source_units)");
   if (typeof p["source_units"] !== "string" || !isNum(p["unit_factor"]))
     add("DRAFT_E_SCHEMA:source_units/unit_factor");
+  if ("origin_offset" in p) {
+    const oo = p["origin_offset"];
+    if (!Array.isArray(oo) || oo.length !== 2 || !isNum(oo[0]) || !isNum(oo[1]))
+      add("DRAFT_E_SHAPE:origin_offset \u5E94\u4E3A\u6709\u9650\u6570\u4E8C\u5143\u7EC4");
+  }
+  if ("title_block" in p) {
+    const tbRaw = p["title_block"];
+    if (tbRaw === null || typeof tbRaw !== "object" || Array.isArray(tbRaw)) {
+      add("DRAFT_E_SHAPE:title_block \u5E94\u4E3A\u5BF9\u8C61");
+    } else if (!Array.isArray(tbRaw["attributes"]) || typeof tbRaw["found"] !== "boolean") {
+      add("DRAFT_E_SHAPE:title_block.attributes \u5E94\u4E3A\u6570\u7EC4\u4E14 found \u5E94\u4E3A\u5E03\u5C14");
+    }
+  }
+  if ("views" in p) {
+    const vwRaw = p["views"];
+    if (!Array.isArray(vwRaw))
+      add("DRAFT_E_SHAPE:views \u5E94\u4E3A\u6570\u7EC4");
+    else {
+      const ids = vwRaw.filter((v) => v !== null && typeof v === "object" && !Array.isArray(v)).map((v) => v["id"]);
+      if (ids.some((x) => !isInt(x)))
+        add("DRAFT_E_SHAPE:views \u5143\u7D20 id \u5E94\u4E3A\u6574\u6570");
+      const nz = ids.filter(isInt);
+      if (new Set(nz).size !== nz.length)
+        add("DRAFT_E_SHAPE:views \u5143\u7D20 id \u5E94\u552F\u4E00");
+    }
+  }
+  if ("tech_requirements" in p) {
+    const trRaw = p["tech_requirements"];
+    if (!Array.isArray(trRaw))
+      add("DRAFT_E_SHAPE:tech_requirements \u5E94\u4E3A\u6570\u7EC4");
+    else if (trRaw.some((t) => t === null || typeof t !== "object" || Array.isArray(t)))
+      add("DRAFT_E_SHAPE:tech_requirements \u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61");
+  }
   const sc = asObj(p["self_check"]);
   const byType = asObj(asObj(sc["dropped"])["by_type"]);
   const byReason = asObj(asObj(sc["dropped"])["by_reason"]);
@@ -871,7 +906,14 @@ function loadDraft(pack) {
   const layers = /* @__PURE__ */ new Map();
   const normLayer = /* @__PURE__ */ new Map();
   for (const [name2, l] of Object.entries(layersRaw)) {
-    layers.set(name2, { off: Boolean(l["off"]), frozen: Boolean(l["frozen"]) });
+    const lwRaw = l["lineweight"];
+    const layerLw = lwRaw && typeof lwRaw["value"] === "number" && Number.isFinite(lwRaw["value"]) && lwRaw["value"] >= 0 ? Number(lwRaw["value"]) / 100 : void 0;
+    layers.set(name2, {
+      off: Boolean(l["off"]),
+      frozen: Boolean(l["frozen"]),
+      plot: l["plot"] !== false,
+      ...layerLw !== void 0 ? { lineWidthMm: layerLw } : {}
+    });
     normLayer.set(name2.toLowerCase(), name2);
   }
   const layerOf = (raw) => normLayer.get(raw.toLowerCase()) ?? raw;
@@ -927,6 +969,9 @@ function loadDraft(pack) {
       continue;
     }
     const pickable = type !== "hatch";
+    const eLwRaw = e["lineweight"];
+    const eLw = eLwRaw && typeof eLwRaw["value"] === "number" && Number.isFinite(eLwRaw["value"]) && eLwRaw["value"] >= 0 ? Number(eLwRaw["value"]) / 100 : void 0;
+    const lineWidthMm = eLw ?? layers.get(layer)?.lineWidthMm;
     for (const chain of entityChains(e)) {
       let dist = 0;
       for (let k = 0; k + 1 < chain.length; ++k) {
@@ -946,7 +991,8 @@ function loadDraft(pack) {
           b: rgb[2],
           dashPeriod,
           dashRow,
-          dist0: dist
+          dist0: dist,
+          ...lineWidthMm !== void 0 ? { lineWidthMm } : {}
         });
         dist += len;
         segsByLayer.set(layer, (segsByLayer.get(layer) ?? 0) + 1);
@@ -981,6 +1027,27 @@ function loadDraft(pack) {
     const dimId = entities[idx]["dim_id"];
     if (typeof dimId === "string" && dimId) dimIdByEnt.set(idx, dimId);
   }
+  const titleBlockRaw = p["title_block"];
+  const titleBlock = titleBlockRaw !== null && typeof titleBlockRaw === "object" ? (() => {
+    const tb = titleBlockRaw;
+    return {
+      attributes: arr(tb["attributes"]).map((a) => ({
+        tag: String(a["tag"] ?? ""),
+        value: String(a["value"] ?? "")
+      })),
+      found: Boolean(tb["found"]),
+      inferred: Boolean(tb["inferred"]),
+      ruleVersion: typeof tb["rule_version"] === "string" ? tb["rule_version"] : void 0
+    };
+  })() : void 0;
+  const techRequirements = arr(p["tech_requirements"]).map((tr) => ({
+    text: String(tr["text"] ?? ""),
+    sourceHandle: String(tr["source_handle"] ?? ""),
+    inferred: Boolean(tr["inferred"]),
+    ruleVersion: typeof tr["rule_version"] === "string" ? tr["rule_version"] : void 0
+  }));
+  const sourceUnits = typeof p["source_units"] === "string" ? p["source_units"] : void 0;
+  const unitFactor = isFiniteNum(p["unit_factor"]) ? Number(p["unit_factor"]) : void 0;
   const originRaw = p["origin"] ?? {};
   const channel = originRaw["channel"];
   const conversionRaw = p["conversion"] ?? {};
@@ -998,6 +1065,25 @@ function loadDraft(pack) {
     segsByLayer,
     dims,
     dimIdByEnt,
+    titleBlock,
+    techRequirements,
+    views: arr(p["views"]).filter((v) => v !== null && typeof v === "object" && !Array.isArray(v) && Number.isInteger(Number(v["id"]))).map((v) => {
+      const bboxRaw2 = v["bbox"] ?? [0, 0, 0, 0];
+      return {
+        id: Number(v["id"]),
+        ...typeof v["name"] === "string" && v["name"] ? { name: String(v["name"]) } : {},
+        bbox: [
+          Number(bboxRaw2[0] ?? 0),
+          Number(bboxRaw2[1] ?? 0),
+          Number(bboxRaw2[2] ?? 0),
+          Number(bboxRaw2[3] ?? 0)
+        ]
+      };
+    }),
+    units: String(p["units"] ?? "mm"),
+    sourceUnits,
+    unitFactor,
+    originOffset: xy(p["origin_offset"]),
     origin: {
       channel: channel === "nx" || channel === "autocad" ? channel : "unknown",
       evidence: arr(originRaw["evidence"]).map(String),

@@ -152,6 +152,9 @@ function checkBodies(p: Json, add: (c: string) => void, skipped: string[], profi
     const ltypes = asObj(p["linetypes"]);
     const styles = asObj(p["text_styles"]);
     const views = asArr(p["views"]);
+    // M3 6-1:views 条目形态校验(asObj 抹平前拦)——null/原始值混入会被 loader 折叠丢条目
+    if (p["views"] !== undefined && views.some(v => v === null || typeof v !== "object" || Array.isArray(v)))
+        add("DRAFT_E_SHAPE:views 元素应为对象");
     const viewIds = new Set<number | null>(views.map(v => asObj(v)["id"]).filter(isInt).concat([0]));
     const ents = asArr(p["entities"]).map(asObj);
     // dims 元素形态在 asObj 抹平前拦(数组/原始值混入 → SHAPE;asObj 会把它们变 {})
@@ -167,6 +170,47 @@ function checkBodies(p: Json, add: (c: string) => void, skipped: string[], profi
     if (p["units"] !== "mm") add("DRAFT_E_UNITS:units 恒 mm(源单位见 source_units)");
     if (typeof p["source_units"] !== "string" || !isNum(p["unit_factor"]))
         add("DRAFT_E_SCHEMA:source_units/unit_factor");
+
+    // KB-2a:origin_offset 与语义层形态校验(在 asObj 抹平前拦——畸形值不得伪装成
+    // 合法缺省,否则 loader 兜底会把数据损坏折叠成 [0,0]/空列表,导出坐标错而无声)。
+    // 只在键存在时查形态:缺键由必填校验报 DRAFT_E_SCHEMA(与 Python 侧坏包冻结表
+    // 逐码排他一致,键缺失不得多出 SHAPE 码)。
+    if ("origin_offset" in p) {
+        const oo = p["origin_offset"];
+        if (!Array.isArray(oo) || oo.length !== 2 || !isNum(oo[0]) || !isNum(oo[1]))
+            add("DRAFT_E_SHAPE:origin_offset 应为有限数二元组");
+    }
+    if ("title_block" in p) {
+        const tbRaw = p["title_block"];
+        if (tbRaw === null || typeof tbRaw !== "object" || Array.isArray(tbRaw)) {
+            add("DRAFT_E_SHAPE:title_block 应为对象");
+        } else if (!Array.isArray((tbRaw as Json)["attributes"])
+            || typeof (tbRaw as Json)["found"] !== "boolean") {
+            add("DRAFT_E_SHAPE:title_block.attributes 应为数组且 found 应为布尔");
+        }
+    }
+    if ("views" in p) {
+        const vwRaw = p["views"];
+        if (!Array.isArray(vwRaw))
+            add("DRAFT_E_SHAPE:views 应为数组");
+        else {
+            const ids = vwRaw
+                .filter(v => v !== null && typeof v === "object" && !Array.isArray(v))
+                .map(v => (v as Json)["id"]);
+            if (ids.some(x => !isInt(x)))
+                add("DRAFT_E_SHAPE:views 元素 id 应为整数"); // 缺 id 会被 loader 折成 0 撞「图纸级哨兵」(复核 P2)
+            const nz = (ids as Array<number | null>).filter(isInt);
+            if (new Set(nz).size !== nz.length)
+                add("DRAFT_E_SHAPE:views 元素 id 应唯一");
+        }
+    }
+    if ("tech_requirements" in p) {
+        const trRaw = p["tech_requirements"];
+        if (!Array.isArray(trRaw))
+            add("DRAFT_E_SHAPE:tech_requirements 应为数组");
+        else if (trRaw.some(t => t === null || typeof t !== "object" || Array.isArray(t)))
+            add("DRAFT_E_SHAPE:tech_requirements 元素应为对象");
+    }
 
     // ── I1/I1b 对账(by_type/by_reason 是同一批丢弃的两个切面,各自总和相等)──
     const sc = asObj(p["self_check"]);

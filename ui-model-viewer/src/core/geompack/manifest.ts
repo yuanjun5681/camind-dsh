@@ -306,9 +306,14 @@ export function parseFaces(text: string, expectedCount: number): FaceInfo[] {
                     rgb[i] = Math.min(255, Math.max(0, Math.trunc(item.rgb[i])));
             }
         }
+        // body 非负整数(契约「第几个入选实体,从 0 起」);负数/浮点 ⇒ InvalidValue 拒——
+        // 无体表老包没有 checkBodies 对账兜底,坏 body 会污染按体计数(Kimi cf4 补审必改)。
+        const rawBody = item.body;
+        if (typeof rawBody !== "number" || !Number.isInteger(rawBody) || rawBody < 0)
+            fail("InvalidValue", "面 " + fid + " 的 body 应为非负整数", file);
         faces.push({
             fid,
-            body: typeof item.body === "number" ? item.body : 0,
+            body: rawBody,
             surfaceType: strOr(item, "surface_type", "other"),
             rgb,
             layer: typeof item.layer === "number" ? item.layer : 0,

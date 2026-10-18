@@ -1,16 +1,18 @@
 {
   "sourceRepository": "Camind-desktop",
-  "sourceCommit": "f15fda354725092680cf6fd43f31034bff30fe2b",
+  "sourceCommit": "b5196e61651a97cb06b3210436dc64b056dc39c1",
+  "localBaseCommit": "f15fda354725092680cf6fd43f31034bff30fe2b",
+  "mergeBase": "cbb61dff6b9731057cc256fc981ad8547b1fdb9f",
   "sourceRoot": "packages/viewer/src/draft",
-  "syncedAt": "2026-10-18",
+  "syncedAt": "2026-10-19",
   "files": [
-    { "path": "aci.ts", "sha256": "a013381f8a83147c45bf308788a71b6b7e72ec7019e4ede0cf9bebbc43375d61" },
-    { "path": "draft_camera.ts", "sha256": "f5eec8772b476a9ecf9591b073160c5c91bdc181ecef7a24cf0302abac39a1ad" },
-    { "path": "draft_detail.ts", "sha256": "fd06ee2cf5c7decbe9d67985569540ae9e115f1eb329f00148fd27e8bfab40ba" },
-    { "path": "draft_loader.ts", "sha256": "154252b1932d0934c662bebf12bc621f3e4116f014afb9f0c3a542d964d69af9" },
-    { "path": "draft_pane.ts", "sha256": "c80ed1278a9b91b0823b730d53fa682b58c7c4542416df7f1bbb3e2afbbae6b2" },
-    { "path": "draft_pick.ts", "sha256": "e9e35cf297a44eca20a297b5eafd4481c004b77c585e90386a6c5757e6571bdc" },
-    { "path": "draft_view.ts", "sha256": "6709e7a171d22cc8e0c955d8309b3cf138de5ed28c353103db919c157d8e18dd" },
-    { "path": "packcheck.ts", "sha256": "ca0d0f05da38a6ea7659fe3def0ba9c747c2bc04de1545a02c3c633c419afe6a" }
+    { "path": "aci.ts", "status": "identical", "sha256": "a013381f8a83147c45bf308788a71b6b7e72ec7019e4ede0cf9bebbc43375d61" },
+    { "path": "draft_camera.ts", "status": "identical", "sha256": "f5eec8772b476a9ecf9591b073160c5c91bdc181ecef7a24cf0302abac39a1ad" },
+    { "path": "draft_detail.ts", "status": "identical", "sha256": "fd06ee2cf5c7decbe9d67985569540ae9e115f1eb329f00148fd27e8bfab40ba" },
+    { "path": "draft_loader.ts", "status": "merged", "sha256": "50d9d5782be408b3a7362d5bd2254822730527b68da016ff484bf611d747e6fe" },
+    { "path": "draft_pane.ts", "status": "identical", "sha256": "c80ed1278a9b91b0823b730d53fa682b58c7c4542416df7f1bbb3e2afbbae6b2" },
+    { "path": "draft_pick.ts", "status": "identical", "sha256": "e9e35cf297a44eca20a297b5eafd4481c004b77c585e90386a6c5757e6571bdc" },
+    { "path": "draft_view.ts", "status": "identical", "sha256": "6709e7a171d22cc8e0c955d8309b3cf138de5ed28c353103db919c157d8e18dd" },
+    { "path": "packcheck.ts", "status": "merged", "sha256": "c4e363465e530a06e7d997abe64b0a8e9765ec8303ab745ad6f348ac45b9a5c8" }
   ]
 }

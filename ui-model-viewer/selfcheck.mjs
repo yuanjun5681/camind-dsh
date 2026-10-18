@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
-import { Package } from './lib/host-core.js'
+import { Package, parseFaces } from './lib/host-core.js'
 import { validatePackage, createModelService, FILES } from './lib/models.js'
 import { apply } from './index.js'
 import { validateSelectionMessages } from './lib/selection.js'
@@ -21,6 +21,10 @@ try {
   const valid = await validatePackage(fixture, raw.part_sha256)
   assert.equal(valid.faces.length, 6)
   assert.equal(valid.triangles > 0, true)
+  const faceWithBody = body => JSON.stringify([{ fid: 'F000001', ...(body !== undefined ? { body } : {}), area_mm2: 1 }])
+  assert.equal(parseFaces(faceWithBody(0), 1)[0].body, 0)
+  assert.equal(parseFaces(faceWithBody(2), 1)[0].body, 2)
+  for (const body of [undefined, -1, 0.5]) assert.throws(() => parseFaces(faceWithBody(body), 1), /body/)
   await assert.rejects(validatePackage(fixture, '0'.repeat(64)), /版本不符/)
   const corrupt = path.join(tmp, 'corrupt')
   await fs.cp(fixture, corrupt, { recursive: true })

@@ -30,6 +30,41 @@ const core = await import(`data:text/javascript;base64,${Buffer.from(coreOutput[
 const fixtureText = fs.readFileSync(path.join(DESKTOP, 'tests/fixtures/draft/draft_good.json'), 'utf8')
 const pack = core.loadDraft(JSON.parse(fixtureText))
 assert.deepEqual(core.checkDraftPack(JSON.parse(fixtureText), 'writer').errors, [])
+assert.equal(pack.units, 'mm')
+assert.equal(pack.sourceUnits, 'mm')
+assert.equal(pack.unitFactor, 1)
+assert.deepEqual(pack.originOffset, [2478.271, -1297.387])
+assert.equal(pack.layers.get('0')?.plot, true)
+assert.equal(pack.layers.get('NOTES')?.plot, false)
+assert.equal(pack.titleBlock?.found, false)
+assert.ok(Array.isArray(pack.techRequirements) && pack.techRequirements.length > 0)
+assert.equal(pack.views[0]?.id, 1)
+assert.equal(pack.views[0]?.name, '主视图')
+const weighted = JSON.parse(fixtureText)
+weighted.layers['0'].lineweight = { value: 35 }
+assert.equal(core.loadDraft(weighted).segments.find(s => s.entId === 0).lineWidthMm, 0.35)
+weighted.entities[0].lineweight = { value: 50 }
+assert.equal(core.loadDraft(weighted).segments.find(s => s.entId === 0).lineWidthMm, 0.5)
+weighted.entities[0].lineweight = { value: -1 }
+assert.equal(core.loadDraft(weighted).segments.find(s => s.entId === 0).lineWidthMm, 0.35)
+weighted.layers['0'].lineweight = { value: -3 }
+assert.equal(core.loadDraft(weighted).segments.find(s => s.entId === 0).lineWidthMm, undefined)
+for (const profile of ['writer', 'reader']) {
+  for (const [key, value, expected] of [
+    ['origin_offset', [0], 'origin_offset'],
+    ['title_block', [], 'title_block 应为对象'],
+    ['views', {}, 'views 应为数组'],
+    ['views', [null], 'views 元素应为对象'],
+    ['views', [{ id: 1 }, { id: 1 }], 'views 元素 id 应唯一'],
+    ['tech_requirements', [null], 'tech_requirements 元素应为对象'],
+  ]) {
+    const bad = JSON.parse(fixtureText)
+    bad[key] = value
+    const errors = core.checkDraftPack(bad, profile).errors
+    assert.ok(errors.some(error => error.includes(expected)), `${profile} ${key}: ${errors.join(';')}`)
+  }
+}
+console.log('ok - semantic loader + writer/reader malformed guards')
 const camera = core.fitView(pack.bbox, 800, 600)
 const segment = pack.segments.find(s => s.entId === 0)
 const wx = (segment.x1 + segment.x2) / 2, wy = (segment.y1 + segment.y2) / 2

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Python(CAM-Agent) / JS(service-draft-converter) / TS(Camind-desktop) 三方 packcheck 差分。
+// Python(CAM-Agent) / JS(service-draft-converter) / TS(camind-dsh 本地交付版) 三方 packcheck 差分。
 // 输入为 Desktop tools/gen_draft_fixtures.py 生成的同一批好/坏包与 manifest；writer/reader
 // 双档逐包比对标准化错误码集合，reader 另比对 skipped。任何不一致都整体失败，不输出审图结论。
 import assert from "node:assert/strict";
@@ -26,7 +26,7 @@ assert.ok(entries.length > 1 && entries.every(e => e.file && Array.isArray(e.exp
 const packs = entries.map(e => JSON.parse(readFileSync(join(FIXTURES, e.file), "utf8")));
 
 if (typeof stripTypeScriptTypes !== "function") throw new Error("TS 差分需要 Node.js 的 stripTypeScriptTypes（^22.19 或 >=24）");
-const tsPath = join(DESKTOP, "packages", "viewer", "src", "draft", "packcheck.ts");
+const tsPath = join(DSH_ROOT, "ui-drawing-viewer", "src", "draft", "packcheck.ts");
 const tsSource = stripTypeScriptTypes(readFileSync(tsPath, "utf8"));
 const tsModule = await import(`data:text/javascript;base64,${Buffer.from(tsSource).toString("base64")}`);
 const checkTs = tsModule.checkDraftPack;

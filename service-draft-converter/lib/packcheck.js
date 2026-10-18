@@ -49,7 +49,11 @@ export function checkDraftPack(p, profile = "writer") {
 
 function checkBodies(p, add, profile) {
     const layers = p.layers, ltypes = p.linetypes, styles = p.text_styles;
-    const viewIds = new Set([0, ...(p.views ?? []).map(v => v?.id)]);
+    const views = Array.isArray(p.views) ? p.views : [];
+    if (p.views !== undefined && views.some(v => v === null || typeof v !== "object" || Array.isArray(v))) {
+        add("DRAFT_E_SHAPE:views 元素应为对象");
+    }
+    const viewIds = new Set([0, ...views.map(v => v?.id).filter(Number.isInteger)]);
     const ents = p.entities;
     const rawDims = p.dims ?? [];
     for (const d of rawDims) {
@@ -63,6 +67,40 @@ function checkBodies(p, add, profile) {
     if (p.units !== "mm") add("DRAFT_E_UNITS:units 恒 mm(源单位见 source_units)");
     if (typeof p.source_units !== "string" || !_isNum(p.unit_factor) || !p.unit_factor) {
         add("DRAFT_E_SCHEMA:source_units/unit_factor");
+    }
+
+    // KB-2a:语义层形态校验;缺键仍由 REQUIRED_TOP 报 SCHEMA,不额外制造 SHAPE。
+    if ("origin_offset" in p) {
+        const oo = p.origin_offset;
+        if (!Array.isArray(oo) || oo.length !== 2 || !_isNum(oo[0]) || !_isNum(oo[1])) {
+            add("DRAFT_E_SHAPE:origin_offset 应为有限数二元组");
+        }
+    }
+    if ("title_block" in p) {
+        const tb = p.title_block;
+        if (tb === null || typeof tb !== "object" || Array.isArray(tb)) {
+            add("DRAFT_E_SHAPE:title_block 应为对象");
+        } else if (!Array.isArray(tb.attributes) || typeof tb.found !== "boolean") {
+            add("DRAFT_E_SHAPE:title_block.attributes 应为数组且 found 应为布尔");
+        }
+    }
+    if ("views" in p) {
+        if (!Array.isArray(p.views)) {
+            add("DRAFT_E_SHAPE:views 应为数组");
+        } else {
+            const ids = p.views.filter(v => v !== null && typeof v === "object" && !Array.isArray(v)).map(v => v.id);
+            if (ids.some(id => !Number.isInteger(id))) add("DRAFT_E_SHAPE:views 元素 id 应为整数");
+            const validIds = ids.filter(Number.isInteger);
+            if (new Set(validIds).size !== validIds.length) add("DRAFT_E_SHAPE:views 元素 id 应唯一");
+        }
+    }
+    if ("tech_requirements" in p) {
+        const tr = p.tech_requirements;
+        if (!Array.isArray(tr)) {
+            add("DRAFT_E_SHAPE:tech_requirements 应为数组");
+        } else if (tr.some(t => t === null || typeof t !== "object" || Array.isArray(t))) {
+            add("DRAFT_E_SHAPE:tech_requirements 元素应为对象");
+        }
     }
 
     // ── I1/I1b 对账 ──

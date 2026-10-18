@@ -38,11 +38,12 @@ ui-shell/node_modules/typescript/bin/tsc -p ui-drawing-viewer/tsconfig.json
 ## Draft 核心镜像来源
 
 - 上游仓库：相邻 `Camind-desktop`
-- 上游 commit：`f15fda354725092680cf6fd43f31034bff30fe2b`
-- 同步日期：2026-10-18
+- 上游 commit：`b5196e61651a97cb06b3210436dc64b056dc39c1`
+- 本地基线：`f15fda354725092680cf6fd43f31034bff30fe2b`；共同基线：`cbb61dff6b9731057cc256fc981ad8547b1fdb9f`
+- 同步日期：2026-10-19
 - 上游目录：`packages/viewer/src/draft/`
 - 本地目录：`ui-drawing-viewer/src/draft/`
-- 完整性：`mirror-manifest.json` 记录逐文件 SHA256；本次复制另经 `diff -qr` 验证完全一致。
+- 完整性：`mirror-manifest.json` 记录逐文件 SHA256 与 `identical` / `merged` 状态；merged 文件经本地自检、三方差分和 2D 验收。
 
 | 本地文件 | 上游职责 | 对应上游测试 |
 |---|---|---|
@@ -59,6 +60,8 @@ M1-04 的 `selfcheck.mjs` 还会校验 manifest 中的文件哈希，防止只�
 
 ## 本地补丁清单
 
-当前 `src/draft/` 没有本地补丁或功能分叉。宿主适配只允许出现在 `src/client.ts` 及后续 Host 文件，
-不得修改镜像核心来绕开上游公共接口。以后新增补丁必须在本表同时记录：补丁文件、理由、对应测试、
-来源文件映射和同步 commit；未记录的核心分叉不得合入。
+- `draft_loader.ts`（merged）：合并上游线宽、层 plot、titleBlock/techRequirements/views 与单位偏移装载；保留本地 `skippedTypes` 降级披露，并对 BYLAYER/BYBLOCK/标准负值 sentinel 不落线宽。
+- `packcheck.ts`（merged）：合并 views/origin_offset/title_block/tech_requirements 形态校验；保留本地 geometryPoints 修复、dims 容器校验与 skippedTypes 降级语义。
+- 其余六个 `src/draft/` 文件与上游对应版本一致（identical）。宿主适配只允许出现在 `src/client.ts` 及后续 Host 文件，不得借合并删除本地降级与来源身份语义。
+
+以后新增补丁必须在本表同时记录：补丁文件、理由、对应测试、来源文件映射和同步 commit；未记录的核心分叉不得合入。

@@ -274,9 +274,12 @@ function parseFaces(text, expectedCount) {
           rgb[i] = Math.min(255, Math.max(0, Math.trunc(item.rgb[i])));
       }
     }
+    const rawBody = item.body;
+    if (typeof rawBody !== "number" || !Number.isInteger(rawBody) || rawBody < 0)
+      fail("InvalidValue", "\u9762 " + fid + " \u7684 body \u5E94\u4E3A\u975E\u8D1F\u6574\u6570", file);
     faces.push({
       fid,
-      body: typeof item.body === "number" ? item.body : 0,
+      body: rawBody,
       surfaceType: strOr(item, "surface_type", "other"),
       rgb,
       layer: typeof item.layer === "number" ? item.layer : 0,
@@ -678,6 +681,7 @@ function readZipEntry(bytes, wantName) {
 }
 export {
   Package,
+  parseFaces,
   parseManifest,
   readZipEntry
 };

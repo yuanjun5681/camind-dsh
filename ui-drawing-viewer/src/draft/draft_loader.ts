@@ -21,6 +21,8 @@ export interface DraftSegment {
     r: number; g: number; b: number;
     /** 虚线世界周期(图形单位;实线 = 0);像素周期 = 周期 × 缩放,clamp [4,16]px 归渲染层 */
     dashPeriod: number;
+    /** 线宽(mm,M3 6-2 导出;实体 lineweight.value 优先,BYLAYER 回退层值,缺省=undefined→导出端取默认) */
+    lineWidthMm?: number;
     /** pattern LUT 行(dashLut 下标;0 = 实线恒 on 行) */
     dashRow: number;
     /** 段起点沿线距离(polyline 相位连续;其余链从 0 起) */
@@ -73,8 +75,10 @@ export interface LoadedDraft {
     segments: DraftSegment[];
     texts: DraftTextItem[];
     points: DraftPoint[];
-    /** 图层名(manifest 原名)→ 默认可见(off/frozen 为不可见缺省) */
-    layers: Map<string, { off: boolean; frozen: boolean }>;
+    /** 图层名(manifest 原名)→ 默认可见(off/frozen 为不可见缺省);
+     *  plot=可打印标志(KB-2a 起读,lint/导出消费,预览显隐不用它);
+     *  lineWidthMm=层线宽(mm,契约 lineweight.value 1/100mm÷100;缺省/BYLAYER/标准=undefined,M3 6-2 导出线宽回退用) */
+    layers: Map<string, { off: boolean; frozen: boolean; plot: boolean; lineWidthMm?: number }>;
     /** 文字样式名 → 宽度因子(契约 text_styles.width_factor) */
     textStyles: Map<string, { widthFactor: number }>;
     /** pattern LUT:每行 256 列,值 255=on/0=off;下标 0 为实线恒 on 行,虚线段 dashRow 指行 */
@@ -89,6 +93,27 @@ export interface LoadedDraft {
     dims: DraftDim[];
     /** 实体下标 → 所属 dim id(契约 dim_id;无标注关联的实体不在表) */
     dimIdByEnt: Map<number, string>;
+    /** 标题栏语义层(契约 §4;KB-3 导出消费)。当前 reader 档缺键即拒载,正常路径恒有值;
+     *  undefined 仅为类型防御兜底。found=false=图上无属性块(语料现状),两者勿混。 */
+    titleBlock?: {
+        attributes: { tag: string; value: string }[];
+        found: boolean;
+        inferred: boolean;
+        ruleVersion?: string;
+    };
+    /** 技术要求行(契约 §4;缺席=空数组) */
+    techRequirements: { text: string; sourceHandle: string; inferred: boolean; ruleVersion?: string }[];
+    /** 视图层(契约 §2:推断产物;id 从 1 起,0=图纸级哨兵;name 可选——M3 6-1 联动按
+     *  视图名与 3D 体名匹配) */
+    views: { id: number; name?: string; bbox: [number, number, number, number] }[];
+    /** 出图单位(契约 §1,packcheck 强制恒 "mm") */
+    units: string;
+    /** 源单位声明(组码 $INSUNITS;0=无单位时为 "unknown") */
+    sourceUnits?: string;
+    /** 源单位 → mm 换算系数 */
+    unitFactor?: number;
+    /** 坐标偏移(契约 §0.1:包内坐标 = 图纸坐标 − origin_offset;标注读数/导出时加回) */
+    originOffset: [number, number];
     /** 出身(4B-5 展示/手动兜底) */
     origin: DraftOrigin;
     /** 转换指纹与源溯源(4B-5) */
@@ -302,12 +327,17 @@ export function loadDraft(pack: unknown): LoadedDraft {
     const entities = (p["entities"] ?? []) as Array<Record<string, unknown>>;
     const ltscale = Number(p["ltscale"] ?? 1);
 
-    // 层名归一(I5 匹配不区分大小写):实体层名 → manifest 原名,渲染与 UI 都见原名
+    // 层名归一(I5 匹配不区分大小写):实体层名 → manifest 原名,渲染与 UI 都见原名。
+    // plot(KB-2a):三态独立布尔,缺席按 true(DXF 默认可打印;只有显式 false 才不可打印)
     const layersRaw = (p["layers"] ?? {}) as Record<string, Record<string, unknown>>;
-    const layers = new Map<string, { off: boolean; frozen: boolean }>();
+    const layers = new Map<string, { off: boolean; frozen: boolean; plot: boolean; lineWidthMm?: number }>();
     const normLayer = new Map<string, string>();
     for (const [name, l] of Object.entries(layersRaw)) {
-        layers.set(name, { off: Boolean(l["off"]), frozen: Boolean(l["frozen"]) });
+        const lwRaw = l["lineweight"] as Record<string, unknown> | undefined;
+        const layerLw = lwRaw && typeof lwRaw["value"] === "number" && Number.isFinite(lwRaw["value"]) && lwRaw["value"] >= 0
+            ? Number(lwRaw["value"]) / 100 : undefined; // sentinel(-1 BYLAYER/-2 BYBLOCK/-3 标准)不落值
+        layers.set(name, { off: Boolean(l["off"]), frozen: Boolean(l["frozen"]),
+                           plot: l["plot"] !== false, ...(layerLw !== undefined ? { lineWidthMm: layerLw } : {}) });
         normLayer.set(name.toLowerCase(), name);
     }
     const layerOf = (raw: string): string => normLayer.get(raw.toLowerCase()) ?? raw;
@@ -372,6 +402,11 @@ export function loadDraft(pack: unknown): LoadedDraft {
             continue;
         }
         const pickable = type !== "hatch"; // 契约 §3:hatch 整体不可拾取(含边界)
+        // 线宽(M3 6-2 导出):实体非负 lineweight.value(1/100mm→mm)优先;BYLAYER/标准/缺省回退层值
+        const eLwRaw = e["lineweight"] as Record<string, unknown> | undefined;
+        const eLw = eLwRaw && typeof eLwRaw["value"] === "number" && Number.isFinite(eLwRaw["value"]) && eLwRaw["value"] >= 0
+            ? Number(eLwRaw["value"]) / 100 : undefined;
+        const lineWidthMm = eLw ?? layers.get(layer)?.lineWidthMm;
         for (const chain of entityChains(e)) {
             let dist = 0;
             for (let k = 0; k + 1 < chain.length; ++k) {
@@ -380,7 +415,8 @@ export function loadDraft(pack: unknown): LoadedDraft {
                 if (len <= 0) continue; // 零长段画不出,不入缓冲
                 segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, layer, entId: idx,
                                 pickable, r: rgb[0], g: rgb[1], b: rgb[2],
-                                dashPeriod, dashRow, dist0: dist });
+                                dashPeriod, dashRow, dist0: dist,
+                                ...(lineWidthMm !== undefined ? { lineWidthMm } : {}) });
                 dist += len;
                 segsByLayer.set(layer, (segsByLayer.get(layer) ?? 0) + 1);
             }
@@ -416,6 +452,32 @@ export function loadDraft(pack: unknown): LoadedDraft {
         if (typeof dimId === "string" && dimId) dimIdByEnt.set(idx, dimId);
     }
 
+    // ── KB-2a:标题栏/技术要求语义层 + 单位/坐标偏移(契约 §4/§1/§0.1)──
+    // packcheck reader 档已校验存在性与形态(units==="mm" 等),这里只装载;
+    // title_block 字段缺席(undefined)与 found=false(图上无属性块)分立,消费方(KB-3 导出)区分。
+    const titleBlockRaw = p["title_block"];
+    const titleBlock = titleBlockRaw !== null && typeof titleBlockRaw === "object"
+        ? (() => {
+            const tb = titleBlockRaw as Record<string, unknown>;
+            return {
+                attributes: (arr(tb["attributes"]) as Array<Record<string, unknown>>).map(a => ({
+                    tag: String(a["tag"] ?? ""), value: String(a["value"] ?? ""),
+                })),
+                found: Boolean(tb["found"]),
+                inferred: Boolean(tb["inferred"]),
+                ruleVersion: typeof tb["rule_version"] === "string" ? tb["rule_version"] : undefined,
+            };
+        })()
+        : undefined;
+    const techRequirements = (arr(p["tech_requirements"]) as Array<Record<string, unknown>>).map(tr => ({
+        text: String(tr["text"] ?? ""),
+        sourceHandle: String(tr["source_handle"] ?? ""),
+        inferred: Boolean(tr["inferred"]),
+        ruleVersion: typeof tr["rule_version"] === "string" ? tr["rule_version"] : undefined,
+    }));
+    const sourceUnits = typeof p["source_units"] === "string" ? p["source_units"] : undefined;
+    const unitFactor = isFiniteNum(p["unit_factor"]) ? Number(p["unit_factor"]) : undefined;
+
     // ── 出身与转换指纹(契约 §1;4B-5 展示/手动兜底)──
     const originRaw = (p["origin"] ?? {}) as Record<string, unknown>;
     const channel = originRaw["channel"];
@@ -429,6 +491,22 @@ export function loadDraft(pack: unknown): LoadedDraft {
         entityCount: entities.length,
         segsByLayer,
         dims, dimIdByEnt,
+        titleBlock, techRequirements,
+        views: (arr(p["views"]) as Array<Record<string, unknown>>)
+            .filter(v => v !== null && typeof v === "object" && !Array.isArray(v)
+                && Number.isInteger(Number(v["id"]))) // 缺 id/非整数:跳过(packcheck 已拒;防折 0 撞哨兵)
+            .map(v => {
+            const bboxRaw = (v["bbox"] ?? [0, 0, 0, 0]) as unknown[];
+            return {
+                id: Number(v["id"]),
+                ...(typeof v["name"] === "string" && v["name"] ? { name: String(v["name"]) } : {}),
+                bbox: [Number(bboxRaw[0] ?? 0), Number(bboxRaw[1] ?? 0),
+                       Number(bboxRaw[2] ?? 0), Number(bboxRaw[3] ?? 0)] as [number, number, number, number],
+            };
+        }),
+        units: String(p["units"] ?? "mm"),
+        sourceUnits, unitFactor,
+        originOffset: xy(p["origin_offset"]),
         origin: {
             channel: channel === "nx" || channel === "autocad" ? channel : "unknown",
             evidence: (arr(originRaw["evidence"]) as unknown[]).map(String),

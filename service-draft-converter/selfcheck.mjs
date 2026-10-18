@@ -182,6 +182,23 @@ for (const profile of ["writer", "reader"]) {
 }
 ok("packcheck dims 载荷 writer/reader 双档拒绝");
 
+for (const profile of ["writer", "reader"]) {
+    for (const [key, value, expected] of [
+        ["origin_offset", [0], "origin_offset"],
+        ["title_block", [], "title_block 应为对象"],
+        ["views", {}, "views 应为数组"],
+        ["views", [null], "views 元素应为对象"],
+        ["views", [{ id: 1 }, { id: 1 }], "views 元素 id 应唯一"],
+        ["tech_requirements", [null], "tech_requirements 元素应为对象"],
+    ]) {
+        const bad = structuredClone(pack);
+        bad[key] = value;
+        const errors = checkDraftPack(bad, profile);
+        assert.ok(errors.some(error => error.includes(expected)), `${profile} ${key}: ${errors.join(";")}`);
+    }
+}
+ok("packcheck 语义层形态 writer/reader 双档拒绝");
+
 // 未知类型:writer 拒 / reader 跳
 {
     const bad = JSON.parse(JSON.stringify(pack));
