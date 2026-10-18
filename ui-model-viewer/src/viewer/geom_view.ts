@@ -49,11 +49,22 @@ export interface GeomPartIdentity {
     geometrySha256: string;
 }
 
+export interface GeomRoleDeclaration extends GeomPartIdentity {
+    bodies: Iterable<number>;
+}
+
+export interface GeomRoleStatus {
+    applied: boolean;
+    reason?: string;
+}
+
 export interface GeomViewCallbacks {
     partChanged?(): void;
     selectionChanged?(): void;
     /** 仅 setHiddenBodies 有效变化时发；换零件由 partChanged 表达。 */
     visibilityChanged?(hiddenBodies: number[]): void;
+    /** 角色声明生效、被拒绝或身份变化失效。 */
+    roleChanged?(status: GeomRoleStatus): void;
     /** 用户点了一张面(单击,不论它因此被选中还是被取消)。 */
     faceClicked?(subject: FaceSubject): void;
     /** 鼠标滑过的面变了;滑到背景上时 subject 无效。 */
@@ -102,6 +113,7 @@ export class GeomView {
     private partIdentity: GeomPartIdentity = { sourceSha256: '', geometrySha256: '' };
     private hiddenBodies: Set<number> = new Set();
     private declaredRole: { identity: GeomPartIdentity; bodies: Set<number> } | null = null;
+    private roleError: string | null = null;
     private isolation: { body: number; hiddenBefore: Set<number> } | null = null;
 
     // 刀路
@@ -222,6 +234,9 @@ export class GeomView {
             && identity.geometrySha256 === this.partIdentity.geometrySha256)
             return;
         this.partIdentity = { ...identity };
+        const previousRole = this.declaredRole;
+        this.roleError = previousRole ? '身份已变化，原角色声明失效' : null;
+        if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         this.declaredRole = null;
         this.selection.setDeclaredBodies([]);
         this.isolation = null;
@@ -240,6 +255,7 @@ export class GeomView {
         this.faces = faces;
         this.bodies = bodies;
         this.declaredRole = null;
+        this.roleError = null;
         this.isolation = null;
         // blanked 只决定初始显隐；后续显隐由用户当前状态驱动。
         this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
@@ -252,6 +268,7 @@ export class GeomView {
         this.renderer?.clearPart();
         this.renderer?.setHiddenBodies(this.hiddenBodies);
         this.callbacks.partChanged?.();
+        this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
         this.callbacks.selectionChanged?.();
         this.scheduleRender();
     }
@@ -274,20 +291,38 @@ export class GeomView {
         this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
     }
 
-    /** 声明当前 source+geometry 下的角色体；无法核验身份时不赋予角色语义。 */
-    setSelectableBodies(declared: Iterable<number> | null): void {
-        if (!this.partIdentity.sourceSha256 || !this.partIdentity.geometrySha256) {
+    /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
+    setSelectableBodies(declaration: GeomRoleDeclaration): GeomRoleStatus {
+        const reject = (reason: string): GeomRoleStatus => {
             this.declaredRole = null;
+            this.roleError = reason;
             this.selection.setDeclaredBodies([]);
-            return;
-        }
+            this.callbacks.roleChanged?.({ applied: false, reason });
+            return { applied: false, reason };
+        };
+        if (!declaration.sourceSha256 || !declaration.geometrySha256)
+            return reject('角色声明缺少源/几何身份，未生效');
+        if (declaration.sourceSha256 !== this.partIdentity.sourceSha256
+            || declaration.geometrySha256 !== this.partIdentity.geometrySha256)
+            return reject('角色声明与当前源/几何版本不匹配，未生效');
         const known = new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
-        const next = new Set([...new Set(declared ?? [])].filter((body) => known.has(body)));
+        const requested = [...new Set(declaration.bodies)];
+        const unknown = requested.filter((body) => !known.has(body));
+        if (unknown.length > 0)
+            return reject(`声明体不属于当前几何包：${unknown.join('、')}`);
+        const next = new Set(requested);
         this.declaredRole = { identity: { ...this.partIdentity }, bodies: next };
+        this.roleError = null;
         this.selection.setDeclaredBodies(next);
         const body = this.hoverFace !== null ? (this.faces[this.hoverFace]?.body ?? -1) : -1;
         if (this.hoverFace !== null && body >= 0 && next.has(body))
             this.setHoverFace(null);
+        this.callbacks.roleChanged?.({ applied: true });
+        return { applied: true };
+    }
+
+    roleStatus(): GeomRoleStatus {
+        return { applied: this.declaredRole !== null, ...(this.roleError ? { reason: this.roleError } : {}) };
     }
 
     isDeclaredFace(face: number): boolean {

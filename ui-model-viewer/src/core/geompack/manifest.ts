@@ -255,6 +255,8 @@ export function parseManifest(text: string): Manifest {
         const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
         if (coords.some(value => value !== 0))
             fail("InvalidValue", file + ":零体包的 bbox_relative 必须全为 0", file);
+        if (m.faceCount !== 0 || m.edgeCount !== 0)
+            fail("InvalidValue", file + ":零体包不应包含面或边线", file);
     }
     if ("exclusion_policy" in doc && typeof doc.exclusion_policy === "string")
         m.exclusionPolicy = doc.exclusion_policy;

@@ -442,6 +442,8 @@ function parseManifest(text) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
+    if (m.faceCount !== 0 || m.edgeCount !== 0)
+      fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u4E0D\u5E94\u5305\u542B\u9762\u6216\u8FB9\u7EBF", file);
   }
   if ("exclusion_policy" in doc && typeof doc.exclusion_policy === "string")
     m.exclusionPolicy = doc.exclusion_policy;
@@ -1963,7 +1965,8 @@ var SceneRenderer = class {
     const gl = this.gl;
     this.unbindVaoForElement();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
-    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.visibleScratch.subarray(0, n));
+    if (n > 0)
+      gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.visibleScratch.subarray(0, n));
     this.visibleIndexCount = n;
   }
   rebuildEdgeVisibleIndices() {
@@ -1997,7 +2000,8 @@ var SceneRenderer = class {
     const gl = this.gl;
     this.unbindVaoForElement();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.edgeIndexBuf);
-    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch.subarray(0, n));
+    if (n > 0)
+      gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch.subarray(0, n));
     this.edgeVisibleIndexCount = n;
   }
   clearPart() {
@@ -2554,6 +2558,7 @@ var GeomView = class _GeomView {
   partIdentity = { sourceSha256: "", geometrySha256: "" };
   hiddenBodies = /* @__PURE__ */ new Set();
   declaredRole = null;
+  roleError = null;
   isolation = null;
   // 刀路
   pathBuffers = null;
@@ -2673,6 +2678,9 @@ var GeomView = class _GeomView {
     if (identity.sourceSha256 === this.partIdentity.sourceSha256 && identity.geometrySha256 === this.partIdentity.geometrySha256)
       return;
     this.partIdentity = { ...identity };
+    const previousRole = this.declaredRole;
+    this.roleError = previousRole ? "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548" : null;
+    if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     this.declaredRole = null;
     this.selection.setDeclaredBodies([]);
     this.isolation = null;
@@ -2690,6 +2698,7 @@ var GeomView = class _GeomView {
     this.faces = faces;
     this.bodies = bodies;
     this.declaredRole = null;
+    this.roleError = null;
     this.isolation = null;
     this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
     this.originOffset = [0, 0, 0];
@@ -2701,6 +2710,7 @@ var GeomView = class _GeomView {
     this.renderer?.clearPart();
     this.renderer?.setHiddenBodies(this.hiddenBodies);
     this.callbacks.partChanged?.();
+    this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
     this.callbacks.selectionChanged?.();
     this.scheduleRender();
   }
@@ -2723,20 +2733,36 @@ var GeomView = class _GeomView {
       this.setHoverFace(null);
     this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
   }
-  /** 声明当前 source+geometry 下的角色体；无法核验身份时不赋予角色语义。 */
-  setSelectableBodies(declared) {
-    if (!this.partIdentity.sourceSha256 || !this.partIdentity.geometrySha256) {
+  /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
+  setSelectableBodies(declaration) {
+    const reject = (reason) => {
       this.declaredRole = null;
+      this.roleError = reason;
       this.selection.setDeclaredBodies([]);
-      return;
-    }
+      this.callbacks.roleChanged?.({ applied: false, reason });
+      return { applied: false, reason };
+    };
+    if (!declaration.sourceSha256 || !declaration.geometrySha256)
+      return reject("\u89D2\u8272\u58F0\u660E\u7F3A\u5C11\u6E90/\u51E0\u4F55\u8EAB\u4EFD\uFF0C\u672A\u751F\u6548");
+    if (declaration.sourceSha256 !== this.partIdentity.sourceSha256 || declaration.geometrySha256 !== this.partIdentity.geometrySha256)
+      return reject("\u89D2\u8272\u58F0\u660E\u4E0E\u5F53\u524D\u6E90/\u51E0\u4F55\u7248\u672C\u4E0D\u5339\u914D\uFF0C\u672A\u751F\u6548");
     const known = /* @__PURE__ */ new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
-    const next = new Set([...new Set(declared ?? [])].filter((body2) => known.has(body2)));
+    const requested = [...new Set(declaration.bodies)];
+    const unknown = requested.filter((body2) => !known.has(body2));
+    if (unknown.length > 0)
+      return reject(`\u58F0\u660E\u4F53\u4E0D\u5C5E\u4E8E\u5F53\u524D\u51E0\u4F55\u5305\uFF1A${unknown.join("\u3001")}`);
+    const next = new Set(requested);
     this.declaredRole = { identity: { ...this.partIdentity }, bodies: next };
+    this.roleError = null;
     this.selection.setDeclaredBodies(next);
     const body = this.hoverFace !== null ? this.faces[this.hoverFace]?.body ?? -1 : -1;
     if (this.hoverFace !== null && body >= 0 && next.has(body))
       this.setHoverFace(null);
+    this.callbacks.roleChanged?.({ applied: true });
+    return { applied: true };
+  }
+  roleStatus() {
+    return { applied: this.declaredRole !== null, ...this.roleError ? { reason: this.roleError } : {} };
   }
   isDeclaredFace(face) {
     return !!this.declaredRole && this.declaredRole.identity.sourceSha256 === this.partIdentity.sourceSha256 && this.declaredRole.identity.geometrySha256 === this.partIdentity.geometrySha256 && this.declaredRole.bodies.has(this.faces[face]?.body ?? -1);
@@ -3325,13 +3351,14 @@ function ModelControls({ view, onReference }) {
   }, [view]);
   const select = (event) => {
     event.preventDefault();
-    const fids = [...new Set(input.trim().toUpperCase().split(/[\s,，;；]+/).filter(Boolean))];
+    const wanted = new Set(input.trim().toUpperCase().split(/[\s,，;；]+/).filter(Boolean));
+    const fids = [...wanted];
     const faces = view.facesOf();
     const unknown = fids.filter((fid) => !faces.some((face) => face.fid === fid));
-    const excluded = faces.filter((face) => fids.includes(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType));
-    const declared = faces.filter((face, index) => fids.includes(face.fid) && view.isDeclaredFace(index));
+    const excluded = faces.filter((face) => wanted.has(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType));
+    const declared = faces.filter((face, index) => wanted.has(face.fid) && view.isDeclaredFace(index));
     if (unknown.length || excluded.length || declared.length) {
-      setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : "", declared.length ? `\u5DF2\u6838\u58F0\u660E\u4F53\u4E0D\u53EF\u9009\uFF1A${declared.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
+      setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : "", declared.length ? `\u5DF2\u58F0\u660E\u4F53\uFF08\u8EAB\u4EFD\u5339\u914D\uFF09\u4E0D\u53EF\u9009\uFF1A${declared.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
       return;
     }
     view.setSelectedFids(fids);

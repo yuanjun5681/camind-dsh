@@ -90,6 +90,9 @@ try {
     ['empty_bodies_nonzero_bbox', doc => {
       doc.bodies = []; doc.body_count = 0; doc.enumerated_body_count = 1; doc.bbox_relative.max[0] = 1
     }, 'InvalidValue'],
+    ['zero_body_face_nonzero', doc => {
+      doc.bodies = []; doc.body_count = 0; doc.face_count = 1; doc.edge_count = 0; doc.enumerated_body_count = 1
+    }, 'InvalidValue'],
   ]) {
     const doc = structuredClone(baseManifest)
     mutate(doc)

@@ -217,6 +217,8 @@ function parseManifest(text) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
+    if (m.faceCount !== 0 || m.edgeCount !== 0)
+      fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u4E0D\u5E94\u5305\u542B\u9762\u6216\u8FB9\u7EBF", file);
   }
   if ("exclusion_policy" in doc && typeof doc.exclusion_policy === "string")
     m.exclusionPolicy = doc.exclusion_policy;

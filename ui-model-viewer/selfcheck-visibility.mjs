@@ -145,10 +145,13 @@ function testVisibilityStateMachine() {
 
 function testBlankedAndSmallBuffers() {
   const a = makeView()
+  const blankedEvents = []
+  a.view.callbacks.visibilityChanged = hidden => blankedEvents.push(hidden)
   for (const body of a.pack.bodies) body.blanked = true
   a.view.setPart('blanked@gp-1', a.pack.faces, a.pack.bodies, { sourceSha256: 'source', geometrySha256: 'geometry' })
   a.view.setMesh(a.mesh)
   a.view.setEdges(parseSyntheticEdges(a.pack))
+  deepEqual(blankedEvents, [[0, 1, 2, 3]])
   deepEqual(a.view.hiddenBodiesOf(), [0, 1, 2, 3])
   deepEqual(a.runFrame(), [])
   assert.equal(a.view.pickAt({ x: 150, y: 100 }).kind, 0)
@@ -162,9 +165,10 @@ function testBlankedAndSmallBuffers() {
   const options = { ...defaultRenderOptions(), showToolpath: false }
   renderer.render(params, 300, 200, options)
   const original = mock.gl.bufferSubData
-  mock.gl.bufferSubData = (target, offset, data, srcOffset, length) => {
-    if (length === 0 && data.byteLength > 0) throw new Error('INVALID_VALUE')
-    return original(target, offset, data, srcOffset, length)
+  let zeroLengthUploads = 0
+  mock.gl.bufferSubData = (...args) => {
+    if (args[2].byteLength === 0) ++zeroLengthUploads
+    return original(...args)
   }
   renderer.setHiddenBodies([0, 1, 2, 3])
   const fine = makeSyntheticPackMulti(1024, 4, 4)
@@ -173,6 +177,7 @@ function testBlankedAndSmallBuffers() {
   renderer.render(params, 300, 200, options)
   assert.equal(renderer.visibleIndexDrawCount(), 0)
   assert.equal(renderer.edgeVisibleIndexDrawCount(), 0)
+  assert.equal(zeroLengthUploads, 0)
   console.log('ok - blanked initial hidden and zero-length edge upload')
 }
 
@@ -207,22 +212,31 @@ function testSelectionAndRoles() {
   assert.equal(a.view.pickAt({ x: 150, y: 100 }).kind, 0)
 
   a.view.setSelectedFids([])
-  a.view.setSelectableBodies([0])
+  const declare = (sourceSha256, geometrySha256, bodies = [0]) => a.view.setSelectableBodies({ sourceSha256, geometrySha256, bodies })
+  deepEqual(declare('source', 'geometry'), { applied: true })
   assert.equal(a.view.isDeclaredFace(0), true)
   assert.equal(a.view.isDeclaredFace(1), false)
+  deepEqual(a.view.roleStatus(), { applied: true })
   a.view.setSelectedFids(['F000001'])
   deepEqual(a.view.selectedFids(), [])
   a.view.setSelectedFids(['F000002'])
-  a.view.setSelectableBodies([0])
+  deepEqual(declare('source', 'geometry'), { applied: true })
   deepEqual(a.view.selectedFids(), ['F000002'])
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry' })
   assert.equal(a.view.isDeclaredFace(0), false)
-  a.view.setSelectableBodies([0])
+  assert.equal(a.view.roleStatus().applied, false)
+  deepEqual(declare('source-2', 'geometry'), { applied: true })
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry-2' })
   assert.equal(a.view.isDeclaredFace(0), false)
-  a.view.setPartIdentity({ sourceSha256: '', geometrySha256: '' })
-  a.view.setSelectableBodies([0])
+  assert.equal(a.view.roleStatus().applied, false)
+  deepEqual(declare('', ''), { applied: false, reason: '角色声明缺少源/几何身份，未生效' })
   assert.equal(a.view.isDeclaredFace(0), false)
+  const mismatched = declare('wrong-source', 'geometry-2')
+  assert.equal(mismatched.applied, false)
+  assert.match(mismatched.reason, /不匹配/)
+  const unknown = declare('source-2', 'geometry-2', [999])
+  assert.equal(unknown.applied, false)
+  assert.match(unknown.reason, /999/)
   a.pack.bodies[0].name = '电极'
   assert.equal(a.view.isDeclaredFace(0), false)
 

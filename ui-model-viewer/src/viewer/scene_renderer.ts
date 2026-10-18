@@ -289,7 +289,8 @@ export class SceneRenderer {
         this.unbindVaoForElement();
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
         // 全显恢复也必须重写：否则前段可见子集与后段旧数据会拼成错误索引。
-        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.visibleScratch.subarray(0, n));
+        if (n > 0)
+            gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.visibleScratch.subarray(0, n));
         this.visibleIndexCount = n;
     }
 
@@ -325,7 +326,8 @@ export class SceneRenderer {
         const gl = this.gl;
         this.unbindVaoForElement();
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.edgeIndexBuf);
-        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch.subarray(0, n));
+        if (n > 0)
+            gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch.subarray(0, n));
         this.edgeVisibleIndexCount = n;
     }
 
