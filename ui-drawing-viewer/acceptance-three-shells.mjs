@@ -71,10 +71,11 @@ async function preparePack(page, sid, sourceUri) {
 async function cancelConversion(page, sid, before, shell) {
   const cwd = await sessionCwd(sid)
   const reference = before.inputs.dwg.reference
-  const file = path.join(cwd, path.dirname(reference), `cancel-${shell}.dxf`)
+  const dir = await fs.mkdtemp(path.join(cwd, path.dirname(reference), `.cam-shell-cancel-${shell}-`))
+  const file = path.join(dir, 'cancel.dxf')
   await fs.writeFile(file, makeDxf(50000))
   const base = `/camind/api/drawings/sessions/${encodeURIComponent(sid)}/packs`
-  const sourceUri = `${path.dirname(reference)}/${path.basename(file)}`
+  const sourceUri = path.relative(cwd, file)
   try {
     const started = await page.evaluate(async ({ base, sourceUri }) => {
       const response = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: sourceUri }) })
@@ -94,7 +95,7 @@ async function cancelConversion(page, sid, before, shell) {
     }
     throw new Error('Cancellation did not reach a terminal state')
   } finally {
-    await fs.rm(file, { force: true })
+    await fs.rm(dir, { recursive: true, force: true })
   }
 }
 function contrastOf(page) {
@@ -127,6 +128,23 @@ async function tokenSnapshot(page, officialWeb) {
     assert.equal(value.background, value.dswColor, 'Official /web must use the DSW fallback, not a missing Camind token')
   }
   return value
+}
+async function themePreference(page) {
+  const namespace = await page.evaluate(async () => {
+    const document = await (await fetch('/camind/api/settings')).json()
+    return document.namespaces.find(item => item.ns === 'ui-theme')
+  })
+  assert(namespace?.value?.preference, 'The official ui-theme namespace is required')
+  return namespace
+}
+async function setThemePreference(page, preference) {
+  const current = await themePreference(page)
+  const result = await page.evaluate(async ({ current, preference }) => {
+    const response = await fetch('/camind/api/settings/mutate', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ns: 'ui-theme', ops: [{ op: 'set', path: ['preference'], value: preference }], expectedRevision: current.revision }) })
+    return { status: response.status, body: await response.json() }
+  }, { current, preference })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
 }
 async function verifyReference(page, sid, before, pack) {
   await page.evaluate(() => { window.__shellReferenceTest = { nativeFetch: window.fetch, captured: null }; const test = window.__shellReferenceTest; window.fetch = async (...args) => { const url = typeof args[0] === 'string' ? args[0] : args[0].url; if (url?.endsWith('/refs/verify')) test.captured = JSON.parse(args[1].body); return test.nativeFetch.apply(window, args) } })
@@ -164,16 +182,21 @@ async function verifyShell({ page, sid, shell, cdp }) {
   const { pack, packHitMs } = await preparePack(page, sid, before.inputs.dwg.uri)
   await verifyReference(page, sid, before, pack)
   await cancelConversion(page, sid, before, shell)
-  const themes = {}
-  for (const theme of ['light', 'dark']) {
-    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] })
-    await page.waitForFunction(theme => document.documentElement.style.colorScheme === theme, theme, { timeout: 10000 })
+  const themes = {}, originalTheme = (await themePreference(page)).value.preference
+  for (const theme of ['light', 'dark', 'system']) {
+    await setThemePreference(page, theme)
+    if (theme === 'system') await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] })
+    else await cdp.send('Emulation.setEmulatedMedia', { features: [] })
+    await page.waitForFunction(theme => document.documentElement.style.colorScheme === theme, theme === 'system' ? 'dark' : theme, { timeout: 10000 })
     const token = await tokenSnapshot(page, shell === 'web')
     const contrast = await contrastOf(page)
     assert(contrast && contrast.ratio >= 4.5, `${shell}/${theme} text contrast ${contrast?.ratio}`)
     themes[theme] = { token, contrast }
   }
+  await setThemePreference(page, originalTheme)
   await cdp.send('Emulation.setEmulatedMedia', { features: [] })
+  if (originalTheme === 'system') await page.waitForFunction(() => document.documentElement.getAttribute('data-ds-theme-source') === 'system')
+  else await page.waitForFunction(theme => document.documentElement.style.colorScheme === theme, originalTheme)
   assert.deepEqual(await taskOf(page, sid), before)
   return { real_shell: shell, boot: true, pack_sha256_verified: true, native_reference_verified: true, cancelled: true, themes, readyMs, packHitMs, formal_task_unchanged: true }
 }
