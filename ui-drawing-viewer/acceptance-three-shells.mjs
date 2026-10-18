@@ -66,9 +66,9 @@ async function preparePack(page, sid, sourceUri) {
   assert.equal(fetched.sha, actualSha)
   assert.equal(fetched.body.pack.sha256, actualSha)
   assert.equal(fetched.body.pack.identity, key)
-  return { descriptor: fetched.body, pack: JSON.parse(fetched.body.packText), packHitMs }
+  return { descriptor: fetched.body, pack: JSON.parse(fetched.body.packText), packHitMs, baselineWorkers: ready.activeWorkers ?? 0 }
 }
-async function cancelConversion(page, sid, before, shell) {
+async function cancelConversion(page, sid, before, shell, baselineWorkers) {
   const cwd = await sessionCwd(sid)
   const dir = await fs.mkdtemp(path.join(cwd, `.cam-shell-cancel-${shell}-`))
   const file = path.join(dir, 'cancel.dxf')
@@ -83,7 +83,6 @@ async function cancelConversion(page, sid, before, shell) {
     }, { base, sourceUri })
     assert.equal(started.status, 202, JSON.stringify(started.body))
     const jobId = started.body.jobId
-    const baselineWorkers = (await statusOf(jobId)).activeWorkers ?? 0
     let converting = false
     for (let i = 0; i < 360 && !converting; i++) {
       const job = await statusOf(jobId)
@@ -200,9 +199,9 @@ async function verifyShell({ page, sid, shell, cdp }) {
   const canvas = page.locator('.wb-preview-stage:not([hidden]) .cdv-canvas')
   await canvas.waitFor({ timeout: 90000 })
   const readyMs = Date.now() - loadStart
-  const { pack, packHitMs } = await preparePack(page, sid, before.inputs.dwg.uri)
+  const { pack, packHitMs, baselineWorkers } = await preparePack(page, sid, before.inputs.dwg.uri)
   await verifyReference(page, sid, before, pack)
-  const cancelEvidence = await cancelConversion(page, sid, before, shell)
+  const cancelEvidence = await cancelConversion(page, sid, before, shell, baselineWorkers)
   const themes = {}, originalTheme = (await themePreference(page)).value.preference
   try {
     for (const theme of ['light', 'dark', 'system']) {
