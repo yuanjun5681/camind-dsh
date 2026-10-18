@@ -65,13 +65,14 @@ async function evaluate(expression) {
 try {
   await send('Page.bringToFront')
   await send('Runtime.enable')
+  await evaluate(`document.querySelectorAll('#viewer').forEach(el => el.remove())`)
   await evaluate(outputFiles[0].text)
   await new Promise(resolve => setTimeout(resolve, 600))
   const bootHasPlugin = await evaluate(`Boolean(window.__DSH_BOOT__?.entries?.some(e => e.id === 'camind-ui-drawing-viewer'))`)
   assert.equal(bootHasPlugin, true, 'desktop boot graph must include camind-ui-drawing-viewer')
   const summary = await evaluate(`(() => {
-    const host = document.querySelector('.cdv-canvas')
-    const meta = document.querySelector('.cdv-meta')?.innerText ?? ''
+    const host = document.querySelector('#viewer .cdv-canvas')
+    const meta = document.querySelector('#viewer .cdv-meta')?.innerText ?? ''
     const rect = host?.getBoundingClientRect()
     return { canvases: host?.querySelectorAll('canvas').length ?? 0, meta,
       clip: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 } : null }
@@ -79,7 +80,7 @@ try {
   assert.equal(summary.canvases, 2, 'DraftPane should create WebGL2 + Canvas2D layers')
   assert.match(summary.meta, /16 实体 · 2 尺寸/)
   assert.ok(summary.clip, '缺少合成截图区域')
-  await evaluate(`document.querySelectorAll('.cdv-canvas > div:not(canvas)').forEach(el => { el.dataset.acceptanceDisplay = el.style.display; el.style.display = 'none' })`)
+  await evaluate(`document.querySelectorAll('#viewer .cdv-canvas > div:not(canvas)').forEach(el => { el.dataset.acceptanceDisplay = el.style.display; el.style.display = 'none' })`)
   const screenshot = await send('Page.captureScreenshot', {
     format: 'png', fromSurface: true, captureBeyondViewport: false, clip: summary.clip,
   })
@@ -99,10 +100,11 @@ try {
     }
     return colors.size
   })()`)
-  await evaluate(`document.querySelectorAll('.cdv-canvas > div:not(canvas)').forEach(el => { el.style.display = el.dataset.acceptanceDisplay ?? '' })`)
+  await evaluate(`document.querySelectorAll('#viewer .cdv-canvas > div:not(canvas)').forEach(el => { el.style.display = el.dataset.acceptanceDisplay ?? '' })`)
   assert.ok(colors > 1, `合成截图为空或单色：${colors}`)
   assert.deepEqual(pageErrors, [])
   console.log(`dsh-app:// 合成图验收通过：${JSON.stringify(summary)}`)
 } finally {
+  await evaluate(`document.querySelectorAll('#viewer').forEach(el => el.remove())`).catch(() => {})
   ws.close()
 }
