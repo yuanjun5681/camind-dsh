@@ -6,7 +6,7 @@ import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { createCamTasks, digest } from './lib/tasks.js'
 import { registerCamPlan } from './lib/tools/plan.js'
-import { executeCamRun, registerCamRun, regenerationItemsOf, resumeDecisionOf } from './lib/tools/run.js'
+import { executeCamRun, registerCamRun, regenerationItemsOf, resumeDecisionOf, t501FieldsOf } from './lib/tools/run.js'
 import { executeCamDeliver } from './lib/tools/deliver.js'
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cam-execution-')), previous = process.env.DSH_HOME
 process.env.DSH_HOME = home
@@ -139,6 +139,19 @@ try {
   assert.deepEqual(regenerationItemsOf({ regeneration_required: { operations: ['C', 'D'] } }), [{ operation: 'C' }, { operation: 'D' }])
   assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: true } }), 'stop')
   assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: 'A' } }), 'stop')
+  const splitFields = t501FieldsOf({
+    regeneration_required: ['TOP'],
+    error_detail: { regeneration_required: ['DATA'] },
+    errorDetail: { regeneration_required: ['CAMEL'] },
+  }, { regeneration_required: ['PROXY'], confirmation_param: 'allow_regenerate_toolpaths' })
+  assert.deepEqual(splitFields.regeneration_required.map(item => item.operation), ['TOP', 'DATA', 'CAMEL', 'PROXY'])
+  assert.equal(splitFields.confirmation_param, 'allow_regenerate_toolpaths')
+  assert.equal(resumeDecisionOf('generated', splitFields), 'stop')
+  const conflictFields = t501FieldsOf({ error_detail: { regeneration_required: ['DATA_ONLY'] } }, { confirmation_param: 'allow_regenerate_toolpaths', posts: ['MILL_3_AXIS'] })
+  assert.deepEqual(conflictFields.regeneration_required.map(item => item.operation), ['DATA_ONLY'])
+  assert.equal(resumeDecisionOf('generated', conflictFields), 'stop')
+  assert.equal(resumeDecisionOf('generated', { error_detail: { confirmation_param: 'allow_regenerate_toolpaths' } }), 'stop')
+  assert.equal(resumeDecisionOf('generated', { error_detail: { confirmation_param: 'other_confirmation' } }), 'post')
   // Ordinary post failures retain generated/resume-post semantics; only T-501 becomes a hard error.
   const ordinaryPost = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   postFailure = 'ordinary'; calls = []
@@ -151,6 +164,16 @@ try {
   const ordinaryResumeSummary = JSON.parse((await done).result)
   assert.equal(ordinaryResumeSummary.ops[0].decision, 'post')
   assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, ordinaryPosts + 1)
+  const scopedStatePath = path.join(ordinaryPost.run_dir, 'runstate.json')
+  const scopedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
+  scopedState.ops.push({ index: 1, name: 'OUTSIDE_JOB', type: 'from_scratch_workpiece_op', status: 'ok', other_operations_pending_regeneration: [scopedState.ops[0].name] })
+  await fs.writeFile(scopedStatePath, JSON.stringify(scopedState))
+  const postsBeforeScopedResume = calls.filter(call => call.endpoint === '/postprocess').length
+  await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id, resume: true }, exec)
+  const scopedResumeSummary = JSON.parse((await done).result)
+  assert.equal(scopedResumeSummary.ops[0].decision, 'stop')
+  assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, postsBeforeScopedResume)
+  assert.match(scopedResumeSummary.reason, new RegExp(`待重算刀路：${scopedState.ops[0].name}`))
   postFailure = false
   // T-501: refusal is an error, never a normal generated state, and no authorization flag is injected.
   const refusedT501 = JSON.parse(await tools.get('cam_plan').execute(args, exec))
@@ -204,6 +227,10 @@ try {
   assert.equal(resumeT501Summary.ops[0].decision, 'stop')
   assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, postCallsBeforeResume)
   pendingRegeneration = false
+  await tools.get('cam_run').execute({ run_id: pendingT501.run_id }, exec)
+  const clearedT501Summary = JSON.parse((await done).result)
+  assert.equal(clearedT501Summary.overall, 'ok')
+  assert.deepEqual(regenerationItemsOf(clearedT501Summary.ops[0]), [])
   // A later operation can name an earlier one as pending; resume must scan all records before any retry.
   const crossDir = path.join(home, 'cross-t501')
   await fs.mkdir(crossDir)
@@ -226,6 +253,9 @@ try {
   assert.match(crossResumeSummary.reason, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
   const crossDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', tasks, sessionId: 's1' })
   assert.equal(crossDelivery.package_kind, 'process')
+  const crossManifest = JSON.parse(await fs.readFile(path.join(crossDir, 'delivery/manifest.json'), 'utf8'))
+  assert.equal(crossManifest.package_complete, false)
+  assert.ok(crossManifest.blockers.some(text => text.includes(`待重算刀路：${crossT501Summary.ops[0].name}`)))
   assert.match(await fs.readFile(path.join(crossDir, 'delivery/delivery_report.md'), 'utf8'), new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
   crossOperationPending = false
   // Task stop prevents the next NX submission, without claiming an in-flight cancellation.

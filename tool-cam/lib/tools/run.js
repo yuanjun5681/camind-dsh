@@ -165,7 +165,11 @@ export function regenerationItemsOf(op) {
     ...normalizeRegeneration(op?.other_operations_pending_regeneration),
     ...normalizeRegeneration(op?.regeneration_required),
     ...normalizeRegeneration(op?.error_detail?.regeneration_required),
+    ...normalizeRegeneration(op?.errorDetail?.regeneration_required),
   ]
+  const confirmation = op?.confirmation_param ?? op?.error_detail?.confirmation_param ?? op?.errorDetail?.confirmation_param
+  // 仅认 T-501 的专属参数名，不把普通 FieldGuardError/refused 误判为重算。
+  if (items.length === 0 && confirmation === 'allow_regenerate_toolpaths') items.push({ operation: '未知工序' })
   const seen = new Set()
   return items.filter((item) => {
     const key = JSON.stringify([item.operation, item.reason ?? null])
@@ -179,12 +183,21 @@ function hasPendingRegeneration(op) {
   return regenerationItemsOf(op).length > 0
 }
 
-function t501FieldsOf(data, errorDetail) {
+export function t501FieldsOf(data, errorDetail) {
   const detail = errorDetail ?? data?.error_detail ?? data?.errorDetail
+  const regeneration = [
+    data?.regeneration_required,
+    data?.error_detail?.regeneration_required,
+    data?.errorDetail?.regeneration_required,
+    errorDetail?.regeneration_required,
+  ].flatMap(normalizeRegeneration)
+  const confirmation = data?.confirmation_param ?? data?.error_detail?.confirmation_param
+    ?? data?.errorDetail?.confirmation_param ?? errorDetail?.confirmation_param
   return {
     ...(data?.regenerated_operations !== undefined ? { regenerated_operations: data.regenerated_operations } : {}),
     ...(data?.other_operations_pending_regeneration !== undefined ? { other_operations_pending_regeneration: data.other_operations_pending_regeneration } : {}),
-    ...(data?.regeneration_required !== undefined ? { regeneration_required: data.regeneration_required } : {}),
+    ...(regeneration.length > 0 ? { regeneration_required: regeneration } : {}),
+    ...(confirmation !== undefined ? { confirmation_param: confirmation } : {}),
     ...(data?.tool_numbers_fixed !== undefined ? { tool_numbers_fixed: data.tool_numbers_fixed } : {}),
     ...(detail !== undefined ? { error_detail: detail } : {}),
   }
@@ -589,7 +602,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   mark({ stage: 'ops', total: resolved.length })
   // pending 可能由后序工序记录、却点名前序工序；先扫完整 runstate，再决定
   // 是否允许任何续跑动作，避免先执行 A、走到 B 才发现 A 待重算。
-  const stopAllForRegeneration = resume && resolved.some(entry => hasPendingRegeneration(state.ops[entry.index]))
+  const stopAllForRegeneration = resume && Array.isArray(state.ops) && state.ops.some(hasPendingRegeneration)
   for (const entry of resolved) {
     const prev = state.ops[entry.index]
     const decision = stopAllForRegeneration ? 'stop' : resume ? resumeDecisionOf(prev?.status, prev) : 'rerun'
@@ -599,7 +612,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       continue
     }
     if (decision === 'stop') {
-      summary.ops.push({ ...prev, decision: 'stop' })
+      summary.ops.push({ index: entry.index, name: entry.name, type: entry.op?.type ?? 'unknown', status: 'pending', ...prev, decision: 'stop' })
       mark({ stage: 'op', index: entry.index, name: entry.name, status: 'stop' })
       if (stopAllForRegeneration) continue
       break
@@ -676,7 +689,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   }
 
   // ---- 6. 汇总（fail-closed） ----------------------------------------------
-  const { overall, reason } = overallOf(summary.ops, check)
+  const { overall, reason } = overallOf(state.ops, check)
   summary.execution_overall = overall
   summary.production_check = job.formal_task ? 'incomplete' : 'not_verified'
   summary.overall = overall
