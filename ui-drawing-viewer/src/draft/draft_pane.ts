@@ -92,6 +92,7 @@ export class DraftPane {
     private selection: DraftTarget[] = [];
     private colorMode: "readable" | "original" = "readable";
     private insets: DraftViewportInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+    private fitOnVisible = false;
     private clickTimer: ReturnType<typeof setTimeout> | null = null;
     private contextSnapshot: {
         camera: DraftCameraState;
@@ -157,9 +158,15 @@ export class DraftPane {
                     if (this.contextSnapshot) this.contextSnapshot.layers[msg.layer] = msg.visible;
                     this.renderNow();
                     return;
-                case "fit": this.view?.fit(); this.renderNow(); return;
-                case "zoomAt": this.view?.zoomAt(msg.sx, msg.sy, msg.factor); this.renderNow(); return;
-                case "pan": this.view?.panPixels(msg.dx, msg.dy); this.renderNow(); return;
+                case "fit":
+                    if (this.view) {
+                        const rect = this.container.getBoundingClientRect();
+                        if (rect.width <= 0 || rect.height <= 0) this.fitOnVisible = true;
+                        this.view.fit(); this.renderNow();
+                    }
+                    return;
+                case "zoomAt": if (this.view) { this.view.zoomAt(msg.sx, msg.sy, msg.factor); this.fitOnVisible = false; this.renderNow(); } return;
+                case "pan": if (this.view) { this.view.panPixels(msg.dx, msg.dy); this.fitOnVisible = false; this.renderNow(); } return;
                 case "resize": this.applySize(); this.renderNow(); return;
                 case "setOriginOverride":
                     if (this.originNow) {
@@ -175,10 +182,10 @@ export class DraftPane {
                     return;
                 case "dispose": this.dispose(); return;
                 case "zoomToRect":
-                    if (this.view) { this.view.zoomToRect(msg.rect); this.renderNow(); }
+                    if (this.view) { this.view.zoomToRect(msg.rect); this.fitOnVisible = false; this.renderNow(); }
                     return;
                 case "locateTarget":
-                    if (this.view && this.draft) this.locate(msg.target, msg.zoom);
+                    if (this.view && this.draft) { this.locate(msg.target, msg.zoom); if (msg.zoom) this.fitOnVisible = false; }
                     return;
                 case "setSelection":
                     if (this.view && this.draft) this.applySelection(msg.targets);
@@ -190,7 +197,7 @@ export class DraftPane {
                     if (this.view) this.emit({ type: "camera", state: { ...this.view.view } });
                     return;
                 case "setCamera":
-                    if (this.view) { this.view.setCamera(msg.state); this.renderNow(); }
+                    if (this.view) { this.view.setCamera(msg.state); this.fitOnVisible = false; this.renderNow(); }
                     return;
                 case "setViewportInsets": {
                     const next = { top: msg.top, right: msg.right, bottom: msg.bottom, left: msg.left };
@@ -227,6 +234,8 @@ export class DraftPane {
         const hadSelection = this.selection.length > 0;
         const nextView = new DraftView(gl, c2d, draft, { checkErrors: true });
         nextView.setViewportInsets(this.insets);
+        const rect = this.container.getBoundingClientRect();
+        this.fitOnVisible = rect.width <= 0 || rect.height <= 0;
         nextView.fit();
         nextView.setColorMode(this.colorMode);
         this.view?.dispose();
@@ -518,6 +527,10 @@ export class DraftPane {
         const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
         this.glCanvas.width = w; this.glCanvas.height = h;
         this.textCanvas.width = w; this.textCanvas.height = h;
+        if (this.fitOnVisible && r.width > 0 && r.height > 0 && this.view) {
+            this.view.fit();
+            this.fitOnVisible = false;
+        }
     }
 
     private renderLayers(): void {

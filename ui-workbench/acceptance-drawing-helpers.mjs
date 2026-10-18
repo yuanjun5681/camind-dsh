@@ -72,28 +72,22 @@ export async function packDescriptor(page, sessionId, path) {
 }
 
 export async function canvasColors(page) {
-  return page.locator(visibleCanvas).evaluate(el => {
-    const [glCanvas, textCanvas] = el.children
+  const base64 = await page.locator(visibleCanvas).screenshot({ type: 'png', encoding: 'base64' })
+  return page.evaluate(async base64 => {
+    const image = new Image()
+    image.src = `data:image/png;base64,${base64}`
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = image.naturalWidth; canvas.height = image.naturalHeight
+    const context = canvas.getContext('2d')
+    context.drawImage(image, 0, 0)
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data
     let blue = 0, yellow = 0
-    const count = data => {
-      for (let i = 0; i + 3 < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2]
-        if (r === 0 && g === 0 && b === 255) blue++
-        if (r > 240 && g > 150 && g < 235 && b < 100) yellow++
-      }
-    }
-    if (glCanvas?.width && glCanvas.height) {
-      const gl = glCanvas.getContext('webgl2')
-      if (gl) {
-        const pixels = new Uint8Array(glCanvas.width * glCanvas.height * 4)
-        gl.readPixels(0, 0, glCanvas.width, glCanvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-        count(pixels)
-      }
-    }
-    if (textCanvas?.width && textCanvas.height) {
-      const context = textCanvas.getContext('2d')
-      if (context) count(context.getImageData(0, 0, textCanvas.width, textCanvas.height).data)
+    for (let i = 0; i + 3 < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2]
+      if (r === 0 && g === 0 && b === 255) blue++
+      if (r > 240 && g > 150 && g < 235 && b < 100) yellow++
     }
     return { blue, yellow }
-  })
+  }, base64)
 }

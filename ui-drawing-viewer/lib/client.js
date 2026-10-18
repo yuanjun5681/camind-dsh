@@ -1920,6 +1920,7 @@ var DraftPane = class {
   selection = [];
   colorMode = "readable";
   insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  fitOnVisible = false;
   clickTimer = null;
   contextSnapshot = null;
   emit;
@@ -1979,16 +1980,26 @@ var DraftPane = class {
           this.renderNow();
           return;
         case "fit":
-          this.view?.fit();
-          this.renderNow();
+          if (this.view) {
+            const rect = this.container.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) this.fitOnVisible = true;
+            this.view.fit();
+            this.renderNow();
+          }
           return;
         case "zoomAt":
-          this.view?.zoomAt(msg.sx, msg.sy, msg.factor);
-          this.renderNow();
+          if (this.view) {
+            this.view.zoomAt(msg.sx, msg.sy, msg.factor);
+            this.fitOnVisible = false;
+            this.renderNow();
+          }
           return;
         case "pan":
-          this.view?.panPixels(msg.dx, msg.dy);
-          this.renderNow();
+          if (this.view) {
+            this.view.panPixels(msg.dx, msg.dy);
+            this.fitOnVisible = false;
+            this.renderNow();
+          }
           return;
         case "resize":
           this.applySize();
@@ -2018,11 +2029,15 @@ var DraftPane = class {
         case "zoomToRect":
           if (this.view) {
             this.view.zoomToRect(msg.rect);
+            this.fitOnVisible = false;
             this.renderNow();
           }
           return;
         case "locateTarget":
-          if (this.view && this.draft) this.locate(msg.target, msg.zoom);
+          if (this.view && this.draft) {
+            this.locate(msg.target, msg.zoom);
+            if (msg.zoom) this.fitOnVisible = false;
+          }
           return;
         case "setSelection":
           if (this.view && this.draft) this.applySelection(msg.targets);
@@ -2036,6 +2051,7 @@ var DraftPane = class {
         case "setCamera":
           if (this.view) {
             this.view.setCamera(msg.state);
+            this.fitOnVisible = false;
             this.renderNow();
           }
           return;
@@ -2073,6 +2089,8 @@ var DraftPane = class {
     const hadSelection = this.selection.length > 0;
     const nextView = new DraftView(gl, c2d, draft, { checkErrors: true });
     nextView.setViewportInsets(this.insets);
+    const rect = this.container.getBoundingClientRect();
+    this.fitOnVisible = rect.width <= 0 || rect.height <= 0;
     nextView.fit();
     nextView.setColorMode(this.colorMode);
     this.view?.dispose();
@@ -2429,6 +2447,10 @@ var DraftPane = class {
     this.glCanvas.height = h2;
     this.textCanvas.width = w;
     this.textCanvas.height = h2;
+    if (this.fitOnVisible && r.width > 0 && r.height > 0 && this.view) {
+      this.view.fit();
+      this.fitOnVisible = false;
+    }
   }
   renderLayers() {
     if (!this.view || !this.draft) return;

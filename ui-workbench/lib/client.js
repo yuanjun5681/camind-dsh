@@ -1523,7 +1523,6 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
         key: `${target.type}:${target.id}`, 'data-drawing-result': `${target.type}:${target.id}`,
         'aria-pressed': selected?.id === target.id && selected?.type === target.type,
         onClick: () => selectTarget(target),
-        onKeyDown: event => { if (event.key === 'Enter') selectTarget(target) },
       }, labelOf(target), h('small', null, target.type === 'dim' ? '尺寸标注' : '图纸文字'))),
         query.trim() && !filtered.length && h('p', null, '没有匹配的内容'), filtered.length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多结果')),
       selected && h('section', { className: 'wb-drawing-annotation-detail' }, h('strong', null, labelOf(selected)),
