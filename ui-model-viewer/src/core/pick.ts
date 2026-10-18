@@ -71,12 +71,14 @@ export function rayThroughPixel(invViewProj: Mat4, viewportWidth: number, viewpo
 export interface CpuPickResult { hit: boolean; face: number; triangle: number; t: number; }
 
 // 对账基准:Möller–Trumbore 逐三角形求交(双面),取最近交点。
-export function cpuPick(mesh: Mesh, ray: Ray): CpuPickResult {
+export function cpuPick(mesh: Mesh, ray: Ray, visibleFace?: (face: number) => boolean): CpuPickResult {
     const pos = mesh.positions();
     const idx = mesh.indices();
     const best: CpuPickResult = { hit: false, face: 0, triangle: 0, t: Infinity };
     const triangles = (idx.length / 3) | 0;
     for (let t = 0; t < triangles; ++t) {
+        if (visibleFace && !visibleFace(mesh.faceOfTriangle(t)))
+            continue;
         const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
         const ax = pos[a], ay = pos[a + 1], az = pos[a + 2];
         const e1x = pos[b] - ax, e1y = pos[b + 1] - ay, e1z = pos[b + 2] - az;

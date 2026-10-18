@@ -8,13 +8,18 @@ export type { SelectionChange, ClickMode };
 export { changeIsEmpty };
 
 export interface SelectionPort {
-    /** 换零件:给出每张面的曲面类型(下标 = 面序号)。清空选择集与过滤条件。 */
-    reset(surfaceTypes: string[]): void;
+    /** 换零件:给出每张面的曲面类型(下标 = 面序号)。清空选择集与过滤条件。
+     *  bodyAffiliation:每面的体归属(与 surfaceTypes 等长;省略 = 无体信息)。 */
+    reset(surfaceTypes: string[], bodyAffiliation?: number[]): void;
     /** 类型过滤:只有这些类型的面可以被选中;空集 = 不过滤。
      *  已选中但不再符合过滤条件的面会被移出选择集。 */
     setTypeFilter(allowed: Iterable<string>): SelectionChange;
     typeFilter(): ReadonlySet<string>;
     isSelectable(face: number): boolean;
+    /** 只判类型过滤(压暗上色用;声明体不压暗)。 */
+    passesTypeFilter(face: number): boolean;
+    isDeclaredFace(face: number): boolean;
+    setDeclaredBodies(bodies: Iterable<number>): void;
     /** 这个零件里出现过的全部曲面类型(去重、按字典序)。 */
     availableTypes(): string[];
     click(face: number | null, mode: ClickMode): SelectionChange;
@@ -30,10 +35,13 @@ export interface SelectionPort {
 export function createSelection(): SelectionPort {
     const model = new SelectionModel();
     return {
-        reset: (surfaceTypes) => model.reset(surfaceTypes),
+        reset: (surfaceTypes, bodyAffiliation) => model.reset(surfaceTypes, bodyAffiliation),
         setTypeFilter: (allowed) => model.setTypeFilter(new Set(allowed)),
         typeFilter: () => new Set(model.typeFilter()),
         isSelectable: (face) => model.isSelectable(face),
+        passesTypeFilter: (face) => model.passesTypeFilter(face),
+        isDeclaredFace: (face) => model.isDeclaredFace(face),
+        setDeclaredBodies: (bodies) => model.setDeclaredBodies(bodies),
         availableTypes: () => model.availableTypes(),
         click: (face, mode) => model.click(face, mode),
         setSelection: (faces) => model.setSelection(faces),

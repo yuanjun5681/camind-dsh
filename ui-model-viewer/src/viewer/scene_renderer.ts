@@ -17,7 +17,7 @@
 //   · debug 模式逐 draw 校验 getError(ts-spike 教训:WebGL 下 draw 被拒只表现为画面为空、JS 无异常)。
 import { Mat4, RigidTransform, normalized, add, scale } from "@camind/core";
 import type { Mesh, Edges, FaceInfo, OrbitCamera, PickHit } from "@camind/core";
-import { buildFaceIdAttribute, buildFaceColorAttribute, buildEdgeLineIndices } from "@camind/core";
+import { buildFaceIdAttribute, buildFaceColorAttribute, buildEdgeLineIndices, NO_FACE } from "@camind/core";
 import { pickMatrix, resolvePickRegion, kPickRegion, segmentToPickId } from "@camind/core";
 import { MESH_VERT, MESH_FRAG, LINE_VERT, LINE_FRAG, ID_VERT, ID_FRAG, PATH_VERT, PATH_FRAG } from "./shaders.ts";
 
@@ -134,6 +134,13 @@ export class SceneRenderer {
 
     // CPU 侧数据
     private mesh: Mesh | null = null;
+    // bodyOfFace[face] = 体号；visible* 是可见索引前缀缓冲，与 NC 播放区间完全独立。
+    private bodyOfFace: Uint32Array = new Uint32Array(0);
+    private hiddenBodies: Set<number> = new Set();
+    private visibleIndexCount = 0;
+    private visibleScratch: Uint32Array | null = null;
+    private edgeVisibleIndexCount = 0;
+    private edgeVisibleScratch: Uint32Array | null = null;
     private edges: Edges | null = null;
     private path: ToolpathGeometry | null = null;
     private colors: Uint8Array = new Uint8Array(0);       // 逐顶点 RGBA,高亮改的就是它
@@ -220,6 +227,9 @@ export class SceneRenderer {
         this.mesh = mesh;
         this.dirtyColorRanges = [];
         if (mesh) {
+            this.bodyOfFace = new Uint32Array(mesh.faceCount());
+            for (let f = 0; f < mesh.faceCount(); ++f)
+                this.bodyOfFace[f] = faces[f] ? faces[f].body : 0;
             this.colors = buildFaceColorAttribute(mesh, faces);
             this.baseColors = new Uint8Array(mesh.faceCount() * 4);
             for (let f = 0; f < mesh.faceCount(); ++f) {
@@ -229,6 +239,7 @@ export class SceneRenderer {
                 this.baseColors.set(c, f * 4);
             }
         } else {
+            this.bodyOfFace = new Uint32Array(0);
             this.colors = new Uint8Array(0);
             this.baseColors = new Uint8Array(0);
         }
@@ -239,6 +250,83 @@ export class SceneRenderer {
     setEdges(edges: Edges | null): void {
         this.edges = edges;
         this.edgesDirty = true;
+    }
+
+    /** 隐藏体集合；空/null = 全显。面与边分别按当前集合重建可见索引。 */
+    setHiddenBodies(hidden: Iterable<number> | null): void {
+        this.hiddenBodies = hidden ? new Set(hidden) : new Set();
+        this.rebuildVisibleIndices();
+        this.rebuildEdgeVisibleIndices();
+    }
+
+    visibleIndexDrawCount(): number { return this.visibleIndexCount; }
+    edgeVisibleIndexDrawCount(): number { return this.edgeVisibleIndexCount; }
+
+    private unbindVaoForElement(): void {
+        this.gl.bindVertexArray(null);
+    }
+
+    private rebuildVisibleIndices(): void {
+        if (this.meshDirty)
+            return; // 等 flush 创建本档 indexBuf 后再重应用，避免写上一档缓冲。
+        if (!this.mesh || !this.indexBuf) {
+            this.visibleIndexCount = 0;
+            return;
+        }
+        const total = this.mesh.indexCount();
+        if (!this.visibleScratch || this.visibleScratch.length < total)
+            this.visibleScratch = new Uint32Array(total);
+        let n = 0;
+        const indices = this.mesh.indices();
+        for (let f = 0; f < this.mesh.faceCount(); ++f) {
+            if (this.hiddenBodies.has(this.bodyOfFace[f]))
+                continue;
+            const r = this.mesh.faceRange(f);
+            this.visibleScratch.set(indices.subarray(r.indexOffset, r.indexOffset + r.indexCount), n);
+            n += r.indexCount;
+        }
+        const gl = this.gl;
+        this.unbindVaoForElement();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
+        // 全显恢复也必须重写：否则前段可见子集与后段旧数据会拼成错误索引。
+        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.visibleScratch.subarray(0, n));
+        this.visibleIndexCount = n;
+    }
+
+    private rebuildEdgeVisibleIndices(): void {
+        if (this.edgesDirty)
+            return;
+        if (!this.edges || !this.edgeIndexBuf) {
+            this.edgeVisibleIndexCount = 0;
+            return;
+        }
+        if (!this.edgeVisibleScratch || this.edgeVisibleScratch.length < this.edgeIndexCount)
+            this.edgeVisibleScratch = new Uint32Array(this.edgeIndexCount);
+        let n = 0;
+        const view4 = this.edges.edges();
+        for (let i = 0; i < this.edges.edgeCount(); ++i) {
+            const o = i * 4;
+            const faceA = view4[o], faceB = view4[o + 1];
+            const ptOff = view4[o + 2], ptCnt = view4[o + 3];
+            const aHidden = faceA !== NO_FACE && this.hiddenBodies.has(this.bodyOfFace[faceA] ?? -1);
+            const bHidden = faceB !== NO_FACE && this.hiddenBodies.has(this.bodyOfFace[faceB] ?? -1);
+            // 双面公共边只有两个真实关联面都隐藏才剔除；单面边跟随唯一面。
+            if (faceA !== NO_FACE && aHidden && faceB !== NO_FACE && bHidden)
+                continue;
+            if (faceA !== NO_FACE && aHidden && faceB === NO_FACE)
+                continue;
+            if (faceB !== NO_FACE && bHidden && faceA === NO_FACE)
+                continue;
+            for (let k = 0; k + 1 < ptCnt; ++k) {
+                this.edgeVisibleScratch[n++] = ptOff + k;
+                this.edgeVisibleScratch[n++] = ptOff + k + 1;
+            }
+        }
+        const gl = this.gl;
+        this.unbindVaoForElement();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.edgeIndexBuf);
+        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch, 0, n);
+        this.edgeVisibleIndexCount = n;
     }
 
     clearPart(): void {
@@ -344,18 +432,18 @@ export class SceneRenderer {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         let draws = 0;
-        if (options.showMesh && this.posBuf && this.indexBuf) {
+        if (options.showMesh && this.posBuf && this.indexBuf && this.visibleIndexCount > 0) {
             this.applyPipeline({ program: this.meshProg.program, uboBlockIndex: this.meshProg.uboBlockIndex,
                 topology: gl.TRIANGLES, depthTest: true, depthWrite: true, uniforms: "main" }, this.mainUbo);
             gl.bindVertexArray(this.meshVao);
-            this.drawIndexed(gl.TRIANGLES, this.mesh!.indexCount()); // ★整档一次绘制
+            this.drawIndexed(gl.TRIANGLES, this.visibleIndexCount); // ★整档一次绘制(可见子集)
             ++draws;
         }
-        if (options.showEdges && this.edgePosBuf && this.edgeIndexCount > 0) {
+        if (options.showEdges && this.edgePosBuf && this.edgeVisibleIndexCount > 0) {
             this.applyPipeline({ program: this.lineProg.program, uboBlockIndex: this.lineProg.uboBlockIndex,
                 topology: gl.LINES, depthTest: true, depthWrite: true, uniforms: "main" }, this.mainUbo);
             gl.bindVertexArray(this.lineVao);
-            this.drawIndexed(gl.LINES, this.edgeIndexCount);
+            this.drawIndexed(gl.LINES, this.edgeVisibleIndexCount);
             ++draws;
         }
         if (options.showToolpath && this.pathPosBuf) {
@@ -404,11 +492,11 @@ export class SceneRenderer {
             gl.disable(gl.BLEND);
             gl.depthMask(true);
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            if (options.showMesh && this.posBuf && this.idBuf && this.indexBuf) {
+            if (options.showMesh && this.posBuf && this.idBuf && this.indexBuf && this.visibleIndexCount > 0) {
                 this.applyPipeline({ program: this.idProg.program, uboBlockIndex: this.idProg.uboBlockIndex,
                     topology: gl.TRIANGLES, depthTest: true, depthWrite: true, uniforms: "pick" }, this.pickUbo);
                 gl.bindVertexArray(this.idMeshVao);
-                this.drawIndexed(gl.TRIANGLES, this.mesh!.indexCount());
+                this.drawIndexed(gl.TRIANGLES, this.visibleIndexCount);
             }
             if (options.pickMode !== 'face' && options.showToolpath && this.pathPosBuf && this.pathIdBuf) {
                 const segments = this.visibleSegmentCount();
@@ -596,6 +684,7 @@ export class SceneRenderer {
             this.meshVao = this.idMeshVao = null;
             this.stats.triangles = 0;
             this.stats.vertices = 0;
+            this.visibleIndexCount = 0;
             if (this.mesh && this.mesh.vertexCount() > 0 && this.mesh.indexCount() > 0) {
                 const mesh = this.mesh;
                 // 位置 / 法线 / 索引:几何包里的数据整段原样上显卡,不逐顶点加工。
@@ -620,6 +709,12 @@ export class SceneRenderer {
                 ], this.indexBuf);
                 this.stats.triangles = mesh.triangleCount();
                 this.stats.vertices = mesh.vertexCount();
+                // 换档先回全量，再按当前 hidden 重算；同时补算边线所属新网格。
+                this.visibleIndexCount = mesh.indexCount();
+                if (this.hiddenBodies.size > 0)
+                    this.rebuildVisibleIndices();
+                if (this.edges && this.edgeIndexCount > 0)
+                    this.rebuildEdgeVisibleIndices();
             }
             this.colorsFullyDirty = false;
             this.dirtyColorRanges = [];
@@ -644,6 +739,7 @@ export class SceneRenderer {
             this.deleteVao(this.lineVao);
             this.lineVao = null;
             this.edgeIndexCount = 0;
+            this.edgeVisibleIndexCount = 0;
             this.stats.edgeSegments = 0;
             if (this.edges && this.edges.pointCount() > 0) {
                 const indices = buildEdgeLineIndices(this.edges);
@@ -656,6 +752,10 @@ export class SceneRenderer {
                     [["aPos", this.edgePosBuf, 3, gl.FLOAT]], this.edgeIndexBuf);
                 this.edgeIndexCount = indices.length;
                 this.stats.edgeSegments = indices.length / 2;
+                if (this.hiddenBodies.size > 0)
+                    this.rebuildEdgeVisibleIndices();
+                else
+                    this.edgeVisibleIndexCount = this.edgeIndexCount;
             }
         }
 

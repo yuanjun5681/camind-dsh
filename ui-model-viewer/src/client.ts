@@ -127,7 +127,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         renderer = GeomView.create(canvas.current)
         if (!renderer) throw new Error('当前设备不支持 WebGL2；可从文件入口查看原始 NC 文本')
         renderer.callbacks.renderingFailed = setError
-        if (manifest && mesh && edges) { renderer.setPart(manifest.partRef, next.faces, manifest.bodies ?? []); renderer.setOriginOffset(manifest.originOffset as [number, number, number]); renderer.setMesh(mesh); renderer.setEdges(edges) }
+        if (manifest && mesh && edges) { renderer.setPart(manifest.partRef, next.faces, manifest.bodies ?? [], { sourceSha256: next.sha, geometrySha256: next.geometry_sha256 }); renderer.setOriginOffset(manifest.originOffset as [number, number, number]); renderer.setMesh(mesh); renderer.setEdges(edges) }
         observer = new ResizeObserver(() => renderer?.requestRender()); observer.observe(canvas.current)
         setState(next); setView(renderer); setProjection(Projection.Orthographic)
       } catch (e: any) { if (!controller.signal.aborted) setError(e.message) }

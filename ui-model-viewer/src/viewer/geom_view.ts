@@ -15,7 +15,7 @@
 //   · initialize/releaseResources(QRhi 设备重建)→ webglcontextlost/restored,
 //     恢复时重建渲染器并把 CPU 侧数据重新喂一遍(feedRenderer);
 //   · loadNcFile 的文件读取留在壳层(Electron 主进程),这里收 parseNc 的结果(setNc)。
-import { fidToIndex, meshBounds, RigidTransform, OrbitCamera, buildToolpathBuffers } from "@camind/core";
+import { fidToIndex, meshBounds, RigidTransform, OrbitCamera, buildToolpathBuffers, summarizeBodies } from "@camind/core";
 import type { Mesh, Edges, FaceInfo, BodyInfo, PickHit, ProjectionKind, StandardViewKind, NcParseResult, BoundingBox } from "@camind/core";
 import { Projection, StandardView } from "@camind/core";
 import { SceneRenderer, viewParamsFromCamera, toolpathSegmentCount } from "./scene_renderer.ts";
@@ -44,9 +44,16 @@ const EMPTY_SUBJECT: FaceSubject = { partRef: "", fid: "", faceIndex: 0, surface
 const DRAG_THRESHOLD_PIXELS = 4;
 const HOVER_INTERVAL_MS = 25; // 滑过预亮的节流:每次拾取要对全部顶点跑一遍顶点着色器
 
+export interface GeomPartIdentity {
+    sourceSha256: string;
+    geometrySha256: string;
+}
+
 export interface GeomViewCallbacks {
     partChanged?(): void;
     selectionChanged?(): void;
+    /** 仅 setHiddenBodies 有效变化时发；换零件由 partChanged 表达。 */
+    visibilityChanged?(hiddenBodies: number[]): void;
     /** 用户点了一张面(单击,不论它因此被选中还是被取消)。 */
     faceClicked?(subject: FaceSubject): void;
     /** 鼠标滑过的面变了;滑到背景上时 subject 无效。 */
@@ -92,6 +99,10 @@ export class GeomView {
     private mesh: Mesh | null = null;
     private edges: Edges | null = null;
     private originOffset: [number, number, number] = [0, 0, 0];
+    private partIdentity: GeomPartIdentity = { sourceSha256: '', geometrySha256: '' };
+    private hiddenBodies: Set<number> = new Set();
+    private declaredRole: { identity: GeomPartIdentity; bodies: Set<number> } | null = null;
+    private isolation: { body: number; hiddenBefore: Set<number> } | null = null;
 
     // 刀路
     private pathBuffers: ToolpathGeometry | null = null;
@@ -143,6 +154,7 @@ export class GeomView {
         canvas.addEventListener("pointerleave", this.onPointerLeave);
         canvas.addEventListener("pointerenter", this.onPointerEnter);
         canvas.addEventListener("pointercancel", this.onPointerCancel);
+        canvas.addEventListener("lostpointercapture", this.onPointerCancel);
         // 上下文丢失恢复 = C++ 的 releaseResources/initialize:渲染器重建,数据重新喂一遍。
         canvas.addEventListener("webglcontextlost", this.onContextLost);
         canvas.addEventListener("webglcontextrestored", this.onContextRestored);
@@ -165,6 +177,8 @@ export class GeomView {
         this.gl = gl;
         try {
             this.renderer = new SceneRenderer(gl, { checkErrors: this.debugCheckErrors });
+            if (this.hiddenBodies.size > 0)
+                this.renderer.setHiddenBodies(this.hiddenBodies);
             this.feedRenderer();
             this.scheduleRender(); // 恢复/首建后要重画一帧(对应 C++ initialize 后的 update)
         } catch (e) {
@@ -188,6 +202,7 @@ export class GeomView {
         c.removeEventListener("pointerleave", this.onPointerLeave);
         c.removeEventListener("pointerenter", this.onPointerEnter);
         c.removeEventListener("pointercancel", this.onPointerCancel);
+        c.removeEventListener("lostpointercapture", this.onPointerCancel);
         c.removeEventListener("webglcontextlost", this.onContextLost);
         c.removeEventListener("webglcontextrestored", this.onContextRestored);
     }
@@ -201,21 +216,108 @@ export class GeomView {
 
     // Browser loading is asynchronous; the plugin verifies the package before setPart/setMesh.
 
+    /** 更新源/几何身份；任何变化都使角色声明与隔离失效，不按 partRef 或名称猜角色。 */
+    setPartIdentity(identity: GeomPartIdentity): void {
+        if (identity.sourceSha256 === this.partIdentity.sourceSha256
+            && identity.geometrySha256 === this.partIdentity.geometrySha256)
+            return;
+        this.partIdentity = { ...identity };
+        this.declaredRole = null;
+        this.selection.setDeclaredBodies([]);
+        this.isolation = null;
+        this.hiddenBodies = new Set();
+        this.renderer?.setHiddenBodies(null);
+    }
+
+    private identityKey(): string {
+        return `${this.partIdentity.sourceSha256}#${this.partIdentity.geometrySha256}`;
+    }
+
     /** 换零件,清空选择集。bodies = 清单的体表(CAM-Agent T-398 ②;老包没有 ⇒ 空) */
-    setPart(partRef: string, faces: FaceInfo[], bodies: BodyInfo[] = []): void {
+    setPart(partRef: string, faces: FaceInfo[], bodies: BodyInfo[] = [], identity?: GeomPartIdentity): void {
+        this.setPartIdentity(identity ?? { sourceSha256: '', geometrySha256: '' });
         this.partRef = partRef;
         this.faces = faces;
         this.bodies = bodies;
+        this.declaredRole = null;
+        this.isolation = null;
+        this.hiddenBodies = new Set();
         this.originOffset = [0, 0, 0];
         this.mesh = null;
         this.edges = null;
         this.setHoverFace(null);
-        this.selection.reset(faces.map((f) => f.surfaceType));
+        this.selection.reset(faces.map((f) => f.surfaceType), faces.map((f) => f.body));
         this.fitPending = true;
         this.renderer?.clearPart();
+        this.renderer?.setHiddenBodies(null);
         this.callbacks.partChanged?.();
         this.callbacks.selectionChanged?.();
         this.scheduleRender();
+    }
+
+    hiddenBodiesOf(): number[] { return [...this.hiddenBodies].sort((a, b) => a - b); }
+    isBodyHidden(body: number): boolean { return this.hiddenBodies.has(body); }
+
+    /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
+    setHiddenBodies(bodies: Iterable<number> | null): void {
+        const next = new Set<number>(bodies ?? []);
+        const changed = next.size !== this.hiddenBodies.size
+            || [...next].some((b) => !this.hiddenBodies.has(b));
+        if (!changed)
+            return;
+        this.hiddenBodies = next;
+        this.renderer?.setHiddenBodies(this.hiddenBodies);
+        this.scheduleRender();
+        if (this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
+            this.setHoverFace(null);
+        this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+    }
+
+    /** 声明当前 source+geometry 下的角色体；无法核验身份时不赋予角色语义。 */
+    setSelectableBodies(declared: Iterable<number> | null): void {
+        if (!this.partIdentity.sourceSha256 || !this.partIdentity.geometrySha256) {
+            this.declaredRole = null;
+            this.selection.setDeclaredBodies([]);
+            return;
+        }
+        const known = new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
+        const next = new Set([...new Set(declared ?? [])].filter((body) => known.has(body)));
+        this.declaredRole = { identity: { ...this.partIdentity }, bodies: next };
+        this.selection.setDeclaredBodies(next);
+        const body = this.hoverFace !== null ? (this.faces[this.hoverFace]?.body ?? -1) : -1;
+        if (this.hoverFace !== null && body >= 0 && next.has(body))
+            this.setHoverFace(null);
+    }
+
+    isDeclaredFace(face: number): boolean {
+        return !!this.declaredRole
+            && this.declaredRole.identity.sourceSha256 === this.partIdentity.sourceSha256
+            && this.declaredRole.identity.geometrySha256 === this.partIdentity.geometrySha256
+            && this.declaredRole.bodies.has(this.faces[face]?.body ?? -1);
+    }
+
+    isolationBody(): number | null { return this.isolation?.body ?? null; }
+
+    isolateBody(body: number): void {
+        const known = new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
+        if (!known.has(body)) {
+            this.fitView();
+            return;
+        }
+        if (!this.isolation)
+            this.isolation = { body, hiddenBefore: new Set(this.hiddenBodies) };
+        this.isolation.body = body;
+        this.setHiddenBodies([...known].filter((candidate) => candidate !== body));
+        this.fitToBody(body);
+    }
+
+    clearIsolation(): void {
+        if (!this.isolation)
+            return;
+        const previous = this.isolation.hiddenBefore;
+        this.isolation = null;
+        this.setHiddenBodies(previous);
+        this.fitView();
     }
 
     /** 换一档网格,选择集保留。 */
@@ -494,7 +596,7 @@ export class GeomView {
         const selected = this.selection.isSelected(face);
         const hovered = this.hoverFace === face;
         const base = this.renderer ? this.renderer.baseFaceColor(face) : [180, 180, 180, 255] as Rgba;
-        return displayFaceColor(base, selected, hovered, this.selection.isSelectable(face));
+        return displayFaceColor(base, selected, hovered, this.selection.passesTypeFilter(face));
     }
 
     private refreshFaceColor(face: number): void {
@@ -547,6 +649,43 @@ export class GeomView {
     // ───────────────────────────────────────────── 相机与显示
 
     getCamera(): OrbitCamera { return this.camera; }
+
+    /** 定位到单个体；优先按网格顶点实测，失败退回面表，仍无法求盒则全局适应。 */
+    fitToBody(body: number): void {
+        let min: { x: number; y: number; z: number } | null = null;
+        let max: { x: number; y: number; z: number } | null = null;
+        const grow = (x: number, y: number, z: number): void => {
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z))
+                return;
+            min = min ? { x: Math.min(min.x, x), y: Math.min(min.y, y), z: Math.min(min.z, z) } : { x, y, z };
+            max = max ? { x: Math.max(max.x, x), y: Math.max(max.y, y), z: Math.max(max.z, z) } : { x, y, z };
+        };
+        if (this.mesh) {
+            const pos = this.mesh.positions();
+            const idx = this.mesh.indices();
+            for (let f = 0; f < this.mesh.faceCount(); ++f) {
+                if (this.faces[f]?.body !== body)
+                    continue;
+                const range = this.mesh.faceRange(f);
+                for (let i = range.indexOffset; i < range.indexOffset + range.indexCount; ++i) {
+                    const v = idx[i] * 3;
+                    grow(pos[v], pos[v + 1], pos[v + 2]);
+                }
+            }
+        }
+        if (!min || !max) {
+            const summary = summarizeBodies(this.faces).find((b) => b.body === body);
+            if (summary) {
+                for (const corner of [summary.bbox.min, summary.bbox.max])
+                    grow(corner[0], corner[1], corner[2]);
+            }
+        }
+        if (!min || !max) {
+            this.fitView();
+            return;
+        }
+        this.fitView({ min, max });
+    }
 
     fitView(bounds?: BoundingBox): void {
         const original = this.camera.sceneBounds();

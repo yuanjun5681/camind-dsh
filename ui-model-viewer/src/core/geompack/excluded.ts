@@ -48,8 +48,8 @@ export function excludedAllLine(excluded: ReadonlyArray<ExcludedBody>): string {
     return `全部 ${excluded.length} 个体未进入几何包:${groups.join("、")}`;
 }
 
-export function zeroBodyLine(m: Pick<Manifest, "enumeratedBodyCount" | "excludedBodies">): string {
-    if (m.excludedBodies === undefined) return "";
+export function zeroBodyLine(m: Pick<Manifest, "bodyCount" | "enumeratedBodyCount" | "excludedBodies">): string {
+    if (m.excludedBodies === undefined || (m.bodyCount !== undefined && m.bodyCount !== 0)) return "";
     const enumerated = m.enumeratedBodyCount ?? 0;
     if (enumerated === 0) return "源文件没有可枚举的实体。";
     return excludedAllLine(m.excludedBodies) + "。";

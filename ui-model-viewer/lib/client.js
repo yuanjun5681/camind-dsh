@@ -349,7 +349,7 @@ function parseExcludedBodies(value, file) {
   const out = [];
   for (let i = 0; i < value.length; ++i) {
     const item = value[i];
-    if (typeof item !== "object" || item === null)
+    if (typeof item !== "object" || item === null || Array.isArray(item))
       fail("BadJson", file + ":excluded_bodies \u7684\u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61", file);
     const key = strOr(item, "key", "");
     if (!key.trim())
@@ -438,7 +438,7 @@ function parseManifest(text) {
       );
     }
   }
-  if (m.bodyCount === 0) {
+  if (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
@@ -685,6 +685,24 @@ var Edges = class _Edges {
     return total;
   }
 };
+
+// ui-model-viewer/src/core/geompack/bodies.ts
+function summarizeBodies(faces) {
+  const by = /* @__PURE__ */ new Map();
+  for (const f of faces) {
+    const existing = by.get(f.body);
+    if (!existing) {
+      by.set(f.body, { body: f.body, faceCount: 1, bbox: { min: [...f.bboxRelative.min], max: [...f.bboxRelative.max] } });
+    } else {
+      for (let k = 0; k < 3; ++k) {
+        existing.bbox.min[k] = Math.min(existing.bbox.min[k], f.bboxRelative.min[k]);
+        existing.bbox.max[k] = Math.max(existing.bbox.max[k], f.bboxRelative.max[k]);
+      }
+      existing.faceCount += 1;
+    }
+  }
+  return [...by.values()].sort((a, b) => a.body - b.body);
+}
 
 // ui-model-viewer/src/core/camera.ts
 var Projection = { Orthographic: 0, Perspective: 1 };
@@ -1019,12 +1037,21 @@ var SelectionModel = class {
   filter = /* @__PURE__ */ new Set();
   selected = [];
   order = [];
+  bodyOfFace = [];
+  declaredBodies = /* @__PURE__ */ new Set();
   // 换零件:给出每张面的曲面类型(下标 = 面序号)。清空选择集与过滤条件。
-  reset(surfaceTypes) {
+  // bodyAffiliation 与 surfaceTypes 等长；省略 = 无体信息。
+  reset(surfaceTypes, bodyAffiliation) {
     this.types = surfaceTypes;
+    this.bodyOfFace = bodyAffiliation ?? new Array(surfaceTypes.length).fill(-1);
+    this.declaredBodies = /* @__PURE__ */ new Set();
     this.filter = /* @__PURE__ */ new Set();
     this.selected = new Array(surfaceTypes.length).fill(false);
     this.order = [];
+  }
+  // 声明体集合热更新；只影响新增交互选择，不静默驱逐既有选择。
+  setDeclaredBodies(bodies) {
+    this.declaredBodies = new Set(bodies);
   }
   faceCount() {
     return this.types.length;
@@ -1036,7 +1063,7 @@ var SelectionModel = class {
     const change = emptyChange();
     const current = [...this.order];
     for (const face of current) {
-      if (!this.isSelectable(face))
+      if (!this.passesTypeFilter(face))
         this.remove(face, change);
     }
     return change;
@@ -1044,10 +1071,19 @@ var SelectionModel = class {
   typeFilter() {
     return [...this.filter].sort();
   }
-  isSelectable(face) {
+  /** 只判类型过滤；displayFaceColor 压暗专用，声明体不因此压暗。 */
+  passesTypeFilter(face) {
     if (face >= this.types.length)
       return false;
     return this.filter.size === 0 || this.filter.has(this.types[face]);
+  }
+  isDeclaredFace(face) {
+    const body = this.bodyOfFace[face] ?? -1;
+    return body >= 0 && this.declaredBodies.has(body);
+  }
+  /** 新增交互选择谓词：过类型过滤且不在声明体。 */
+  isSelectable(face) {
+    return this.passesTypeFilter(face) && !this.isDeclaredFace(face);
   }
   // 这个零件里出现过的全部曲面类型(去重、按字典序)。
   availableTypes() {
@@ -1055,6 +1091,8 @@ var SelectionModel = class {
   }
   click(face, mode) {
     const change = emptyChange();
+    if (face !== null && this.isDeclaredFace(face))
+      return change;
     const valid = face !== null && this.isSelectable(face);
     if (mode === "toggle") {
       if (!valid)
@@ -1079,7 +1117,7 @@ var SelectionModel = class {
     const change = emptyChange();
     const wanted = new Array(this.types.length).fill(false);
     for (const f of faces) {
-      if (this.isSelectable(f))
+      if (this.passesTypeFilter(f) && (!this.isDeclaredFace(f) || this.selected[f]))
         wanted[f] = true;
     }
     const current = [...this.order];
@@ -1776,6 +1814,13 @@ var SceneRenderer = class {
   pathProg;
   // CPU 侧数据
   mesh = null;
+  // bodyOfFace[face] = 体号；visible* 是可见索引前缀缓冲，与 NC 播放区间完全独立。
+  bodyOfFace = new Uint32Array(0);
+  hiddenBodies = /* @__PURE__ */ new Set();
+  visibleIndexCount = 0;
+  visibleScratch = null;
+  edgeVisibleIndexCount = 0;
+  edgeVisibleScratch = null;
   edges = null;
   path = null;
   colors = new Uint8Array(0);
@@ -1860,6 +1905,9 @@ var SceneRenderer = class {
     this.mesh = mesh;
     this.dirtyColorRanges = [];
     if (mesh) {
+      this.bodyOfFace = new Uint32Array(mesh.faceCount());
+      for (let f = 0; f < mesh.faceCount(); ++f)
+        this.bodyOfFace[f] = faces[f] ? faces[f].body : 0;
       this.colors = buildFaceColorAttribute(mesh, faces);
       this.baseColors = new Uint8Array(mesh.faceCount() * 4);
       for (let f = 0; f < mesh.faceCount(); ++f) {
@@ -1867,6 +1915,7 @@ var SceneRenderer = class {
         this.baseColors.set(c, f * 4);
       }
     } else {
+      this.bodyOfFace = new Uint32Array(0);
       this.colors = new Uint8Array(0);
       this.baseColors = new Uint8Array(0);
     }
@@ -1876,6 +1925,80 @@ var SceneRenderer = class {
   setEdges(edges) {
     this.edges = edges;
     this.edgesDirty = true;
+  }
+  /** 隐藏体集合；空/null = 全显。面与边分别按当前集合重建可见索引。 */
+  setHiddenBodies(hidden) {
+    this.hiddenBodies = hidden ? new Set(hidden) : /* @__PURE__ */ new Set();
+    this.rebuildVisibleIndices();
+    this.rebuildEdgeVisibleIndices();
+  }
+  visibleIndexDrawCount() {
+    return this.visibleIndexCount;
+  }
+  edgeVisibleIndexDrawCount() {
+    return this.edgeVisibleIndexCount;
+  }
+  unbindVaoForElement() {
+    this.gl.bindVertexArray(null);
+  }
+  rebuildVisibleIndices() {
+    if (this.meshDirty)
+      return;
+    if (!this.mesh || !this.indexBuf) {
+      this.visibleIndexCount = 0;
+      return;
+    }
+    const total = this.mesh.indexCount();
+    if (!this.visibleScratch || this.visibleScratch.length < total)
+      this.visibleScratch = new Uint32Array(total);
+    let n = 0;
+    const indices = this.mesh.indices();
+    for (let f = 0; f < this.mesh.faceCount(); ++f) {
+      if (this.hiddenBodies.has(this.bodyOfFace[f]))
+        continue;
+      const r = this.mesh.faceRange(f);
+      this.visibleScratch.set(indices.subarray(r.indexOffset, r.indexOffset + r.indexCount), n);
+      n += r.indexCount;
+    }
+    const gl = this.gl;
+    this.unbindVaoForElement();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.visibleScratch.subarray(0, n));
+    this.visibleIndexCount = n;
+  }
+  rebuildEdgeVisibleIndices() {
+    if (this.edgesDirty)
+      return;
+    if (!this.edges || !this.edgeIndexBuf) {
+      this.edgeVisibleIndexCount = 0;
+      return;
+    }
+    if (!this.edgeVisibleScratch || this.edgeVisibleScratch.length < this.edgeIndexCount)
+      this.edgeVisibleScratch = new Uint32Array(this.edgeIndexCount);
+    let n = 0;
+    const view4 = this.edges.edges();
+    for (let i = 0; i < this.edges.edgeCount(); ++i) {
+      const o = i * 4;
+      const faceA = view4[o], faceB = view4[o + 1];
+      const ptOff = view4[o + 2], ptCnt = view4[o + 3];
+      const aHidden = faceA !== NO_FACE && this.hiddenBodies.has(this.bodyOfFace[faceA] ?? -1);
+      const bHidden = faceB !== NO_FACE && this.hiddenBodies.has(this.bodyOfFace[faceB] ?? -1);
+      if (faceA !== NO_FACE && aHidden && faceB !== NO_FACE && bHidden)
+        continue;
+      if (faceA !== NO_FACE && aHidden && faceB === NO_FACE)
+        continue;
+      if (faceB !== NO_FACE && bHidden && faceA === NO_FACE)
+        continue;
+      for (let k = 0; k + 1 < ptCnt; ++k) {
+        this.edgeVisibleScratch[n++] = ptOff + k;
+        this.edgeVisibleScratch[n++] = ptOff + k + 1;
+      }
+    }
+    const gl = this.gl;
+    this.unbindVaoForElement();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.edgeIndexBuf);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch, 0, n);
+    this.edgeVisibleIndexCount = n;
   }
   clearPart() {
     this.setMesh(null, []);
@@ -1987,7 +2110,7 @@ var SceneRenderer = class {
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     let draws = 0;
-    if (options.showMesh && this.posBuf && this.indexBuf) {
+    if (options.showMesh && this.posBuf && this.indexBuf && this.visibleIndexCount > 0) {
       this.applyPipeline({
         program: this.meshProg.program,
         uboBlockIndex: this.meshProg.uboBlockIndex,
@@ -1997,10 +2120,10 @@ var SceneRenderer = class {
         uniforms: "main"
       }, this.mainUbo);
       gl.bindVertexArray(this.meshVao);
-      this.drawIndexed(gl.TRIANGLES, this.mesh.indexCount());
+      this.drawIndexed(gl.TRIANGLES, this.visibleIndexCount);
       ++draws;
     }
-    if (options.showEdges && this.edgePosBuf && this.edgeIndexCount > 0) {
+    if (options.showEdges && this.edgePosBuf && this.edgeVisibleIndexCount > 0) {
       this.applyPipeline({
         program: this.lineProg.program,
         uboBlockIndex: this.lineProg.uboBlockIndex,
@@ -2010,7 +2133,7 @@ var SceneRenderer = class {
         uniforms: "main"
       }, this.mainUbo);
       gl.bindVertexArray(this.lineVao);
-      this.drawIndexed(gl.LINES, this.edgeIndexCount);
+      this.drawIndexed(gl.LINES, this.edgeVisibleIndexCount);
       ++draws;
     }
     if (options.showToolpath && this.pathPosBuf) {
@@ -2058,7 +2181,7 @@ var SceneRenderer = class {
       gl.disable(gl.BLEND);
       gl.depthMask(true);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      if (options.showMesh && this.posBuf && this.idBuf && this.indexBuf) {
+      if (options.showMesh && this.posBuf && this.idBuf && this.indexBuf && this.visibleIndexCount > 0) {
         this.applyPipeline({
           program: this.idProg.program,
           uboBlockIndex: this.idProg.uboBlockIndex,
@@ -2068,7 +2191,7 @@ var SceneRenderer = class {
           uniforms: "pick"
         }, this.pickUbo);
         gl.bindVertexArray(this.idMeshVao);
-        this.drawIndexed(gl.TRIANGLES, this.mesh.indexCount());
+        this.drawIndexed(gl.TRIANGLES, this.visibleIndexCount);
       }
       if (options.pickMode !== "face" && options.showToolpath && this.pathPosBuf && this.pathIdBuf) {
         const segments = this.visibleSegmentCount();
@@ -2247,6 +2370,7 @@ var SceneRenderer = class {
       this.meshVao = this.idMeshVao = null;
       this.stats.triangles = 0;
       this.stats.vertices = 0;
+      this.visibleIndexCount = 0;
       if (this.mesh && this.mesh.vertexCount() > 0 && this.mesh.indexCount() > 0) {
         const mesh = this.mesh;
         const posBytes = new Uint8Array(mesh.positions().buffer, mesh.positions().byteOffset, mesh.positions().byteLength);
@@ -2269,6 +2393,11 @@ var SceneRenderer = class {
         ], this.indexBuf);
         this.stats.triangles = mesh.triangleCount();
         this.stats.vertices = mesh.vertexCount();
+        this.visibleIndexCount = mesh.indexCount();
+        if (this.hiddenBodies.size > 0)
+          this.rebuildVisibleIndices();
+        if (this.edges && this.edgeIndexCount > 0)
+          this.rebuildEdgeVisibleIndices();
       }
       this.colorsFullyDirty = false;
       this.dirtyColorRanges = [];
@@ -2292,6 +2421,7 @@ var SceneRenderer = class {
       this.deleteVao(this.lineVao);
       this.lineVao = null;
       this.edgeIndexCount = 0;
+      this.edgeVisibleIndexCount = 0;
       this.stats.edgeSegments = 0;
       if (this.edges && this.edges.pointCount() > 0) {
         const indices = buildEdgeLineIndices(this.edges);
@@ -2307,6 +2437,10 @@ var SceneRenderer = class {
         );
         this.edgeIndexCount = indices.length;
         this.stats.edgeSegments = indices.length / 2;
+        if (this.hiddenBodies.size > 0)
+          this.rebuildEdgeVisibleIndices();
+        else
+          this.edgeVisibleIndexCount = this.edgeIndexCount;
       }
     }
     if (this.pathDirty) {
@@ -2361,10 +2495,13 @@ var SceneRenderer = class {
 function createSelection() {
   const model = new SelectionModel();
   return {
-    reset: (surfaceTypes) => model.reset(surfaceTypes),
+    reset: (surfaceTypes, bodyAffiliation) => model.reset(surfaceTypes, bodyAffiliation),
     setTypeFilter: (allowed) => model.setTypeFilter(new Set(allowed)),
     typeFilter: () => new Set(model.typeFilter()),
     isSelectable: (face) => model.isSelectable(face),
+    passesTypeFilter: (face) => model.passesTypeFilter(face),
+    isDeclaredFace: (face) => model.isDeclaredFace(face),
+    setDeclaredBodies: (bodies) => model.setDeclaredBodies(bodies),
     availableTypes: () => model.availableTypes(),
     click: (face, mode) => model.click(face, mode),
     setSelection: (faces) => model.setSelection(faces),
@@ -2414,6 +2551,10 @@ var GeomView = class _GeomView {
   mesh = null;
   edges = null;
   originOffset = [0, 0, 0];
+  partIdentity = { sourceSha256: "", geometrySha256: "" };
+  hiddenBodies = /* @__PURE__ */ new Set();
+  declaredRole = null;
+  isolation = null;
   // 刀路
   pathBuffers = null;
   stationTransform = new RigidTransform();
@@ -2465,6 +2606,7 @@ var GeomView = class _GeomView {
     canvas.addEventListener("pointerleave", this.onPointerLeave);
     canvas.addEventListener("pointerenter", this.onPointerEnter);
     canvas.addEventListener("pointercancel", this.onPointerCancel);
+    canvas.addEventListener("lostpointercapture", this.onPointerCancel);
     canvas.addEventListener("webglcontextlost", this.onContextLost);
     canvas.addEventListener("webglcontextrestored", this.onContextRestored);
   }
@@ -2484,6 +2626,8 @@ var GeomView = class _GeomView {
     this.gl = gl;
     try {
       this.renderer = new SceneRenderer(gl, { checkErrors: this.debugCheckErrors });
+      if (this.hiddenBodies.size > 0)
+        this.renderer.setHiddenBodies(this.hiddenBodies);
       this.feedRenderer();
       this.scheduleRender();
     } catch (e) {
@@ -2506,6 +2650,7 @@ var GeomView = class _GeomView {
     c.removeEventListener("pointerleave", this.onPointerLeave);
     c.removeEventListener("pointerenter", this.onPointerEnter);
     c.removeEventListener("pointercancel", this.onPointerCancel);
+    c.removeEventListener("lostpointercapture", this.onPointerCancel);
     c.removeEventListener("webglcontextlost", this.onContextLost);
     c.removeEventListener("webglcontextrestored", this.onContextRestored);
   }
@@ -2523,21 +2668,100 @@ var GeomView = class _GeomView {
   }
   // ───────────────────────────────────────────── 装载
   // Browser loading is asynchronous; the plugin verifies the package before setPart/setMesh.
+  /** 更新源/几何身份；任何变化都使角色声明与隔离失效，不按 partRef 或名称猜角色。 */
+  setPartIdentity(identity) {
+    if (identity.sourceSha256 === this.partIdentity.sourceSha256 && identity.geometrySha256 === this.partIdentity.geometrySha256)
+      return;
+    this.partIdentity = { ...identity };
+    this.declaredRole = null;
+    this.selection.setDeclaredBodies([]);
+    this.isolation = null;
+    this.hiddenBodies = /* @__PURE__ */ new Set();
+    this.renderer?.setHiddenBodies(null);
+  }
+  identityKey() {
+    return `${this.partIdentity.sourceSha256}#${this.partIdentity.geometrySha256}`;
+  }
   /** 换零件,清空选择集。bodies = 清单的体表(CAM-Agent T-398 ②;老包没有 ⇒ 空) */
-  setPart(partRef, faces, bodies = []) {
+  setPart(partRef, faces, bodies = [], identity) {
+    this.setPartIdentity(identity ?? { sourceSha256: "", geometrySha256: "" });
     this.partRef = partRef;
     this.faces = faces;
     this.bodies = bodies;
+    this.declaredRole = null;
+    this.isolation = null;
+    this.hiddenBodies = /* @__PURE__ */ new Set();
     this.originOffset = [0, 0, 0];
     this.mesh = null;
     this.edges = null;
     this.setHoverFace(null);
-    this.selection.reset(faces.map((f) => f.surfaceType));
+    this.selection.reset(faces.map((f) => f.surfaceType), faces.map((f) => f.body));
     this.fitPending = true;
     this.renderer?.clearPart();
+    this.renderer?.setHiddenBodies(null);
     this.callbacks.partChanged?.();
     this.callbacks.selectionChanged?.();
     this.scheduleRender();
+  }
+  hiddenBodiesOf() {
+    return [...this.hiddenBodies].sort((a, b) => a - b);
+  }
+  isBodyHidden(body) {
+    return this.hiddenBodies.has(body);
+  }
+  /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
+  setHiddenBodies(bodies) {
+    const next = new Set(bodies ?? []);
+    const changed = next.size !== this.hiddenBodies.size || [...next].some((b) => !this.hiddenBodies.has(b));
+    if (!changed)
+      return;
+    this.hiddenBodies = next;
+    this.renderer?.setHiddenBodies(this.hiddenBodies);
+    this.scheduleRender();
+    if (this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
+      this.setHoverFace(null);
+    this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+  }
+  /** 声明当前 source+geometry 下的角色体；无法核验身份时不赋予角色语义。 */
+  setSelectableBodies(declared) {
+    if (!this.partIdentity.sourceSha256 || !this.partIdentity.geometrySha256) {
+      this.declaredRole = null;
+      this.selection.setDeclaredBodies([]);
+      return;
+    }
+    const known = /* @__PURE__ */ new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
+    const next = new Set([...new Set(declared ?? [])].filter((body2) => known.has(body2)));
+    this.declaredRole = { identity: { ...this.partIdentity }, bodies: next };
+    this.selection.setDeclaredBodies(next);
+    const body = this.hoverFace !== null ? this.faces[this.hoverFace]?.body ?? -1 : -1;
+    if (this.hoverFace !== null && body >= 0 && next.has(body))
+      this.setHoverFace(null);
+  }
+  isDeclaredFace(face) {
+    return !!this.declaredRole && this.declaredRole.identity.sourceSha256 === this.partIdentity.sourceSha256 && this.declaredRole.identity.geometrySha256 === this.partIdentity.geometrySha256 && this.declaredRole.bodies.has(this.faces[face]?.body ?? -1);
+  }
+  isolationBody() {
+    return this.isolation?.body ?? null;
+  }
+  isolateBody(body) {
+    const known = /* @__PURE__ */ new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
+    if (!known.has(body)) {
+      this.fitView();
+      return;
+    }
+    if (!this.isolation)
+      this.isolation = { body, hiddenBefore: new Set(this.hiddenBodies) };
+    this.isolation.body = body;
+    this.setHiddenBodies([...known].filter((candidate) => candidate !== body));
+    this.fitToBody(body);
+  }
+  clearIsolation() {
+    if (!this.isolation)
+      return;
+    const previous = this.isolation.hiddenBefore;
+    this.isolation = null;
+    this.setHiddenBodies(previous);
+    this.fitView();
   }
   /** 换一档网格,选择集保留。 */
   setMesh(mesh) {
@@ -2822,7 +3046,7 @@ var GeomView = class _GeomView {
     const selected = this.selection.isSelected(face);
     const hovered = this.hoverFace === face;
     const base2 = this.renderer ? this.renderer.baseFaceColor(face) : [180, 180, 180, 255];
-    return displayFaceColor(base2, selected, hovered, this.selection.isSelectable(face));
+    return displayFaceColor(base2, selected, hovered, this.selection.passesTypeFilter(face));
   }
   refreshFaceColor(face) {
     this.renderer?.setFaceColor(face, this.displayColorOf(face));
@@ -2869,6 +3093,42 @@ var GeomView = class _GeomView {
   // ───────────────────────────────────────────── 相机与显示
   getCamera() {
     return this.camera;
+  }
+  /** 定位到单个体；优先按网格顶点实测，失败退回面表，仍无法求盒则全局适应。 */
+  fitToBody(body) {
+    let min = null;
+    let max = null;
+    const grow = (x, y, z) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z))
+        return;
+      min = min ? { x: Math.min(min.x, x), y: Math.min(min.y, y), z: Math.min(min.z, z) } : { x, y, z };
+      max = max ? { x: Math.max(max.x, x), y: Math.max(max.y, y), z: Math.max(max.z, z) } : { x, y, z };
+    };
+    if (this.mesh) {
+      const pos = this.mesh.positions();
+      const idx = this.mesh.indices();
+      for (let f = 0; f < this.mesh.faceCount(); ++f) {
+        if (this.faces[f]?.body !== body)
+          continue;
+        const range = this.mesh.faceRange(f);
+        for (let i = range.indexOffset; i < range.indexOffset + range.indexCount; ++i) {
+          const v = idx[i] * 3;
+          grow(pos[v], pos[v + 1], pos[v + 2]);
+        }
+      }
+    }
+    if (!min || !max) {
+      const summary = summarizeBodies(this.faces).find((b) => b.body === body);
+      if (summary) {
+        for (const corner of [summary.bbox.min, summary.bbox.max])
+          grow(corner[0], corner[1], corner[2]);
+      }
+    }
+    if (!min || !max) {
+      this.fitView();
+      return;
+    }
+    this.fitView({ min, max });
   }
   fitView(bounds) {
     const original = this.camera.sceneBounds();
@@ -3068,8 +3328,9 @@ function ModelControls({ view, onReference }) {
     const faces = view.facesOf();
     const unknown = fids.filter((fid) => !faces.some((face) => face.fid === fid));
     const excluded = faces.filter((face) => fids.includes(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType));
-    if (unknown.length || excluded.length) {
-      setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
+    const declared = faces.filter((face) => fids.includes(face.fid) && view.isDeclaredFace(faces.indexOf(face)));
+    if (unknown.length || excluded.length || declared.length) {
+      setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : "", declared.length ? `\u5DF2\u6838\u58F0\u660E\u4F53\u4E0D\u53EF\u9009\uFF1A${declared.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
       return;
     }
     view.setSelectedFids(fids);
@@ -3432,7 +3693,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         if (!renderer) throw new Error("\u5F53\u524D\u8BBE\u5907\u4E0D\u652F\u6301 WebGL2\uFF1B\u53EF\u4ECE\u6587\u4EF6\u5165\u53E3\u67E5\u770B\u539F\u59CB NC \u6587\u672C");
         renderer.callbacks.renderingFailed = setError;
         if (manifest && mesh && edges) {
-          renderer.setPart(manifest.partRef, next.faces, manifest.bodies ?? []);
+          renderer.setPart(manifest.partRef, next.faces, manifest.bodies ?? [], { sourceSha256: next.sha, geometrySha256: next.geometry_sha256 });
           renderer.setOriginOffset(manifest.originOffset);
           renderer.setMesh(mesh);
           renderer.setEdges(edges);

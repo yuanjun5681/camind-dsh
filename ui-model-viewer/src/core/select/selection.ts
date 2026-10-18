@@ -22,13 +22,23 @@ export class SelectionModel {
     private filter = new Set<string>();
     private selected: boolean[] = [];
     private order: number[] = [];
+    private bodyOfFace: number[] = [];
+    private declaredBodies = new Set<number>();
 
     // 换零件:给出每张面的曲面类型(下标 = 面序号)。清空选择集与过滤条件。
-    reset(surfaceTypes: string[]): void {
+    // bodyAffiliation 与 surfaceTypes 等长；省略 = 无体信息。
+    reset(surfaceTypes: string[], bodyAffiliation?: number[]): void {
         this.types = surfaceTypes;
+        this.bodyOfFace = bodyAffiliation ?? new Array<number>(surfaceTypes.length).fill(-1);
+        this.declaredBodies = new Set();
         this.filter = new Set();
         this.selected = new Array<boolean>(surfaceTypes.length).fill(false);
         this.order = [];
+    }
+
+    // 声明体集合热更新；只影响新增交互选择，不静默驱逐既有选择。
+    setDeclaredBodies(bodies: Iterable<number>): void {
+        this.declaredBodies = new Set(bodies);
     }
 
     faceCount(): number {
@@ -42,7 +52,7 @@ export class SelectionModel {
         const change = emptyChange();
         const current = [...this.order];
         for (const face of current) {
-            if (!this.isSelectable(face))
+            if (!this.passesTypeFilter(face))
                 this.remove(face, change);
         }
         return change;
@@ -53,10 +63,21 @@ export class SelectionModel {
         return [...this.filter].sort();
     }
 
-    isSelectable(face: number): boolean {
+    /** 只判类型过滤；displayFaceColor 压暗专用，声明体不因此压暗。 */
+    passesTypeFilter(face: number): boolean {
         if (face >= this.types.length)
             return false;
         return this.filter.size === 0 || this.filter.has(this.types[face]);
+    }
+
+    isDeclaredFace(face: number): boolean {
+        const body = this.bodyOfFace[face] ?? -1;
+        return body >= 0 && this.declaredBodies.has(body);
+    }
+
+    /** 新增交互选择谓词：过类型过滤且不在声明体。 */
+    isSelectable(face: number): boolean {
+        return this.passesTypeFilter(face) && !this.isDeclaredFace(face);
     }
 
     // 这个零件里出现过的全部曲面类型(去重、按字典序)。
@@ -66,6 +87,9 @@ export class SelectionModel {
 
     click(face: number | null, mode: ClickMode): SelectionChange {
         const change = emptyChange();
+        // 声明体面不响应点击；类型过滤面仍走本地 replace 的旧语义。
+        if (face !== null && this.isDeclaredFace(face))
+            return change;
         const valid = face !== null && this.isSelectable(face);
         if (mode === "toggle") {
             if (!valid)
@@ -92,7 +116,8 @@ export class SelectionModel {
         const change = emptyChange();
         const wanted = new Array<boolean>(this.types.length).fill(false);
         for (const f of faces) {
-            if (this.isSelectable(f))
+            // 声明前已选的面可保留；声明后不得经 API/FID 新增选择。
+            if (this.passesTypeFilter(f) && (!this.isDeclaredFace(f) || this.selected[f]))
                 wanted[f] = true;
         }
         const current = [...this.order];

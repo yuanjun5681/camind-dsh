@@ -124,7 +124,7 @@ function parseExcludedBodies(value, file) {
   const out = [];
   for (let i = 0; i < value.length; ++i) {
     const item = value[i];
-    if (typeof item !== "object" || item === null)
+    if (typeof item !== "object" || item === null || Array.isArray(item))
       fail("BadJson", file + ":excluded_bodies \u7684\u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61", file);
     const key = strOr(item, "key", "");
     if (!key.trim())
@@ -213,7 +213,7 @@ function parseManifest(text) {
       );
     }
   }
-  if (m.bodyCount === 0) {
+  if (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
@@ -760,7 +760,7 @@ function excludedAllLine(excluded) {
   return `\u5168\u90E8 ${excluded.length} \u4E2A\u4F53\u672A\u8FDB\u5165\u51E0\u4F55\u5305:${groups.join("\u3001")}`;
 }
 function zeroBodyLine(m) {
-  if (m.excludedBodies === void 0) return "";
+  if (m.excludedBodies === void 0 || m.bodyCount !== void 0 && m.bodyCount !== 0) return "";
   const enumerated = m.enumeratedBodyCount ?? 0;
   if (enumerated === 0) return "\u6E90\u6587\u4EF6\u6CA1\u6709\u53EF\u679A\u4E3E\u7684\u5B9E\u4F53\u3002";
   return excludedAllLine(m.excludedBodies) + "\u3002";

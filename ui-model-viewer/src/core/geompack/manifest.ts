@@ -162,7 +162,7 @@ function parseExcludedBodies(value: any, file: string): ExcludedBody[] {
     const out: ExcludedBody[] = [];
     for (let i = 0; i < value.length; ++i) {
         const item = value[i];
-        if (typeof item !== "object" || item === null)
+        if (typeof item !== "object" || item === null || Array.isArray(item))
             fail("BadJson", file + ":excluded_bodies 的元素应为对象", file);
         const key = strOr(item, "key", "");
         if (!key.trim())
@@ -251,7 +251,7 @@ export function parseManifest(text: string): Manifest {
                 + ") != body_count(" + m.bodyCount + ") + excluded_bodies(" + m.excludedBodies.length + ")", file);
         }
     }
-    if (m.bodyCount === 0) {
+    if (m.bodyCount === 0 || (m.bodies !== undefined && m.bodies.length === 0)) {
         const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
         if (coords.some(value => value !== 0))
             fail("InvalidValue", file + ":零体包的 bbox_relative 必须全为 0", file);

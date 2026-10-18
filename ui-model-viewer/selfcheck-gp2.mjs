@@ -26,6 +26,14 @@ try {
   })
   const fixtureRoot = path.join(tmp, 'out', 'gp2')
   const index = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'index.json'), 'utf8'))
+  const resolvedRef = run('git', ['-C', agent, 'rev-parse', sourceRef]).stdout.toString().trim()
+  console.log(`ok - fixture source ${resolvedRef}`)
+  assert.deepEqual(new Set(Object.keys(index.B)), new Set([
+    'body_count_negative', 'body_count_overflow', 'edge_count_negative', 'edge_count_overflow',
+    'enumerated_body_count_negative', 'enumerated_body_count_overflow', 'enumerated_missing',
+    'excluded_count_mismatch', 'excluded_key_empty', 'face_count_negative', 'face_count_overflow',
+    'unknown_policy', 'unknown_reason', 'zero_body_bbox_nonzero',
+  ]))
 
   for (const [name, item] of Object.entries(index.B)) {
     const dir = path.join(fixtureRoot, 'B', name)
@@ -71,6 +79,41 @@ try {
   assert.equal(enriched.bodies[0].blanked, true)
   assert.equal(enriched.bodies[0].stableKey, 'stable-fixture')
   assert.equal(enriched.manifestRevision, 1)
+  assert.equal(zeroBodyLine({ bodyCount: 2, enumeratedBodyCount: 2, excludedBodies: [] }), '')
+  const baseManifest = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'C', 'all_filtered', 'manifest.json'), 'utf8'))
+  for (const [name, mutate, expected] of [
+    ['excluded_null', doc => { doc.excluded_bodies = null }, 'BadJson'],
+    ['excluded_key_blank', doc => { doc.excluded_bodies[0].key = ' ' }, 'InvalidValue'],
+    ['body_count_missing', doc => { delete doc.body_count }, 'CountMismatch'],
+    ['bodies_missing', doc => { delete doc.bodies }, 'CountMismatch'],
+    ['excluded_element_array', doc => { doc.excluded_bodies = [[]] }, 'BadJson'],
+    ['empty_bodies_nonzero_bbox', doc => {
+      doc.bodies = []; doc.body_count = 0; doc.enumerated_body_count = 1; doc.bbox_relative.max[0] = 1
+    }, 'InvalidValue'],
+  ]) {
+    const doc = structuredClone(baseManifest)
+    mutate(doc)
+    assert.throws(() => parseManifest(JSON.stringify(doc)), error => {
+      assert.equal(error.code, expected, `${name}: ${error.code}`)
+      return true
+    }, name)
+  }
+  const integerValued = structuredClone(baseManifest)
+  integerValued.body_count = 0.0
+  integerValued.bodies = []
+  integerValued.face_count = 0.0
+  integerValued.edge_count = 0.0
+  integerValued.enumerated_body_count = 1
+  assert.equal(parseManifest(JSON.stringify(integerValued)).bodyCount, 0)
+  const largeIntegerValued = structuredClone(baseManifest)
+  largeIntegerValued.body_count = 3e2
+  largeIntegerValued.bodies = Array.from({ length: 300 }, (_, body) => ({ body, n_faces: 1 }))
+  largeIntegerValued.face_count = 3e2
+  largeIntegerValued.edge_count = 3e2
+  largeIntegerValued.enumerated_body_count = 3e2
+  largeIntegerValued.excluded_bodies = []
+  assert.equal(parseManifest(JSON.stringify(largeIntegerValued)).bodyCount, 300)
+  console.log('ok - excluded element forms, empty bodies, missing counts and integer-valued numbers')
   assert.equal(normalizeExcludedReason('toString'), 'other')
   assert.equal(excludedReasonLabel('future-reason'), '其他原因')
   assert.deepEqual(excludedSummary([
