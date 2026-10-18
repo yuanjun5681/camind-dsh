@@ -72,7 +72,7 @@ export async function packDescriptor(page, sessionId, path) {
 }
 
 export async function canvasColors(page) {
-  const base64 = await page.locator(visibleCanvas).screenshot({ type: 'png', encoding: 'base64' })
+  const base64 = (await page.locator(visibleCanvas).screenshot({ type: 'png' })).toString('base64')
   return page.evaluate(async base64 => {
     const image = new Image()
     image.src = `data:image/png;base64,${base64}`
