@@ -135,8 +135,9 @@ const preview = services.get('filePreview')
 preview.preview('s1', 'upload://batch/part.prt'); assert.equal(activeView, 'workbench')
 let targetChanges = 0
 const unsubscribe = preview.subscribe('s1', () => targetChanges++)
-preview.previewContent('s2', 'other.nc', 'G1 X1'); assert.equal(targetChanges, 0)
-preview.preview('s1', 'upload://batch/part.prt'); assert.equal(targetChanges, 1); unsubscribe()
+assert.equal(targetChanges, 1, 'subscription replays the current target on mount')
+preview.previewContent('s2', 'other.nc', 'G1 X1'); assert.equal(targetChanges, 1)
+preview.preview('s1', 'upload://batch/part.prt'); assert.equal(targetChanges, 2); unsubscribe()
 cursor = 0
 const first = preview.View({ sessionId: 's1', embedded: true })
 assert.equal(first.props.className, 'campv-view campv-embedded')

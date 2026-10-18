@@ -546,6 +546,7 @@ function apply(ctx) {
     View: FilePreviewView,
     subscribe(sessionId, listener, channel = 'default') {
       let previous = snapshot.targets[targetKey(sessionId, channel)]
+      if (previous !== undefined) listener()
       return subscribe(() => {
         const next = snapshot.targets[targetKey(sessionId, channel)]
         if (next !== previous) { previous = next; listener() }
