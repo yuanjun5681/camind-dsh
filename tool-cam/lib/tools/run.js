@@ -486,7 +486,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       const result = await camPipeline.run('/cam_set_tool_numbers', { prt: workPrt, numbers, operations: [], regenerate: false, save: true }, { deadlineSeconds: 300 })
       if (result.status !== 'ok') return failStage('tool_numbers', result)
       const registersMatch = Object.entries(numbers).every(([tool, number]) => {
-        const after = result.data.tools?.[tool]?.after
+        const after = result.data?.tools?.[tool]?.after
         // 建工序前 operations=[] 时上游无法经工序读 TOG，会明确返回 null；
         // 与 _ensure_tool_numbers 同口径：null=该配置不暴露，0 才是未定义。
         const definitionBitsMatch = [after?.num_tog, after?.adj_tog, after?.cutcom_tog]

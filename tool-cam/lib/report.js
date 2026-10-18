@@ -143,7 +143,8 @@ export function buildDeliveryReport({
     '## 五、生产检查与放行状态',
     '',
     `- NC 生成与文件对账：**${OVERALL_CN[overall] ?? overall}**`,
-    ...(packageKind === 'problem' ? ['- 生产检查：未完成；未获生产放行。', ...productionBlockers.map(text => `- 未决项：${text}`)] : []),
+    ...(packageKind === 'problem' ? ['- 生产检查：未完成；未获生产放行。'] : []),
+    ...productionBlockers.map(text => `- 未决项：${text}`),
   ])
   if (reason) lines.push(`- 原因：${reason}`)
   if (overall !== 'ok') {

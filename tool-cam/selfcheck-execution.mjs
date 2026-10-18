@@ -41,6 +41,7 @@ try {
       if (endpoint === '/cam_finalize_work_copy' && throwFinalize) throw Error('unexpected finalize failure')
       if (endpoint === '/cam_finalize_work_copy') return { status: 'ok', data: { ok: !failedFinalize, saved: true, save_verified: true, modified_after_save: false, closed: !failedFinalize, error: failedFinalize ? 'close refused' : undefined } }
       if (endpoint === '/cam_set_tool_numbers') {
+        if (invalidToolReadback === 'null_data') return { status: 'ok', data: null }
         const after = { num: 3, adj: 3, cutcom: 3, num_tog: null, adj_tog: null, cutcom_tog: null }
         if (typeof invalidToolReadback === 'string' && invalidToolReadback.startsWith('missing_')) delete after[invalidToolReadback.slice(8)]
         else if (invalidToolReadback) after[invalidToolReadback] = invalidToolReadback.endsWith('_tog') ? 0 : 1
@@ -121,11 +122,13 @@ try {
   assert.equal(thrownSummary.cleanup.status, 'pending')
   throwFinalize = false
   // Any mismatched/missing T/H/D register or undefined definition bit halts before generation or posting.
-  for (const field of ['num', 'adj', 'cutcom', 'num_tog', 'adj_tog', 'cutcom_tog', 'missing_num_tog', 'missing_adj_tog', 'missing_cutcom_tog']) {
+  for (const field of ['num', 'adj', 'cutcom', 'num_tog', 'adj_tog', 'cutcom_tog', 'missing_num_tog', 'missing_adj_tog', 'missing_cutcom_tog', 'null_data']) {
     const badBinding = JSON.parse(await tools.get('cam_plan').execute(args, exec))
     calls = []; invalidToolReadback = field
     await tools.get('cam_run').execute({ run_id: badBinding.run_id }, exec)
-    const refusedBinding = JSON.parse((await done).result)
+    const refusedOutcome = await done
+    assert.equal(refusedOutcome.status, 'completed', JSON.stringify(refusedOutcome))
+    const refusedBinding = JSON.parse(refusedOutcome.result)
     assert.notEqual(refusedBinding.overall, 'ok')
     assert.equal(calls.some(c => ['/cam_build_workpiece_op', '/postprocess'].includes(c.endpoint)), false)
   }
@@ -221,6 +224,9 @@ try {
   assert.deepEqual(crossResumeSummary.ops.map(op => op.decision), ['stop', 'stop'])
   assert.equal(calls.some(call => ['/cam_build_workpiece_op', '/postprocess'].includes(call.endpoint)), false)
   assert.match(crossResumeSummary.reason, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
+  const crossDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', tasks, sessionId: 's1' })
+  assert.equal(crossDelivery.package_kind, 'process')
+  assert.match(await fs.readFile(path.join(crossDir, 'delivery/delivery_report.md'), 'utf8'), new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
   crossOperationPending = false
   // Task stop prevents the next NX submission, without claiming an in-flight cancellation.
   const second = JSON.parse(await tools.get('cam_plan').execute(args, exec)); stopBeforeNext = true; calls = []
