@@ -62,6 +62,8 @@ M1-04 的 `selfcheck.mjs` 还会校验 manifest 中的文件哈希，防止只�
 
 - `draft_loader.ts`（merged）：合并上游线宽、层 plot、titleBlock/techRequirements/views 与单位偏移装载；保留本地 `skippedTypes` 降级披露，并对 BYLAYER/BYBLOCK/标准负值 sentinel 不落线宽。
 - `packcheck.ts`（merged）：合并 views/origin_offset/title_block/tech_requirements 形态校验；保留本地 geometryPoints 修复、dims 容器校验与 skippedTypes 降级语义。
-- 其余六个 `src/draft/` 文件与上游对应版本一致（identical）。宿主适配只允许出现在 `src/client.ts` 及后续 Host 文件，不得借合并删除本地降级与来源身份语义。
+- `aci.ts`、`draft_camera.ts`、`draft_pick.ts`（identical）：与 sourceCommit 逐字一致，并由 selfcheck 直接读取上游对象校验。
+- `draft_detail.ts`、`draft_pane.ts`、`draft_view.ts`（local-patch）：保留本地 M0/M4/M5 的 DPR/insets、交互与 token 皮肤，不因本轮同步覆盖。
+- 宿主适配只允许出现在 `src/client.ts` 及后续 Host 文件，不得借合并删除本地降级与来源身份语义。
 
 以后新增补丁必须在本表同时记录：补丁文件、理由、对应测试、来源文件映射和同步 commit；未记录的核心分叉不得合入。

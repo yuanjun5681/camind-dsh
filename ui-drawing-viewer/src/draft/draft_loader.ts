@@ -456,7 +456,7 @@ export function loadDraft(pack: unknown): LoadedDraft {
     // packcheck reader 档已校验存在性与形态(units==="mm" 等),这里只装载;
     // title_block 字段缺席(undefined)与 found=false(图上无属性块)分立,消费方(KB-3 导出)区分。
     const titleBlockRaw = p["title_block"];
-    const titleBlock = titleBlockRaw !== null && typeof titleBlockRaw === "object"
+    const titleBlock = titleBlockRaw !== null && typeof titleBlockRaw === "object" && !Array.isArray(titleBlockRaw)
         ? (() => {
             const tb = titleBlockRaw as Record<string, unknown>;
             return {
@@ -494,14 +494,14 @@ export function loadDraft(pack: unknown): LoadedDraft {
         titleBlock, techRequirements,
         views: (arr(p["views"]) as Array<Record<string, unknown>>)
             .filter(v => v !== null && typeof v === "object" && !Array.isArray(v)
-                && Number.isInteger(Number(v["id"]))) // 缺 id/非整数:跳过(packcheck 已拒;防折 0 撞哨兵)
+                && typeof v["id"] === "number" && Number.isSafeInteger(v["id"]) && v["id"] >= 1) // packcheck 已拒;不再用 Number() 折叠坏 id
             .map(v => {
-            const bboxRaw = (v["bbox"] ?? [0, 0, 0, 0]) as unknown[];
+            const viewId = v["id"] as number;
+            const bboxRaw = v["bbox"] as [number, number, number, number];
             return {
-                id: Number(v["id"]),
+                id: viewId,
                 ...(typeof v["name"] === "string" && v["name"] ? { name: String(v["name"]) } : {}),
-                bbox: [Number(bboxRaw[0] ?? 0), Number(bboxRaw[1] ?? 0),
-                       Number(bboxRaw[2] ?? 0), Number(bboxRaw[3] ?? 0)] as [number, number, number, number],
+                bbox: [...bboxRaw] as [number, number, number, number],
             };
         }),
         units: String(p["units"] ?? "mm"),

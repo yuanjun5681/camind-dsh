@@ -243,6 +243,7 @@ function checkBodies(p, add, skipped, profile) {
     add("DRAFT_E_SHAPE:views \u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61");
   const viewIds = new Set(views.map((v) => asObj(v)["id"]).filter(isInt).concat([0]));
   const ents = asArr(p["entities"]).map(asObj);
+  if ("dims" in p && !Array.isArray(p["dims"])) add("DRAFT_E_SHAPE:dims \u5E94\u4E3A\u6570\u7EC4");
   for (const dRaw of asArr(p["dims"]))
     if (dRaw === null || typeof dRaw !== "object" || Array.isArray(dRaw))
       add("DRAFT_E_SHAPE:dims \u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61");
@@ -262,8 +263,16 @@ function checkBodies(p, add, skipped, profile) {
     const tbRaw = p["title_block"];
     if (tbRaw === null || typeof tbRaw !== "object" || Array.isArray(tbRaw)) {
       add("DRAFT_E_SHAPE:title_block \u5E94\u4E3A\u5BF9\u8C61");
-    } else if (!Array.isArray(tbRaw["attributes"]) || typeof tbRaw["found"] !== "boolean") {
-      add("DRAFT_E_SHAPE:title_block.attributes \u5E94\u4E3A\u6570\u7EC4\u4E14 found \u5E94\u4E3A\u5E03\u5C14");
+    } else {
+      const tb = tbRaw;
+      if (!Array.isArray(tb["attributes"]) || typeof tb["found"] !== "boolean")
+        add("DRAFT_E_SHAPE:title_block.attributes \u5E94\u4E3A\u6570\u7EC4\u4E14 found \u5E94\u4E3A\u5E03\u5C14");
+      if (asArr(tb["attributes"]).some((a) => a === null || typeof a !== "object" || Array.isArray(a) || typeof a["tag"] !== "string" || typeof a["value"] !== "string"))
+        add("DRAFT_E_SHAPE:title_block.attributes \u5143\u7D20\u5E94\u4E3A {tag,value} \u5B57\u7B26\u4E32\u5BF9\u8C61");
+      if (typeof tb["inferred"] !== "boolean")
+        add("DRAFT_E_SHAPE:title_block.inferred \u5E94\u4E3A\u5E03\u5C14");
+      if (typeof tb["rule_version"] !== "string")
+        add("DRAFT_E_SHAPE:title_block.rule_version \u5E94\u4E3A\u5B57\u7B26\u4E32");
     }
   }
   if ("views" in p) {
@@ -271,20 +280,36 @@ function checkBodies(p, add, skipped, profile) {
     if (!Array.isArray(vwRaw))
       add("DRAFT_E_SHAPE:views \u5E94\u4E3A\u6570\u7EC4");
     else {
-      const ids = vwRaw.filter((v) => v !== null && typeof v === "object" && !Array.isArray(v)).map((v) => v["id"]);
-      if (ids.some((x) => !isInt(x)))
-        add("DRAFT_E_SHAPE:views \u5143\u7D20 id \u5E94\u4E3A\u6574\u6570");
+      const validViews = vwRaw.filter((v) => v !== null && typeof v === "object" && !Array.isArray(v));
+      const ids = validViews.map((v) => v["id"]);
+      if (ids.some((x) => !Number.isSafeInteger(x) || x < 1))
+        add("DRAFT_E_SHAPE:views \u5143\u7D20 id \u5E94\u4E3A\u6B63\u6574\u6570");
       const nz = ids.filter(isInt);
       if (new Set(nz).size !== nz.length)
         add("DRAFT_E_SHAPE:views \u5143\u7D20 id \u5E94\u552F\u4E00");
+      if (validViews.some((v) => !seg(v["bbox"])))
+        add("DRAFT_E_SHAPE:views \u5143\u7D20 bbox \u5E94\u4E3A\u6709\u9650\u6570\u56DB\u5143\u7EC4");
     }
   }
   if ("tech_requirements" in p) {
     const trRaw = p["tech_requirements"];
     if (!Array.isArray(trRaw))
       add("DRAFT_E_SHAPE:tech_requirements \u5E94\u4E3A\u6570\u7EC4");
-    else if (trRaw.some((t) => t === null || typeof t !== "object" || Array.isArray(t)))
-      add("DRAFT_E_SHAPE:tech_requirements \u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61");
+    else {
+      for (const tr of trRaw) {
+        if (tr === null || typeof tr !== "object" || Array.isArray(tr)) {
+          add("DRAFT_E_SHAPE:tech_requirements \u5143\u7D20\u5E94\u4E3A\u5BF9\u8C61");
+          continue;
+        }
+        const item = tr;
+        if (typeof item["text"] !== "string" || typeof item["source_handle"] !== "string")
+          add("DRAFT_E_SHAPE:tech_requirements.text/source_handle \u5E94\u4E3A\u5B57\u7B26\u4E32");
+        if (typeof item["inferred"] !== "boolean")
+          add("DRAFT_E_SHAPE:tech_requirements.inferred \u5E94\u4E3A\u5E03\u5C14");
+        if (typeof item["rule_version"] !== "string")
+          add("DRAFT_E_SHAPE:tech_requirements.rule_version \u5E94\u4E3A\u5B57\u7B26\u4E32");
+      }
+    }
   }
   const sc = asObj(p["self_check"]);
   const byType = asObj(asObj(sc["dropped"])["by_type"]);
@@ -1028,7 +1053,7 @@ function loadDraft(pack) {
     if (typeof dimId === "string" && dimId) dimIdByEnt.set(idx, dimId);
   }
   const titleBlockRaw = p["title_block"];
-  const titleBlock = titleBlockRaw !== null && typeof titleBlockRaw === "object" ? (() => {
+  const titleBlock = titleBlockRaw !== null && typeof titleBlockRaw === "object" && !Array.isArray(titleBlockRaw) ? (() => {
     const tb = titleBlockRaw;
     return {
       attributes: arr(tb["attributes"]).map((a) => ({
@@ -1067,17 +1092,13 @@ function loadDraft(pack) {
     dimIdByEnt,
     titleBlock,
     techRequirements,
-    views: arr(p["views"]).filter((v) => v !== null && typeof v === "object" && !Array.isArray(v) && Number.isInteger(Number(v["id"]))).map((v) => {
-      const bboxRaw2 = v["bbox"] ?? [0, 0, 0, 0];
+    views: arr(p["views"]).filter((v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v["id"] === "number" && Number.isSafeInteger(v["id"]) && v["id"] >= 1).map((v) => {
+      const viewId = v["id"];
+      const bboxRaw2 = v["bbox"];
       return {
-        id: Number(v["id"]),
+        id: viewId,
         ...typeof v["name"] === "string" && v["name"] ? { name: String(v["name"]) } : {},
-        bbox: [
-          Number(bboxRaw2[0] ?? 0),
-          Number(bboxRaw2[1] ?? 0),
-          Number(bboxRaw2[2] ?? 0),
-          Number(bboxRaw2[3] ?? 0)
-        ]
+        bbox: [...bboxRaw2]
       };
     }),
     units: String(p["units"] ?? "mm"),

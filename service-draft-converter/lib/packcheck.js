@@ -55,7 +55,8 @@ function checkBodies(p, add, profile) {
     }
     const viewIds = new Set([0, ...views.map(v => v?.id).filter(Number.isInteger)]);
     const ents = p.entities;
-    const rawDims = p.dims ?? [];
+    const rawDims = Array.isArray(p.dims) ? p.dims : [];
+    if ("dims" in p && !Array.isArray(p.dims)) add("DRAFT_E_SHAPE:dims 应为数组");
     for (const d of rawDims) {
         if (d === null || typeof d !== "object" || Array.isArray(d)) {
             add("DRAFT_E_SHAPE:dims 元素应为对象");
@@ -80,26 +81,47 @@ function checkBodies(p, add, profile) {
         const tb = p.title_block;
         if (tb === null || typeof tb !== "object" || Array.isArray(tb)) {
             add("DRAFT_E_SHAPE:title_block 应为对象");
-        } else if (!Array.isArray(tb.attributes) || typeof tb.found !== "boolean") {
-            add("DRAFT_E_SHAPE:title_block.attributes 应为数组且 found 应为布尔");
+        } else {
+            if (!Array.isArray(tb.attributes) || typeof tb.found !== "boolean") {
+                add("DRAFT_E_SHAPE:title_block.attributes 应为数组且 found 应为布尔");
+            }
+            const attributes = Array.isArray(tb.attributes) ? tb.attributes : [];
+            if (attributes.some(a => a === null || typeof a !== "object" || Array.isArray(a)
+                || typeof a.tag !== "string" || typeof a.value !== "string")) {
+                add("DRAFT_E_SHAPE:title_block.attributes 元素应为 {tag,value} 字符串对象");
+            }
+            if (typeof tb.inferred !== "boolean") add("DRAFT_E_SHAPE:title_block.inferred 应为布尔");
+            if (typeof tb.rule_version !== "string") add("DRAFT_E_SHAPE:title_block.rule_version 应为字符串");
         }
     }
     if ("views" in p) {
         if (!Array.isArray(p.views)) {
             add("DRAFT_E_SHAPE:views 应为数组");
         } else {
-            const ids = p.views.filter(v => v !== null && typeof v === "object" && !Array.isArray(v)).map(v => v.id);
-            if (ids.some(id => !Number.isInteger(id))) add("DRAFT_E_SHAPE:views 元素 id 应为整数");
+            const validViews = p.views.filter(v => v !== null && typeof v === "object" && !Array.isArray(v));
+            const ids = validViews.map(v => v.id);
+            if (ids.some(id => !Number.isSafeInteger(id) || id < 1)) add("DRAFT_E_SHAPE:views 元素 id 应为正整数");
             const validIds = ids.filter(Number.isInteger);
             if (new Set(validIds).size !== validIds.length) add("DRAFT_E_SHAPE:views 元素 id 应唯一");
+            if (validViews.some(v => !_seg(v.bbox))) add("DRAFT_E_SHAPE:views 元素 bbox 应为有限数四元组");
         }
     }
     if ("tech_requirements" in p) {
         const tr = p.tech_requirements;
         if (!Array.isArray(tr)) {
             add("DRAFT_E_SHAPE:tech_requirements 应为数组");
-        } else if (tr.some(t => t === null || typeof t !== "object" || Array.isArray(t))) {
-            add("DRAFT_E_SHAPE:tech_requirements 元素应为对象");
+        } else {
+            for (const item of tr) {
+                if (item === null || typeof item !== "object" || Array.isArray(item)) {
+                    add("DRAFT_E_SHAPE:tech_requirements 元素应为对象");
+                    continue;
+                }
+                if (typeof item.text !== "string" || typeof item.source_handle !== "string") {
+                    add("DRAFT_E_SHAPE:tech_requirements.text/source_handle 应为字符串");
+                }
+                if (typeof item.inferred !== "boolean") add("DRAFT_E_SHAPE:tech_requirements.inferred 应为布尔");
+                if (typeof item.rule_version !== "string") add("DRAFT_E_SHAPE:tech_requirements.rule_version 应为字符串");
+            }
         }
     }
 

@@ -275,7 +275,7 @@ function parseFaces(text, expectedCount) {
       }
     }
     const rawBody = item.body;
-    if (typeof rawBody !== "number" || !Number.isInteger(rawBody) || rawBody < 0)
+    if (typeof rawBody !== "number" || !Number.isSafeInteger(rawBody) || rawBody < 0)
       fail("InvalidValue", "\u9762 " + fid + " \u7684 body \u5E94\u4E3A\u975E\u8D1F\u6574\u6570", file);
     faces.push({
       fid,

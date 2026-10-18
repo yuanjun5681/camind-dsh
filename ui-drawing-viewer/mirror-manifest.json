@@ -8,11 +8,11 @@
   "files": [
     { "path": "aci.ts", "status": "identical", "sha256": "a013381f8a83147c45bf308788a71b6b7e72ec7019e4ede0cf9bebbc43375d61" },
     { "path": "draft_camera.ts", "status": "identical", "sha256": "f5eec8772b476a9ecf9591b073160c5c91bdc181ecef7a24cf0302abac39a1ad" },
-    { "path": "draft_detail.ts", "status": "identical", "sha256": "fd06ee2cf5c7decbe9d67985569540ae9e115f1eb329f00148fd27e8bfab40ba" },
-    { "path": "draft_loader.ts", "status": "merged", "sha256": "50d9d5782be408b3a7362d5bd2254822730527b68da016ff484bf611d747e6fe" },
-    { "path": "draft_pane.ts", "status": "identical", "sha256": "c80ed1278a9b91b0823b730d53fa682b58c7c4542416df7f1bbb3e2afbbae6b2" },
+    { "path": "draft_detail.ts", "status": "local-patch", "sha256": "fd06ee2cf5c7decbe9d67985569540ae9e115f1eb329f00148fd27e8bfab40ba" },
+    { "path": "draft_loader.ts", "status": "merged", "sha256": "ebe4b1383216f5684b6d272da3b94fdc00cd61446456a46130f71a812573f499" },
+    { "path": "draft_pane.ts", "status": "local-patch", "sha256": "c80ed1278a9b91b0823b730d53fa682b58c7c4542416df7f1bbb3e2afbbae6b2" },
     { "path": "draft_pick.ts", "status": "identical", "sha256": "e9e35cf297a44eca20a297b5eafd4481c004b77c585e90386a6c5757e6571bdc" },
-    { "path": "draft_view.ts", "status": "identical", "sha256": "6709e7a171d22cc8e0c955d8309b3cf138de5ed28c353103db919c157d8e18dd" },
-    { "path": "packcheck.ts", "status": "merged", "sha256": "c4e363465e530a06e7d997abe64b0a8e9765ec8303ab745ad6f348ac45b9a5c8" }
+    { "path": "draft_view.ts", "status": "local-patch", "sha256": "6709e7a171d22cc8e0c955d8309b3cf138de5ed28c353103db919c157d8e18dd" },
+    { "path": "packcheck.ts", "status": "merged", "sha256": "ffb8e75ed1b2af38d41685153c1c25852986e3a1515cd8b2c7245baf361afd03" }
   ]
 }

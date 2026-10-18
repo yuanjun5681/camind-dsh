@@ -182,19 +182,47 @@ for (const profile of ["writer", "reader"]) {
 }
 ok("packcheck dims 载荷 writer/reader 双档拒绝");
 
+const view = (id, bbox = [0, 0, 0, 0]) => ({ id, bbox });
+const titleBase = { attributes: [], found: false, inferred: false, rule_version: "sem-rules-0/title" };
+const techBase = { text: "去毛刺", source_handle: "2A/1", inferred: false, rule_version: "sem-rules-0/tech" };
 for (const profile of ["writer", "reader"]) {
     for (const [key, value, expected] of [
         ["origin_offset", [0], "origin_offset"],
         ["title_block", [], "title_block 应为对象"],
+        ["title_block", { ...titleBase, attributes: [null] }, "title_block.attributes 元素"],
+        ["title_block", { attributes: [], found: false, rule_version: "x" }, "title_block.inferred"],
+        ["title_block", { attributes: [], found: false, inferred: false }, "title_block.rule_version"],
         ["views", {}, "views 应为数组"],
         ["views", [null], "views 元素应为对象"],
-        ["views", [{ id: 1 }, { id: 1 }], "views 元素 id 应唯一"],
+        ["views", [view(0)], "views 元素 id 应为正整数"],
+        ["views", [view(-1)], "views 元素 id 应为正整数"],
+        ["views", [view(null)], "views 元素 id 应为正整数"],
+        ["views", [view("")], "views 元素 id 应为正整数"],
+        ["views", [view("1")], "views 元素 id 应为正整数"],
+        ["views", [view(false)], "views 元素 id 应为正整数"],
+        ["views", [view(1), view(1)], "views 元素 id 应唯一"],
+        ["views", [view(1, ["x", 0, 0, 0])], "views 元素 bbox"],
+        ["views", [view(1, [0, 0])], "views 元素 bbox"],
+        ["views", [view(1, {})], "views 元素 bbox"],
+        ["views", [view(1, null)], "views 元素 bbox"],
+        ["views", [{ id: 1 }], "views 元素 bbox"],
         ["tech_requirements", [null], "tech_requirements 元素应为对象"],
+        ["tech_requirements", [{ ...techBase, text: {} }], "tech_requirements.text/source_handle"],
+        ["tech_requirements", [{ ...techBase, source_handle: {} }], "tech_requirements.text/source_handle"],
+        ["tech_requirements", [{ text: "x", source_handle: "h", rule_version: "r" }], "tech_requirements.inferred"],
+        ["tech_requirements", [{ text: "x", source_handle: "h", inferred: false }], "tech_requirements.rule_version"],
+        ["dims", {}, "dims 应为数组"],
     ]) {
         const bad = structuredClone(pack);
         bad[key] = value;
         const errors = checkDraftPack(bad, profile);
         assert.ok(errors.some(error => error.includes(expected)), `${profile} ${key}: ${errors.join(";")}`);
+    }
+    for (const key of ["origin_offset", "views", "tech_requirements", "title_block"]) {
+        const bad = structuredClone(pack);
+        delete bad[key];
+        const errors = checkDraftPack(bad, profile);
+        assert.ok(errors.includes(`DRAFT_E_SCHEMA:${key}`), `${profile} missing ${key}: ${errors.join(";")}`);
     }
 }
 ok("packcheck 语义层形态 writer/reader 双档拒绝");

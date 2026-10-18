@@ -118,4 +118,28 @@ for (const [implementation, result] of Object.entries(forwardActual)) {
 }
 console.log("ok - reader: ZFuture + AFuture 非字母序 skipped 归一化一致");
 
-console.log(`三方差分完成：${entries.length * 2} 个包/档位组合 + 多未知类型守卫，${assertions} 项断言通过；不代表图纸已审或尺寸正确。`);
+// 新增语义形态只由本地 JS/TS 双端差分；CAM-Agent Python 当前未实现这些新增校验，
+// 不把旧三方 fixture 的全绿冒充成 Python 已覆盖新形态。
+const semanticCases = [
+    ["views", [{ id: 0, bbox: [0, 0, 0, 0] }], "DRAFT_E_SHAPE"],
+    ["views", [{ id: "1", bbox: [0, 0, 0, 0] }], "DRAFT_E_SHAPE"],
+    ["views", [{ id: 1, bbox: ["x", 0, 0, 0] }], "DRAFT_E_SHAPE"],
+    ["title_block", { attributes: [null], found: false, inferred: false, rule_version: "x" }, "DRAFT_E_SHAPE"],
+    ["tech_requirements", [{ text: "x", source_handle: "h", rule_version: "r" }], "DRAFT_E_SHAPE"],
+    ["dims", {}, "DRAFT_E_SHAPE"],
+];
+for (const profile of ["writer", "reader"]) {
+    for (const [key, value, expected] of semanticCases) {
+        const pack = structuredClone(packs[0]);
+        pack[key] = value;
+        const js = normalizeJs(checkJs(pack, profile));
+        const ts = normalizeTs(checkTs(pack, profile));
+        assert.deepEqual(codes(js.errors), codes(ts.errors), `${profile} ${key} JS/TS 新增语义错误码集合不一致`);
+        assert.ok(codes(js.errors).includes(expected), `${profile} ${key} 缺少 ${expected}: ${js.errors.join(";")}`);
+        assert.deepEqual(js.skipped, ts.skipped, `${profile} ${key} JS/TS skipped 不一致`);
+        assertions += 3;
+    }
+}
+console.log("ok - JS/TS 新增语义负例一致（Python 旧版不覆盖这些新增形态）");
+
+console.log(`三方差分完成：${entries.length * 2} 个包/档位组合 + 多未知类型守卫与本地 JS/TS 新增语义差分，${assertions} 项断言通过；不代表图纸已审或尺寸正确。`);

@@ -17,7 +17,12 @@ for (const file of manifest.files) {
   const bytes = fs.readFileSync(path.join(root, 'src/draft', file.path))
   assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), file.sha256, `镜像哈希不符：${file.path}`)
 }
-console.log(`ok - mirror manifest ${manifest.files.length} files`)
+for (const file of manifest.files.filter(item => item.status === 'identical')) {
+  const source = spawnSync('git', ['-C', DESKTOP, 'show', `${manifest.sourceCommit}:${manifest.sourceRoot}/${file.path}`], { maxBuffer: 16 * 1024 * 1024 })
+  assert.equal(source.status, 0, `无法读取上游 ${manifest.sourceCommit}:${file.path}: ${source.stderr}`)
+  assert.equal(crypto.createHash('sha256').update(source.stdout).digest('hex'), file.sha256, `上游 ${manifest.sourceCommit} 哈希不符：${file.path}`)
+}
+console.log(`ok - mirror manifest ${manifest.files.length} files；identical 文件与 ${manifest.sourceCommit} 逐字一致`)
 
 const { outputFiles: coreOutput } = await build({
   stdin: {
@@ -49,20 +54,52 @@ weighted.entities[0].lineweight = { value: -1 }
 assert.equal(core.loadDraft(weighted).segments.find(s => s.entId === 0).lineWidthMm, 0.35)
 weighted.layers['0'].lineweight = { value: -3 }
 assert.equal(core.loadDraft(weighted).segments.find(s => s.entId === 0).lineWidthMm, undefined)
+const view = (id, bbox = [0, 0, 0, 0]) => ({ id, bbox })
+const titleBase = { attributes: [], found: false, inferred: false, rule_version: 'sem-rules-0/title' }
+const techBase = { text: '去毛刺', source_handle: '2A/1', inferred: false, rule_version: 'sem-rules-0/tech' }
 for (const profile of ['writer', 'reader']) {
   for (const [key, value, expected] of [
     ['origin_offset', [0], 'origin_offset'],
     ['title_block', [], 'title_block 应为对象'],
+    ['title_block', { ...titleBase, attributes: [null] }, 'title_block.attributes 元素'],
+    ['title_block', { attributes: [], found: false, rule_version: 'x' }, 'title_block.inferred'],
+    ['title_block', { attributes: [], found: false, inferred: false }, 'title_block.rule_version'],
     ['views', {}, 'views 应为数组'],
     ['views', [null], 'views 元素应为对象'],
-    ['views', [{ id: 1 }, { id: 1 }], 'views 元素 id 应唯一'],
+    ['views', [view(0)], 'views 元素 id 应为正整数'],
+    ['views', [view(-1)], 'views 元素 id 应为正整数'],
+    ['views', [view(null)], 'views 元素 id 应为正整数'],
+    ['views', [view('')], 'views 元素 id 应为正整数'],
+    ['views', [view('1')], 'views 元素 id 应为正整数'],
+    ['views', [view(false)], 'views 元素 id 应为正整数'],
+    ['views', [view(1), view(1)], 'views 元素 id 应唯一'],
+    ['views', [view(1, ['x', 0, 0, 0])], 'views 元素 bbox'],
+    ['views', [view(1, [0, 0])], 'views 元素 bbox'],
+    ['views', [view(1, {})], 'views 元素 bbox'],
+    ['views', [view(1, null)], 'views 元素 bbox'],
+    ['views', [{ id: 1 }], 'views 元素 bbox'],
     ['tech_requirements', [null], 'tech_requirements 元素应为对象'],
+    ['tech_requirements', [{ ...techBase, text: {} }], 'tech_requirements.text/source_handle'],
+    ['tech_requirements', [{ ...techBase, source_handle: {} }], 'tech_requirements.text/source_handle'],
+    ['tech_requirements', [{ text: 'x', source_handle: 'h', rule_version: 'r' }], 'tech_requirements.inferred'],
+    ['tech_requirements', [{ text: 'x', source_handle: 'h', inferred: false }], 'tech_requirements.rule_version'],
+    ['dims', {}, 'dims 应为数组'],
   ]) {
     const bad = JSON.parse(fixtureText)
     bad[key] = value
     const errors = core.checkDraftPack(bad, profile).errors
     assert.ok(errors.some(error => error.includes(expected)), `${profile} ${key}: ${errors.join(';')}`)
   }
+  for (const key of ['origin_offset', 'views', 'tech_requirements', 'title_block']) {
+    const bad = JSON.parse(fixtureText)
+    delete bad[key]
+    const errors = core.checkDraftPack(bad, profile).errors
+    assert.ok(errors.includes(`DRAFT_E_SCHEMA:${key}`), `${profile} missing ${key}: ${errors.join(';')}`)
+    assert.throws(() => core.loadDraft(bad), /DRAFT_E/)
+  }
+  const badTitle = JSON.parse(fixtureText)
+  badTitle.title_block = { ...titleBase, attributes: [null] }
+  assert.throws(() => core.loadDraft(badTitle), /DRAFT_E/)
 }
 console.log('ok - semantic loader + writer/reader malformed guards')
 const camera = core.fitView(pack.bbox, 800, 600)

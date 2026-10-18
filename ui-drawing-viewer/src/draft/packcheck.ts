@@ -158,6 +158,7 @@ function checkBodies(p: Json, add: (c: string) => void, skipped: string[], profi
     const viewIds = new Set<number | null>(views.map(v => asObj(v)["id"]).filter(isInt).concat([0]));
     const ents = asArr(p["entities"]).map(asObj);
     // dims 元素形态在 asObj 抹平前拦(数组/原始值混入 → SHAPE;asObj 会把它们变 {})
+    if ("dims" in p && !Array.isArray(p["dims"])) add("DRAFT_E_SHAPE:dims 应为数组");
     for (const dRaw of asArr(p["dims"]))
         if (dRaw === null || typeof dRaw !== "object" || Array.isArray(dRaw))
             add("DRAFT_E_SHAPE:dims 元素应为对象");
@@ -184,9 +185,17 @@ function checkBodies(p: Json, add: (c: string) => void, skipped: string[], profi
         const tbRaw = p["title_block"];
         if (tbRaw === null || typeof tbRaw !== "object" || Array.isArray(tbRaw)) {
             add("DRAFT_E_SHAPE:title_block 应为对象");
-        } else if (!Array.isArray((tbRaw as Json)["attributes"])
-            || typeof (tbRaw as Json)["found"] !== "boolean") {
-            add("DRAFT_E_SHAPE:title_block.attributes 应为数组且 found 应为布尔");
+        } else {
+            const tb = tbRaw as Json;
+            if (!Array.isArray(tb["attributes"]) || typeof tb["found"] !== "boolean")
+                add("DRAFT_E_SHAPE:title_block.attributes 应为数组且 found 应为布尔");
+            if (asArr(tb["attributes"]).some(a => a === null || typeof a !== "object" || Array.isArray(a)
+                || typeof (a as Json)["tag"] !== "string" || typeof (a as Json)["value"] !== "string"))
+                add("DRAFT_E_SHAPE:title_block.attributes 元素应为 {tag,value} 字符串对象");
+            if (typeof tb["inferred"] !== "boolean")
+                add("DRAFT_E_SHAPE:title_block.inferred 应为布尔");
+            if (typeof tb["rule_version"] !== "string")
+                add("DRAFT_E_SHAPE:title_block.rule_version 应为字符串");
         }
     }
     if ("views" in p) {
@@ -194,22 +203,36 @@ function checkBodies(p: Json, add: (c: string) => void, skipped: string[], profi
         if (!Array.isArray(vwRaw))
             add("DRAFT_E_SHAPE:views 应为数组");
         else {
-            const ids = vwRaw
-                .filter(v => v !== null && typeof v === "object" && !Array.isArray(v))
-                .map(v => (v as Json)["id"]);
-            if (ids.some(x => !isInt(x)))
-                add("DRAFT_E_SHAPE:views 元素 id 应为整数"); // 缺 id 会被 loader 折成 0 撞「图纸级哨兵」(复核 P2)
+            const validViews = vwRaw.filter(v => v !== null && typeof v === "object" && !Array.isArray(v)) as Json[];
+            const ids = validViews.map(v => v["id"]);
+            if (ids.some(x => !Number.isSafeInteger(x) || (x as number) < 1))
+                add("DRAFT_E_SHAPE:views 元素 id 应为正整数"); // 0 是图纸级哨兵,不能当视图 id
             const nz = (ids as Array<number | null>).filter(isInt);
             if (new Set(nz).size !== nz.length)
                 add("DRAFT_E_SHAPE:views 元素 id 应唯一");
+            if (validViews.some(v => !seg(v["bbox"])))
+                add("DRAFT_E_SHAPE:views 元素 bbox 应为有限数四元组");
         }
     }
     if ("tech_requirements" in p) {
         const trRaw = p["tech_requirements"];
         if (!Array.isArray(trRaw))
             add("DRAFT_E_SHAPE:tech_requirements 应为数组");
-        else if (trRaw.some(t => t === null || typeof t !== "object" || Array.isArray(t)))
-            add("DRAFT_E_SHAPE:tech_requirements 元素应为对象");
+        else {
+            for (const tr of trRaw) {
+                if (tr === null || typeof tr !== "object" || Array.isArray(tr)) {
+                    add("DRAFT_E_SHAPE:tech_requirements 元素应为对象");
+                    continue;
+                }
+                const item = tr as Json;
+                if (typeof item["text"] !== "string" || typeof item["source_handle"] !== "string")
+                    add("DRAFT_E_SHAPE:tech_requirements.text/source_handle 应为字符串");
+                if (typeof item["inferred"] !== "boolean")
+                    add("DRAFT_E_SHAPE:tech_requirements.inferred 应为布尔");
+                if (typeof item["rule_version"] !== "string")
+                    add("DRAFT_E_SHAPE:tech_requirements.rule_version 应为字符串");
+            }
+        }
     }
 
     // ── I1/I1b 对账(by_type/by_reason 是同一批丢弃的两个切面,各自总和相等)──
