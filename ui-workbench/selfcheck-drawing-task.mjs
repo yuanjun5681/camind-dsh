@@ -7,7 +7,7 @@ const source = await fs.readFile(new URL('./lib/client.js', import.meta.url), 'u
 assert.ok(source.includes('const legacyDwg = useLegacyDwgPaneEnabled()'), 'the workbench must observe the live rollback config')
 assert.ok(source.includes('return state.available && state.enabled === true'), 'missing or not-ready config must never enable the legacy pane')
 assert.ok(source.includes("snapshot.status === 'ready' && snapshot.value?.[LEGACY_DWG_FIELD] === true"), 'only an explicit boolean true enables rollback')
-assert.ok(source.includes("legacyDwg\n          ? h(DwgPane, { sessionId, record, statusTarget: heading })"), 'explicit rollback renders the legacy pane with its status portal')
+assert.ok(source.includes("legacyDwg\n          ? h(DwgPane, { sessionId, record, statusTarget: mode === 'drawing' ? heading : null })"), 'explicit rollback renders the legacy pane and portals status only while drawing is active')
 assert.ok(source.includes(": Preview ? h(Preview, { sessionId, channel: 'drawing'"), 'the same drawing slot renders the new Preview by default')
 assert.ok(source.includes("mode === 'drawing' ? require('react-dom').createPortal"), 'the drawing slot keeps the workbench header integration')
 assert.ok(source.includes("if (!refreshingTaskDrawing.current && (!initial || !readBenchPreference(sessionId).mode)) setMode('drawing')"), 'opening a drawing reference activates without forcing hidden refreshes or overwriting a saved mode')

@@ -22,6 +22,22 @@ try {
   const before = await task()
   assert(before.inputs.dwg?.uri, 'Select an existing DWG task')
   assert(!before.inputs.prt, 'Use a DWG-only task to prevent automatic model/NX preview generation')
+  if (expected === 'legacy') await page.evaluate(sid => {
+    window.__legacyRendererTest = { nativeFetch: window.fetch, captured: null, release: null, hold: null, ready: false }
+    const test = window.__legacyRendererTest
+    test.hold = new Promise(resolve => { test.release = resolve })
+    window.fetch = async (...args) => {
+      const url = typeof args[0] === 'string' ? args[0] : args[0].url
+      if (url?.includes(`/camind/api/drawings/sessions/${sid}/packs/`) && url.includes('?path=')) {
+        await test.hold
+        const response = await test.nativeFetch.apply(window, args)
+        test.ready = true
+        return response
+      }
+      if (url?.endsWith(`/camind/api/drawings/sessions/${sid}/refs/verify`)) test.captured = JSON.parse(args[1].body)
+      return test.nativeFetch.apply(window, args)
+    }
+  }, sid)
   await page.getByRole('tab', { name: '工作台', exact: true }).click()
   await page.getByRole('button', { name: 'CAD 图纸', exact: true }).click()
   const stage = page.locator('.wb-preview-stage:not([hidden])')
@@ -30,17 +46,6 @@ try {
     assert.equal(await stage.getAttribute('data-drawing-renderer'), 'drawing-preview')
     assert.equal(await stage.locator('.wb-drawing-svg').count(), 0, 'Default mode must not mount the legacy SVG pane')
   } else {
-    await page.evaluate(sid => {
-      window.__legacyRendererTest = { nativeFetch: window.fetch, captured: null, release: null, hold: null }
-      const test = window.__legacyRendererTest
-      test.hold = new Promise(resolve => { test.release = resolve })
-      window.fetch = async (...args) => {
-        const url = typeof args[0] === 'string' ? args[0] : args[0].url
-        if (url?.includes(`/camind/api/drawings/sessions/${sid}/packs/`) && url.includes('?path=')) await test.hold
-        if (url?.endsWith(`/camind/api/drawings/sessions/${sid}/refs/verify`)) test.captured = JSON.parse(args[1].body)
-        return test.nativeFetch.apply(window, args)
-      }
-    }, sid)
     await stage.locator('.wb-drawing-svg svg').waitFor({ timeout: 90000 })
     assert.equal(await stage.getAttribute('data-drawing-renderer'), 'legacy-dwg-pane')
     assert.equal(await stage.locator('.cdv-canvas').count(), 0, 'Rollback must not mount the new DraftPane')
@@ -51,6 +56,8 @@ try {
     await page.waitForTimeout(150)
     assert.equal(await chip.count(), 0, 'A canvas pick before descriptor readiness stays read-only')
     await page.evaluate(() => window.__legacyRendererTest.release())
+    await page.waitForFunction(() => window.__legacyRendererTest.ready)
+    await page.waitForTimeout(50)
     await target.click()
     await chip.waitFor({ timeout: 15000 })
     const captured = await page.evaluate(() => window.__legacyRendererTest.captured)
