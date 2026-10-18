@@ -11,14 +11,24 @@ var module = { exports: {} }; var exports = module.exports;
 const React = require('react')
 const { createElement: h, useEffect, useState, useRef } = React
 const { Button, MarkdownText, IconGaugeOutlineRegular, Tooltip } = require('@deepseek-ai/dsh-client-ui-primitives')
+const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store')
 
 const VIEW_ID = 'workbench'
 const INPUTS_API = '/camind/api/preview/sessions'
 const RUNS_API = '/camind/api/cam/runs'
+const CONFIG_NS = 'ui-workbench'
+const BUNDLE_NAME = 'camind-ui-workbench'
+const LEGACY_DWG_FIELD = 'useLegacyDwgPane'
 
 // --- stylesheet ------------------------------------------------------------------
 
 const benchCss = `
+.wb-config-page { display:grid; gap:12px; color:var(--dsw-alias-label-primary); }
+.wb-config-page h3,.wb-config-page p { margin:0; }
+.wb-config-hint { color:var(--dsw-alias-label-tertiary); font-size:12px; line-height:1.6; }
+.wb-config-toggle { display:flex; align-items:center; gap:8px; }
+.wb-config-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; }
+.wb-config-error { color:var(--dsw-alias-state-error-primary); font-size:12px; }
 .wb-plan-dialog{width:min(1000px,calc(100vw - 48px));max-height:85vh;padding:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);overflow:auto}.wb-plan-dialog::backdrop{background:#0005}.wb-table-scroll{overflow:auto}.wb-operation-table{width:100%;border-collapse:collapse;font-size:13px}.wb-operation-table th,.wb-operation-table td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);vertical-align:top}.wb-operation-table th{background:var(--dsw-alias-bg-layer-2);white-space:nowrap}.wb-scheme-summary dl{display:grid;grid-template-columns:100px 1fr;gap:8px}.wb-scheme-summary dd{margin:0;overflow-wrap:anywhere}.wb-workflow-actions{padding:12px 0}.wb-workflow-actions button{margin-right:8px}
 
 [data-conversation-scroll]:has(.wb-main) { overflow:hidden; }
@@ -293,6 +303,89 @@ body:has(.wb-review) .wb-floating-composer { visibility:hidden; pointer-events:n
 // --- shared helpers -----------------------------------------------------------------
 
 let applyCtx = null
+let legacyDwgConfigController = null
+const unavailableLegacyDwgConfig = Object.freeze({ available: false, writable: false, enabled: false, selected: false, overridden: false, dirty: false, saving: false, failed: false })
+
+class LegacyDwgConfigController {
+  constructor(scope) {
+    this.scope = scope
+    this.draft = null
+    this.saving = false
+    this.failed = false
+    this.store = createSnapshotStore(this.projection())
+    this.unsubscribe = scope.subscribe(() => this.publish())
+  }
+  stored() {
+    const user = this.scope.getSnapshot().user
+    return user !== undefined && user !== null && Object.hasOwn(user, LEGACY_DWG_FIELD)
+  }
+  current() {
+    const snapshot = this.scope.getSnapshot()
+    return snapshot.status === 'ready' && snapshot.value?.[LEGACY_DWG_FIELD] === true
+  }
+  projection() {
+    const snapshot = this.scope.getSnapshot(), enabled = this.current(), overridden = this.stored()
+    const dirty = this.draft !== null && (this.draft !== enabled || (this.draft === false && overridden))
+    return {
+      available: snapshot.status === 'ready', writable: snapshot.writable, enabled,
+      selected: this.draft ?? enabled, overridden, dirty, saving: this.saving, failed: this.failed,
+    }
+  }
+  publish() { this.store.set(this.projection()) }
+  inject() {
+    return {
+      hooks: { legacyDwgConfig: this.store },
+      edit: value => { this.draft = value === true; this.failed = false; this.publish() },
+      restore: () => { this.draft = false; this.failed = false; this.publish() },
+      save: () => this.save(),
+      discard: () => { this.draft = null; this.failed = false; this.publish() },
+    }
+  }
+  async save() {
+    const state = this.projection()
+    if (!state.available || !state.writable || !state.dirty || this.saving) return
+    const desired = this.draft === true
+    this.saving = true; this.failed = false; this.publish()
+    let landed = false
+    try {
+      await this.scope.mutate([desired
+        ? { op: 'set', path: [LEGACY_DWG_FIELD], value: true }
+        : { op: 'unset', path: [LEGACY_DWG_FIELD] }])
+      landed = this.current() === desired && (desired || !this.stored())
+    } catch { landed = false }
+    if (landed) this.draft = null
+    this.saving = false; this.failed = !landed; this.publish()
+  }
+  dispose() { this.unsubscribe?.() }
+}
+function subscribeLegacyDwgConfig(listener) {
+  return legacyDwgConfigController?.store.subscribe(listener) ?? (() => {})
+}
+function legacyDwgConfigSnapshot() {
+  return legacyDwgConfigController?.store.getSnapshot() ?? unavailableLegacyDwgConfig
+}
+function useLegacyDwgPaneEnabled() {
+  const state = React.useSyncExternalStore(subscribeLegacyDwgConfig, legacyDwgConfigSnapshot)
+  return state.available && state.enabled === true
+}
+function LegacyDwgConfigCard(props) {
+  const state = props.useLegacyDwgConfig(snapshot => snapshot)
+  if (!state.available || (props.view !== undefined && props.view !== 'page')) return null
+  const disabled = !state.writable || state.saving
+  return h('section', { className: 'wb-config-page' },
+    h('h3', null, '二维图纸渲染器'),
+    h('p', { className: 'wb-config-hint' }, '默认使用新 DrawingPreview。旧 SVG DwgPane 仅为一个版本周期的临时回滚，两个渲染器不会同时显示。'),
+    h('label', { className: 'wb-config-toggle' },
+      h('input', { type: 'checkbox', checked: state.selected, disabled, onChange: event => props.edit(event.target.checked) }),
+      '使用旧 DwgPane（临时回滚）'),
+    h('p', { role: 'status' }, `当前生效：${state.enabled ? '旧 DwgPane 回滚' : '新 DrawingPreview（默认）'}`),
+    h('p', { className: 'wb-config-hint' }, '回滚路径仍使用 DrawingReference v1 与服务端核验；无法精确映射的旧 SVG 对象只能查看。'),
+    h('div', { className: 'wb-config-actions' },
+      (state.enabled || state.overridden || state.dirty) && h(Button, { variant: 'ghost', disabled, onClick: props.restore }, '恢复默认'),
+      h(Button, { variant: 'ghost', disabled: disabled || !state.dirty, onClick: props.discard }, '放弃修改'),
+      h(Button, { variant: 'primary', disabled: disabled || !state.dirty, onClick: props.save }, state.saving ? '保存中…' : '保存')),
+    state.failed && h('p', { className: 'wb-config-error', role: 'alert' }, '设置保存失败，请重试；当前渲染器未被此次修改强制切换。'))
+}
 
 function previewService() {
   return applyCtx?.get('filePreview')
@@ -1538,49 +1631,177 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
         h(Button, { onClick: () => controller?.clearSelection() }, '清除当前提问对象'))))
 }
 
+function legacyDrawingPacksUrl(sessionId) {
+  return `/camind/api/drawings/sessions/${encodeURIComponent(sessionId)}/packs`
+}
+async function legacyDrawingJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: { Accept: 'application/json', ...(options.body ? { 'content-type': 'application/json' } : {}), ...options.headers },
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(typeof body.message === 'string' ? body.message : `HTTP ${response.status}`)
+  return body
+}
+function legacyDescriptorPack(sessionId, source, descriptor) {
+  if (descriptor?.session !== sessionId || descriptor.source?.uri !== source.uri
+    || descriptor.source?.sha256 !== source.sha256 || typeof descriptor.source?.name !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(descriptor.pack?.sha256) || !/^[0-9a-f]{64}$/i.test(descriptor.pack?.identity)
+    || typeof descriptor.packText !== 'string') throw new Error('DrawingReference descriptor 与当前冻结图纸不符')
+  let pack
+  try { pack = JSON.parse(descriptor.packText) } catch { throw new Error('DrawingReference 图纸包无法解析') }
+  if (pack.source_sha256 !== source.sha256) throw new Error('DrawingReference 图纸包源件版本不符')
+  return pack
+}
+function useLegacyDrawingDescriptor(sessionId, source, attempt) {
+  const [state, setState] = useState({ descriptor: null, pack: null, error: '' })
+  const uri = source?.uri, sha256 = source?.sha256
+  useEffect(() => {
+    let active = true, timer = null, jobId = null
+    const abort = new AbortController(), base = legacyDrawingPacksUrl(sessionId)
+    setState({ descriptor: null, pack: null, error: '' })
+    if (!uri || !sha256) return () => { active = false; abort.abort() }
+    const request = (url, options = {}) => legacyDrawingJson(url, { ...options, signal: abort.signal })
+    const poll = async () => {
+      try {
+        if (!jobId) {
+          const started = await request(base, { method: 'POST', body: JSON.stringify({ path: uri }) })
+          jobId = started.jobId
+          if (!jobId) throw new Error('图纸转换作业缺少 jobId')
+        }
+        if (!active) return
+        const job = await request(`${base}/${jobId}/status`)
+        if (job.state === 'ready') {
+          const key = job.result?.key ?? job.result?.descriptor?.pack?.identity
+          if (!key) throw new Error('转换作业就绪但缺少图纸包身份')
+          const descriptor = await request(`${base}/${key}?path=${encodeURIComponent(uri)}`)
+          const pack = legacyDescriptorPack(sessionId, { uri, sha256 }, descriptor)
+          if (active) setState({ descriptor, pack, error: '' })
+          return
+        }
+        if (job.state === 'error' || job.state === 'cancelled') throw new Error(job.error?.message || '图纸转换失败')
+        if (!active) return
+        timer = setTimeout(poll, 250)
+      } catch (error) {
+        if (active && !abort.signal.aborted) setState({ descriptor: null, pack: null, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    void poll()
+    return () => {
+      active = false
+      if (timer !== null) clearTimeout(timer)
+      abort.abort()
+      if (jobId) void legacyDrawingJson(`${base}/${jobId}/cancel`, { method: 'POST' }).catch(() => {})
+    }
+  }, [sessionId, uri, sha256, attempt])
+  return state
+}
+function sameLegacyEntityIds(left, right) {
+  return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((id, index) => id === right[index])
+}
+function legacyDrawingTarget(pack, target) {
+  if (target?.kind === 'dimension' && /^d:\d+$/.test(target.id)) {
+    const index = Number(target.id.slice(2)), dim = pack?.dims?.[index]
+    if (!dim || dim.id !== target.source_id || (dim.display_text || '尺寸标注') !== target.text
+      || !sameLegacyEntityIds(dim.entity_ids, target.entity_ids)) return null
+    return { type: 'dim', id: dim.id }
+  }
+  if (target?.kind === 'text' && /^t:\d+$/.test(target.id)) {
+    const id = Number(target.id.slice(2)), entity = pack?.entities?.find(candidate => candidate.id === id)
+    if (!entity || entity.dim_id || !['text', 'mtext'].includes(entity.type) || entity.text !== target.text
+      || entity.handle !== target.source_id || !sameLegacyEntityIds([id], target.entity_ids)) return null
+    return { type: 'entity', id }
+  }
+  return null
+}
+function legacyDrawingReference(sessionId, data, descriptor, pack, target) {
+  if (!data?.preview_sha256 || data.source_sha256 !== descriptor?.source?.sha256 || descriptor.session !== sessionId) return null
+  const mapped = legacyDrawingTarget(pack, target)
+  if (!mapped || !descriptor.source.uri || !descriptor.source.name || !descriptor.pack?.sha256 || !descriptor.pack?.identity) return null
+  return {
+    kind: 'camind-drawing-ref', version: 1, session: descriptor.session,
+    source: { uri: descriptor.source.uri, sha256: descriptor.source.sha256, name: descriptor.source.name },
+    pack: { sha256: descriptor.pack.sha256, identity: descriptor.pack.identity }, target: mapped,
+  }
+}
+async function selectLegacyDrawingReference(questionController, sessionId, data, descriptor, pack, target, shouldFocus) {
+  const reference = legacyDrawingReference(sessionId, data, descriptor, pack, target)
+  if (!reference) return { ok: false, reason: 'unmapped', reference: null }
+  const selected = await questionController.select(reference, shouldFocus)
+  return { ok: selected === true, reason: selected === true ? null : 'superseded', reference }
+}
 function DwgPane({ sessionId, record, statusTarget }) {
   const [data, setData] = useState(null), [error, setError] = useState(''), [query, setQuery] = useState(''), [limit, setLimit] = useState(100)
-  const [question, questionController] = useDrawingQuestion(sessionId)
+  const [selectedId, setSelectedId] = useState(null), [attempt, setAttempt] = useState(0)
+  const [question, questionController] = useDrawingReferenceQuestion(sessionId)
   const [annotationsOpen, setAnnotationsOpen] = useState(false), [boxMode, setBoxMode] = useState(false), [originalColors, setOriginalColors] = useState(false)
+  const source = record.task?.inputs.dwg
+  const descriptorState = useLegacyDrawingDescriptor(sessionId, source, attempt), descriptor = descriptorState.descriptor, pack = descriptorState.pack
   const drawingHost = useRef(null), viewport = useRef(null), annotationsButton = useRef(null), drawingMenu = useRef(null), conversionDetails = useRef(null)
+  const latestDescriptor = useRef(null), selectTargetRef = useRef(null)
+  latestDescriptor.current = descriptor
+  const items = data ? data.preview_sha256 ? data.targets || [] : data.annotations : []
   useEffect(() => {
     if (!data || !drawingHost.current) return
-    const controls = mountDrawingViewport(drawingHost.current, setBoxMode, setError, id => void selectTarget(id), () => { try { questionController.clear() } catch (e) { setError(e.message) } }, data.targets || [])
+    const controls = mountDrawingViewport(drawingHost.current, setBoxMode, setError, id => void selectTargetRef.current?.(id), () => { try { questionController.clear() } catch (e) { setError(e.message) } }, data.targets || [])
     viewport.current = controls
     return () => { controls.dispose(); viewport.current = null }
   }, [data])
   useEffect(() => { viewport.current?.colors(originalColors) }, [data, originalColors])
   useEffect(() => {
-    if (!data) return
-    questionController.setVersion(data.source_sha256, data.preview_sha256)
-    const ref = question.active?.reference
-    viewport.current?.highlight(ref?.kind === 'drawing-target' && ref.preview_sha256 === data.preview_sha256 ? data.targets?.find(target => target.id === ref.ids[0]) : null)
-  }, [data, question.active?.ref])
+    if (!descriptor) return
+    return () => {
+      const reason = latestDescriptor.current === descriptor ? 'dispose' : 'invalidate'
+      try { addPreviewReferenceToDraft(sessionId, null, descriptor, reason) } catch { /* Navigation cleanup cannot block the next preview. */ }
+    }
+  }, [sessionId, descriptor])
   useEffect(() => {
-    let alive = true; setData(null); setError(''); setQuery(''); setLimit(100); setBoxMode(false)
+    if (!data || question.pending) return
+    const ref = question.active?.reference
+    const match = ref && sameDrawingIdentity(ref, descriptor) ? items.find(item => {
+      const target = legacyDrawingTarget(pack, item)
+      return target?.type === ref.target.type && target.id === ref.target.id
+    }) ?? null : null
+    setSelectedId(match?.id ?? null)
+    viewport.current?.highlight(match)
+  }, [data, descriptor, pack, question.active?.ref, question.pending])
+  useEffect(() => {
+    let alive = true; setData(null); setError(''); setQuery(''); setLimit(100); setBoxMode(false); setSelectedId(null)
     void taskApi(sessionId, 'drawing').then(next => { if (alive) setData({ ...next, safeSvg: sanitizeDwgSvg(next.svg) }) }).catch(e => { if (alive) setError(e.message) })
     return () => { alive = false }
   }, [sessionId, record.task?.inputs.dwg?.sha256])
   if (!data) return h('div', { className: 'wb-empty', role: 'status' }, error || '正在读取图纸…')
-  const items = data.preview_sha256 ? data.targets || [] : data.annotations
   const filtered = query.trim() ? items.filter(entity => `${drawingAnnotationLabel(entity)} ${entity.layer || ''}`.toLowerCase().includes(query.trim().toLowerCase())) : []
-  const selected = question.active?.reference.entities?.[0]
+  const selected = items.find(item => item.id === selectedId) ?? null
+  const selectedReference = selected ? legacyDrawingReference(sessionId, data, descriptor, pack, selected) : null
+  const selectedActive = Boolean(selectedReference && sameDrawingIdentity(question.active?.reference, selectedReference)
+    && question.active?.reference.target?.type === selectedReference.target.type && question.active?.reference.target?.id === selectedReference.target.id)
+  const readOnlyReason = () => {
+    if (descriptorState.error) return `提问引用不可用：${descriptorState.error}。当前对象仅供查看。`
+    if (!descriptor || !pack) return 'DrawingReference 图纸包尚未就绪，当前对象仅供查看，请稍后重试。'
+    if (!data.preview_sha256) return '兼容 SVG 预览缺少与 DrawingReference pack 的精确实体映射，当前对象仅供查看。'
+    return '旧 SVG 对象无法与当前 DrawingReference pack 的 dim/entity 精确对应，仅供查看，未添加提问引用。'
+  }
   const selectTarget = async id => {
     const target = items.find(item => item.id === id)
     if (!target) return
-    const reference = { kind: data.preview_sha256 ? 'drawing-target' : 'drawing', source_sha256: data.source_sha256, ids: [id], ...(data.preview_sha256 ? { preview_sha256: data.preview_sha256 } : {}) }
+    setSelectedId(id)
+    viewport.current?.highlight(data.preview_sha256 ? target : null, true)
     const focusOrigin = document.activeElement
     let preserveFocus
     try {
-      if (await questionController.select(reference, () => {
+      const outcome = await selectLegacyDrawingReference(questionController, sessionId, data, descriptor, pack, target, () => {
         if (document.activeElement !== focusOrigin) preserveFocus = document.activeElement
         return !preserveFocus
-      })) {
+      })
+      if (!outcome.reference) { setError(readOnlyReason()); return }
+      if (outcome.ok) {
         preserveFocus?.focus({ preventScroll: true })
-        setError(''); viewport.current?.highlight(data.preview_sha256 ? target : null, true)
+        setError(''); setSelectedId(id); viewport.current?.highlight(target, true)
       }
-    } catch (e) { setError(e.message) }
+    } catch (e) { setError(`图纸引用核验失败：${e.message}；未添加未核验引用。`) }
   }
+  selectTargetRef.current = selectTarget
   const closeAnnotations = () => { setAnnotationsOpen(false); annotationsButton.current?.querySelector('button')?.focus() }
   const info = data.preview_info || { status: data.preview_partial ? 'partial' : 'ready',
     messages: data.preview_partial ? ['部分图纸内容可能未显示，请打开原图核对。'] : [], omissions: [], diagnostics: data.preview_details || '' }
@@ -1599,6 +1820,8 @@ function DwgPane({ sessionId, record, statusTarget }) {
             h('summary', { 'aria-label': '更多图纸选项', title: '更多图纸选项' }, h(DrawingIcon, { name: 'more' })),
             h('div', { className: 'wb-drawing-menu' }, h('label', null, h('input', { type: 'checkbox', checked: originalColors, onChange: e => setOriginalColors(e.target.checked) }), '原始配色'),
               h('p', null, '默认提亮低对比度颜色，不改变原文件。'), h('p', null, '拖动或方向键平移 · 滚轮或 +/− 缩放 · F 适配全图 · Esc 取消框选'), h('p', null, '图纸为转换预览，不提供精确量测。'),
+              h('p', null, descriptor ? '提问引用使用 DrawingReference v1；写入草稿和发送前均经服务端核验。' : `提问引用尚未就绪：${descriptorState.error || '正在准备图纸包'}。图纸仍可查看。`),
+              descriptorState.error && h(Button, { onClick: () => setAttempt(value => value + 1) }, '重试图纸引用包'),
               h(DrawingConversionDetails, { info, detailsRef: conversionDetails }))))),
       h('div', { ref: drawingHost, className: 'wb-drawing-svg', tabIndex: 0, role: 'region', 'aria-label': '二维图纸画布，拖动平移，滚轮缩放，F 适配全图', dangerouslySetInnerHTML: { __html: data.safeSvg } }),
       error && h('p', { className: 'wb-notice', role: 'alert' }, error)),
@@ -1610,11 +1833,11 @@ function DwgPane({ sessionId, record, statusTarget }) {
         if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return
         const buttons = [...e.currentTarget.querySelectorAll('button')], index = buttons.indexOf(document.activeElement)
         e.preventDefault(); buttons[Math.max(0, Math.min(buttons.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus()
-      } }, filtered.slice(0, limit).map(entity => h('button', { key: entity.id, 'data-drawing-result': entity.id, 'aria-pressed': selected?.id === entity.id, onClick: () => void selectTarget(entity.id) }, drawingAnnotationLabel(entity), h('small', null, data.preview_sha256 ? entity.kind === 'dimension' ? '尺寸标注' : '图纸文字' : '仅引用文字，暂不支持定位'))),
+      } }, filtered.slice(0, limit).map(entity => h('button', { key: entity.id, 'data-drawing-result': entity.id, 'aria-pressed': selected?.id === entity.id, onClick: () => void selectTarget(entity.id) }, drawingAnnotationLabel(entity), h('small', null, data.preview_sha256 ? entity.kind === 'dimension' ? '尺寸标注' : '图纸文字' : '仅查看，不能建立已核验引用'))),
         query.trim() && !filtered.length && h('p', null, '没有匹配的内容'), filtered.length > limit && h(Button, { onClick: () => setLimit(limit + 100) }, '显示更多结果')),
       selected && h('section', { className: 'wb-drawing-annotation-detail' }, h('strong', null, drawingAnnotationLabel(selected)),
         h('details', null, h('summary', null, '查看标注原文'), h('p', null, selected.text || `图纸标称 ${selected.nominal ?? '未读取'}`), h('small', null, `来源 ${selected.source_id || selected.id} · ${selected.kind || selected.type}`)),
-        h('p', null, '已设为当前提问对象，可直接输入问题。'))))
+        h('p', null, question.pending && selectedReference ? '正在核验提问引用…' : selectedActive ? '已设为当前提问对象，可直接输入问题。' : '仅供查看，未设置提问对象。'))))
 }
 const drawingQuestions = new Map()
 const DRAWING_QUESTION_SOURCE = 'cam-drawing'
@@ -2084,6 +2307,7 @@ function WorkbenchView({ sessionId }) {
     previousDwgInput.current = current ? { uri: current.uri, sha256: current.sha256 } : null
   }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   const Preview = previewService()?.View
+  const legacyDwg = useLegacyDwgPaneEnabled()
   const running = React.useSyncExternalStore(listener => applyCtx.get('sessions').list.subscribe(listener), () => applyCtx.get('sessions').list.getSnapshot().byId[sessionId]?.running === true)
   useEffect(() => { preference.current = readBenchPreference(sessionId); loaded.current = ''; setMode(preference.current.mode || 'model'); setPanel(preference.current.panel || ''); setWizard(false) }, [sessionId])
   const reviewKey = task ? JSON.stringify({ revision: task.revision, inputs: task.inputs, questions: task.questions.filter(q => !q.scope || q.scope === 'review'), requirements: task.requirements }) : ''
@@ -2094,10 +2318,10 @@ function WorkbenchView({ sessionId }) {
     openTaskModelPreview(sessionId, task)
   }, [sessionId, task?.inputs.prt?.sha256])
   useEffect(() => {
-    if (!task?.inputs.dwg) return
+    if (!task?.inputs.dwg || legacyDwg) return
     refreshingTaskDrawing.current = true
     try { openTaskDrawingPreview(sessionId, task) } finally { refreshingTaskDrawing.current = false }
-  }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
+  }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256, legacyDwg])
   useEffect(() => {
     const activation = previewService()?.consumeActivation?.(sessionId)
     if (activation) setMode(activation.channel === 'default' ? 'preview' : activation.channel)
@@ -2138,9 +2362,9 @@ function WorkbenchView({ sessionId }) {
   const complete = () => { setWizard(false); setPanel(''); setMode('model'); openTaskModelPreview(sessionId, task) }
   const togglePanel = name => setPanel(old => old === name ? '' : name)
   return h('div', { className: 'wb-main' },
-    h('header', { className: 'wb-main-head' }, h('div', { className: 'wb-file-heading', ref: setHeading }, mode === 'drawing' ? h('strong', { title: task?.inputs.dwg?.name }, task?.inputs.dwg?.name || 'CAD 图纸') : !heading || !Preview ? h('strong', null, task?.inputs.prt?.name || '加工工作台') : null),
+    h('header', { className: 'wb-main-head' }, h('div', { className: 'wb-file-heading', ref: setHeading }, mode === 'drawing' ? (legacyDwg || !heading || !Preview ? h('strong', { title: task?.inputs.dwg?.name }, task?.inputs.dwg?.name || 'CAD 图纸') : null) : !heading || !Preview ? h('strong', null, task?.inputs.prt?.name || '加工工作台') : null),
       h('nav', { className: 'wb-view-controls', 'aria-label': '零件视图' }, ['prt', 'dwg'].map(role => h('button', { key: role, disabled: !task?.inputs[role], 'aria-pressed': mode === (role === 'prt' ? 'model' : 'drawing'), title: task?.inputs[role]?.name, onClick: () => {
-        if (role === 'prt') { setMode('model'); openTaskModelPreview(sessionId, task) } else { setMode('drawing'); openTaskDrawingPreview(sessionId, task) }
+        if (role === 'prt') { setMode('model'); openTaskModelPreview(sessionId, task) } else { setMode('drawing'); if (!legacyDwg) openTaskDrawingPreview(sessionId, task) }
       } }, role === 'prt' ? '3D 模型' : 'CAD 图纸')),
         h('button', { disabled: !task, 'aria-pressed': panel === 'operations', title: '查看已确认工序单', onClick: () => setPanel('operations') }, '工序方案')),
       h('span', { className: 'wb-phase', role: 'status' }, task ? `R${task.revision} · ${task.phase}` : '读取任务'),
@@ -2150,7 +2374,9 @@ function WorkbenchView({ sessionId }) {
       h('main', { className: 'wb-canvas' },
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'preview' }, Preview ? h(Preview, { sessionId, channel: 'default', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, drawingActive: mode === 'preview', renderHeader: info => heading && mode === 'preview' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
-        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, drawingActive: mode === 'drawing', renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing', 'data-drawing-renderer': legacyDwg ? 'legacy-dwg-pane' : 'drawing-preview' }, legacyDwg
+          ? h(DwgPane, { sessionId, record, statusTarget: heading })
+          : Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, drawingActive: mode === 'drawing', renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: (reference, origin, reason) => addPreviewReferenceToDraft(sessionId, reference, origin, reason) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),
       panel && h('aside', { className: 'wb-context', 'aria-label': '任务资料' },
@@ -2206,6 +2432,23 @@ function apply(ctx) {
     document.head.appendChild(style)
     return () => { style.remove() }
   }, 'ui-workbench: stylesheet')
+
+  legacyDwgConfigController?.dispose()
+  legacyDwgConfigController = null
+  const configForms = ctx.get('configForms')
+  if (configForms) {
+    const controller = new LegacyDwgConfigController(configForms.get(CONFIG_NS))
+    legacyDwgConfigController = controller
+    ctx.effect(() => configForms.whileServed([CONFIG_NS], () => ctx.slots.inject('plugins.bundle.config', () =>
+      ctx.slots.register({
+        name: 'plugins.bundle.config', key: BUNDLE_NAME,
+        inject: () => controller.inject(),
+      }, LegacyDwgConfigCard))), 'ui-workbench: drawing renderer config')
+    ctx.effect(() => () => {
+      controller.dispose()
+      if (legacyDwgConfigController === controller) legacyDwgConfigController = null
+    }, 'ui-workbench: drawing renderer config lifecycle')
+  }
 
   ctx.effect(() => ctx.get('inputTriggers').registerSource({
     trigger: '@', name: 'cam-selection', candidates: async () => [], onPick: () => undefined,
@@ -2298,7 +2541,7 @@ function apply(ctx) {
 }
 
 exports.name = 'ui-workbench-client'
-exports.inject = ['slots', 'sessions', 'uiConversation', 'filePreview', 'sidebarRight', 'conversation', 'inputTriggers']
+exports.inject = ['slots', 'sessions', 'uiConversation', 'filePreview', 'sidebarRight', 'conversation', 'inputTriggers', 'configForms']
 exports.apply = apply
 
 return module.exports; } });

@@ -14,6 +14,9 @@
     "cordis.patch.yml",
     "lib/client.js"
   ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

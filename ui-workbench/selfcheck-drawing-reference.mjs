@@ -132,7 +132,7 @@ const ctx = {
   },
 }
 const code = (await fs.readFile(new URL('./lib/client.js', import.meta.url), 'utf8'))
-  .replace('exports.apply = apply', 'exports.__drawingReferenceTest = { addDrawingReferenceToDraft, addPreviewReferenceToDraft, drawingReferenceController }; exports.apply = apply')
+  .replace('exports.apply = apply', 'exports.__drawingReferenceTest = { addDrawingReferenceToDraft, addPreviewReferenceToDraft, drawingReferenceController, selectLegacyDrawingReference }; exports.apply = apply')
 vm.runInNewContext(code, {
   window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === 'react' ? { createElement: () => ({}), Component: class {} } : {}) } } },
   fetch, URLSearchParams, AbortController, Blob, URL, setTimeout, clearTimeout,
@@ -610,6 +610,37 @@ await api.addPreviewReferenceToDraft('s1', otherReference)
 api.drawingReferenceController('s1').invalidateSource(otherReference.source)
 assert.equal(state.occurrences.filter(item => item.source === 'cam-drawing-ref').length, 0, 'formal source changes invalidate by URI and SHA even without the old pack')
 console.log('ok - formal source invalidation does not depend on a successful conversion')
+
+// M5-01: the rollback pane reaches this same controller and /refs/verify path.
+const legacyDescriptor = {
+  session: 's1', source: reference.source, pack: reference.pack,
+  packText: JSON.stringify({
+    source_sha256: reference.source.sha256,
+    dims: [{ id: 'dim-1', display_text: 'Ø10 ±0.1', entity_ids: [200] }],
+    entities: [{ id: 7, type: 'mtext', text: '备注', handle: 'A' }],
+  }),
+}
+const legacyPack = JSON.parse(legacyDescriptor.packText)
+const legacyData = { source_sha256: reference.source.sha256, preview_sha256: '5'.repeat(64) }
+const legacyDim = { id: 'd:0', kind: 'dimension', source_id: 'dim-1', text: 'Ø10 ±0.1', entity_ids: [200] }
+const legacyEntity = { id: 't:7', kind: 'text', source_id: 'A', text: '备注', entity_ids: [7] }
+publish({ draft: '旧面板问题 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+deferred = null; allow = true; mounted = 's1'
+const legacySelected = await api.selectLegacyDrawingReference(api.drawingReferenceController('s1'), 's1', legacyData, legacyDescriptor, legacyPack, legacyDim)
+assert.equal(legacySelected.ok, true)
+assert.deepEqual(ownedIds(), ['dim-1'])
+assert.equal(verifyCalls.at(-1).claimed.kind, 'camind-drawing-ref')
+const beforeLegacyFailure = inserted.length
+allow = false
+await assert.rejects(api.selectLegacyDrawingReference(api.drawingReferenceController('s1'), 's1', legacyData, legacyDescriptor, legacyPack, legacyEntity), /失效/)
+assert.equal(inserted.length, beforeLegacyFailure, 'legacy verify failure cannot insert or replace a chip')
+assert.deepEqual(ownedIds(), ['dim-1'], 'legacy verify failure leaves the previously verified chip untouched')
+allow = true
+api.addPreviewReferenceToDraft('s1', null, legacyDescriptor, 'dispose')
+assert.deepEqual(ownedIds(), ['dim-1'], 'leaving the legacy pane does not invalidate an unchanged reference')
+api.addPreviewReferenceToDraft('s1', null, legacyDescriptor, 'invalidate')
+assert.deepEqual(ownedIds(), [], 'legacy source/pack/identity replacement invalidates the old chip')
+console.log('ok - legacy pane uses real verify-before-insert and pack invalidation semantics')
 
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()

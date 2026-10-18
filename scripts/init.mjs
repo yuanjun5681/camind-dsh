@@ -254,6 +254,8 @@ function checkManualInputs() {
 
 // 7. ui-shell：Host 直接服务 dist/，未构建时 /ui 返回 503
 function buildUiShell() {
+  step('ui-workbench：npm install')
+  run('npm', ['install'], path.join(root, 'ui-workbench'))
   step('ui-shell：npm install && npm run build')
   run('npm', ['install'], path.join(root, 'ui-shell'))
   run('npm', ['run', 'build'], path.join(root, 'ui-shell'))
