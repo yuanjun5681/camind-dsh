@@ -2654,6 +2654,8 @@ var drawingCss = `
 var h = import_react.default.createElement;
 function DrawingPreview({ descriptor, onReference, adapter }) {
   const host = (0, import_react.useRef)(null);
+  const currentDescriptor = (0, import_react.useRef)(descriptor);
+  currentDescriptor.current = descriptor;
   const middleDrag = (0, import_react.useRef)(null);
   const lastMiddleClick = (0, import_react.useRef)(0);
   const callback = (0, import_react.useRef)(onReference);
@@ -2675,6 +2677,8 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
     if (!container) return;
     let disposed = false;
     container.textContent = "";
+    container.dataset.insets = JSON.stringify({ top: 0, right: 0, bottom: 0, left: 0 });
+    delete container.dataset.camera;
     let pane = null, suppressReferences = 0;
     try {
       validateDescriptor(descriptor);
@@ -2687,11 +2691,14 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
         if (msg.type === "loaded") {
           setLoaded(msg);
           setDegraded(msg.degraded);
-        } else if (msg.type === "stats") setDegraded((previous) => ({
-          geometryDecimated: msg.stats.lastStep > 1,
-          textTruncated: msg.stats.textsOverflow > 0,
-          skippedTypes: previous?.skippedTypes ?? []
-        }));
+        } else if (msg.type === "stats") {
+          setDegraded((previous) => ({
+            geometryDecimated: msg.stats.lastStep > 1,
+            textTruncated: msg.stats.textsOverflow > 0,
+            skippedTypes: previous?.skippedTypes ?? []
+          }));
+          currentPane?.handle({ type: "getCamera", messageVersion: 2 });
+        } else if (msg.type === "camera") container.dataset.camera = JSON.stringify(msg.state);
         else if (msg.type === "error") fail(msg.message);
         else if (msg.type === "selectionChanged") {
           const targets = msg.targets.map((target) => ({ ...target }));
@@ -2759,8 +2766,9 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           currentPane.handle({ type: "zoomToRect", messageVersion: 2, rect: { x: rect.x * scale, y: rect.y * scale, width: rect.width * scale, height: rect.height * scale } });
         },
         setViewportInsets: (insets) => {
-          const scale = dpr();
-          currentPane.handle({ type: "setViewportInsets", messageVersion: 2, top: insets.top * scale, right: insets.right * scale, bottom: insets.bottom * scale, left: insets.left * scale });
+          const scale = dpr(), physical = { top: insets.top * scale, right: insets.right * scale, bottom: insets.bottom * scale, left: insets.left * scale };
+          container.dataset.insets = JSON.stringify(physical);
+          currentPane.handle({ type: "setViewportInsets", messageVersion: 2, ...physical });
         },
         setColorMode: (mode) => {
           currentPane.handle({ type: "setColorMode", messageVersion: 2, mode });
@@ -2772,9 +2780,10 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
     }
     return () => {
       disposed = true;
+      const reason = currentDescriptor.current === descriptor ? "dispose" : "invalidate";
       void (async () => {
         try {
-          await callback.current?.(null, descriptor);
+          await callback.current?.(null, descriptor, reason);
         } catch {
         }
       })();

@@ -51,7 +51,7 @@ const { DrawingPreview, fitView, makeGlMock } = module.exports
 function makeEl() {
   const children = [], listeners = new Map()
   const el = {
-    style: {}, children, clientWidth: 800, textContent: '', glMocks: [],
+    style: {}, dataset: {}, children, clientWidth: 800, textContent: '', glMocks: [],
     appendChild(c) { children.push(c); return c },
     addEventListener(type, fn) { listeners.set(type, [...(listeners.get(type) ?? []), fn]) },
     removeEventListener(type, fn) { listeners.set(type, (listeners.get(type) ?? []).filter(f => f !== fn)) },
@@ -171,8 +171,11 @@ assert.equal(controls.degraded?.geometryDecimated, false, 'the adapter must rece
 assert.equal(controls.viewportRef.current, container)
 controls.controller.setViewportInsets({ top: 10, right: 20, bottom: 30, left: 40 })
 assert.deepEqual(Array.from(container.children[0].glMocks[0].callsOf('viewport').at(-1).args), [40, 30, 740, 560])
+assert.deepEqual(JSON.parse(container.dataset.insets), { top: 10, right: 20, bottom: 30, left: 40 })
 controls.controller.zoomToRect({ x: 10, y: 20, width: 100, height: 50 })
+const halfBeforeZoom = JSON.parse(container.dataset.camera).halfH
 controls.controller.zoom(1.3)
+assert.ok(JSON.parse(container.dataset.camera).halfH < halfBeforeZoom)
 controls.controller.fit()
 controls.controller.setColorMode('original')
 controls.controller.setColorMode('readable')

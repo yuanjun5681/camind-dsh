@@ -95,6 +95,7 @@ function makeEl(tag = 'div') {
   const el = {
     tag,
     style: {},
+    dataset: {},
     children,
     listeners,
     glMocks: [],

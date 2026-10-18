@@ -9,6 +9,7 @@ assert.ok(source.includes("hidden: mode !== 'drawing' }, Preview"), 'the drawing
 assert.ok(source.includes("mode === 'drawing' ? require('react-dom').createPortal"), 'the drawing slot keeps the workbench header integration')
 assert.ok(source.includes("if (!refreshingTaskDrawing.current) setMode('drawing')"), 'opening a drawing reference must activate the drawing pane without forcing hidden refreshes')
 assert.ok(source.includes('refreshingTaskDrawing.current = true'), 'task input changes must refresh the hidden drawing preview for invalidation')
+assert.ok(source.includes('drawingReferenceController(sessionId).invalidateSource(previous)'), 'formal input URI/SHA changes must invalidate references even when conversion later fails')
 assert.ok(source.includes("subscribe(sessionId, () => setMode('preview'), 'default')"), 'default preview producers must activate a rendered preview pane')
 assert.ok(source.includes("hidden: mode !== 'preview' }, Preview"), 'default/content/run previews must have a visible workbench outlet')
 assert.ok(source.includes('task?.inputs.dwg?.sha256])'), 'source SHA changes must retrigger the drawing preview effect')

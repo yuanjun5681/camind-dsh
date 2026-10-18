@@ -870,21 +870,28 @@ function drawingReferenceController(sessionId) {
   }
   return drawingReferenceControllers.get(sessionId)
 }
-function addDrawingReferenceToDraft(sessionId, reference) {
-  return drawingReferenceController(sessionId).select(reference)
+function addDrawingReferenceToDraft(sessionId, reference, shouldFocus) {
+  return drawingReferenceController(sessionId).select(reference, shouldFocus)
 }
 function sameDrawingIdentity(reference, origin) {
   return Boolean(reference && origin && reference.session === origin.session
     && reference.source?.uri === origin.source?.uri && reference.source?.sha256 === origin.source?.sha256
     && reference.pack?.sha256 === origin.pack?.sha256 && reference.pack?.identity === origin.pack?.identity)
 }
-function addPreviewReferenceToDraft(sessionId, reference, origin) {
+function sameDrawingSource(reference, origin) {
+  return Boolean(reference && origin && reference.source?.uri === origin.uri && reference.source?.sha256 === origin.sha256)
+}
+function addPreviewReferenceToDraft(sessionId, reference, origin, reason = 'deselect') {
   if (!reference) {
-    if (sessionInput(sessionId)) drawingReferenceController(sessionId).clear(origin)
+    if (!sessionInput(sessionId)) return
+    const controller = drawingReferenceController(sessionId)
+    if (reason === 'dispose') controller.cancelPending(origin)
+    else controller.clear(origin)
     return
   }
+  const focusOrigin = typeof document === 'undefined' ? null : document.activeElement
   return reference.kind === 'camind-drawing-ref'
-    ? addDrawingReferenceToDraft(sessionId, reference)
+    ? addDrawingReferenceToDraft(sessionId, reference, () => typeof document === 'undefined' || document.activeElement === focusOrigin)
     : addSelectionToDraft(sessionId, reference)
 }
 
@@ -1782,6 +1789,18 @@ function createDrawingQuestionController(options) {
         pendingSelections--; publish({ ...snapshot })
       }
     },
+    invalidateSource(origin) {
+      if (pendingReference && sameDrawingSource(pendingReference, origin)) { sequence++; pendingReference = null }
+      if (!sameDrawingSource(snapshot.active?.reference, origin)) return
+      handoffSequence++; handoffFailure = null
+      const state = input.state.getSnapshot(), chips = owned(state)
+      if (chips.length > 1 || (chips[0] && (state.phase !== 'plain' || !consume(drawingQuestionSpan(state, chips[0]))))) throw new Error('当前引用暂时无法清除，请稍后重试')
+      handoff = false; sendPending = null; publish({ active: null, hasChip: false })
+    },
+    cancelPending(origin) {
+      if (!pendingReference || (origin && !sameDrawingIdentity(pendingReference, origin))) return
+      sequence++; pendingReference = null
+    },
     clear(origin) {
       if (origin) {
         const pendingMatches = pendingReference && sameDrawingIdentity(pendingReference, origin)
@@ -2021,10 +2040,15 @@ function WorkbenchView({ sessionId }) {
   const [panel, setPanel] = useState(() => readBenchPreference(sessionId).panel || '')
   const [wizard, setWizard] = useState(false)
   const [heading, setHeading] = useState(null)
-  const preference = useRef(readBenchPreference(sessionId)), loaded = useRef(''), refreshingTaskDrawing = useRef(false)
+  const preference = useRef(readBenchPreference(sessionId)), loaded = useRef(''), refreshingTaskDrawing = useRef(false), previousDwgInput = useRef(null)
   const record = useFormalTask(sessionId), task = record.task
   const [, questionController] = useDrawingQuestion(sessionId)
   useEffect(() => { if (task) questionController.setVersion(task.inputs.dwg?.sha256) }, [task?.inputs.dwg?.sha256])
+  useEffect(() => {
+    const current = task?.inputs.dwg, previous = previousDwgInput.current
+    if (previous && (previous.uri !== current?.uri || previous.sha256 !== current?.sha256)) drawingReferenceController(sessionId).invalidateSource(previous)
+    previousDwgInput.current = current ? { uri: current.uri, sha256: current.sha256 } : null
+  }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   const Preview = previewService()?.View
   const running = React.useSyncExternalStore(listener => applyCtx.get('sessions').list.subscribe(listener), () => applyCtx.get('sessions').list.getSnapshot().byId[sessionId]?.running === true)
   useEffect(() => { preference.current = readBenchPreference(sessionId); loaded.current = ''; setMode(preference.current.mode || 'model'); setPanel(preference.current.panel || ''); setWizard(false) }, [sessionId])

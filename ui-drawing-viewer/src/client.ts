@@ -5,7 +5,8 @@ import { descriptorProvenance, drawingReferences, validateDescriptor, type Drawi
 import { drawingCss } from './styles.ts'
 
 const h = React.createElement
-type ReferenceHandler = (reference: DrawingReferenceCandidate | null, origin?: DrawingDescriptor) => void | Promise<void>
+type DrawingInvalidationReason = 'deselect' | 'dispose' | 'invalidate'
+type ReferenceHandler = (reference: DrawingReferenceCandidate | null, origin?: DrawingDescriptor, reason?: DrawingInvalidationReason) => void | Promise<void>
 type Loaded = Extract<PaneViewerMessage, { type: 'loaded' }>
 type DrawingTarget = DrawingReferenceCandidate['target']
 type DrawingRect = { x: number; y: number; width: number; height: number }
@@ -33,6 +34,8 @@ type DrawingAdapter = (props: DrawingAdapterProps) => React.ReactElement
 
 export function DrawingPreview({ descriptor, onReference, adapter }: { descriptor: DrawingDescriptor; onReference?: ReferenceHandler; adapter?: DrawingAdapter }): React.ReactElement {
   const host = useRef<HTMLDivElement>(null)
+  const currentDescriptor = useRef(descriptor)
+  currentDescriptor.current = descriptor
   const middleDrag = useRef<{ x: number; y: number } | null>(null)
   const lastMiddleClick = useRef(0)
   const callback = useRef<ReferenceHandler | undefined>(onReference)
@@ -50,6 +53,8 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
     if (!container) return
     let disposed = false
     container.textContent = '' // B 失败不得把保留的 A 错标为 B
+    container.dataset.insets = JSON.stringify({ top: 0, right: 0, bottom: 0, left: 0 })
+    delete container.dataset.camera
     let pane: DraftPane | null = null, suppressReferences = 0
     try {
       validateDescriptor(descriptor)
@@ -60,11 +65,15 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
       pane = new DraftPane(container, (msg) => {
         if (disposed) return
         if (msg.type === 'loaded') { setLoaded(msg); setDegraded(msg.degraded) }
-        else if (msg.type === 'stats') setDegraded(previous => ({
-          geometryDecimated: msg.stats.lastStep > 1,
-          textTruncated: msg.stats.textsOverflow > 0,
-          skippedTypes: previous?.skippedTypes ?? [],
-        }))
+        else if (msg.type === 'stats') {
+          setDegraded(previous => ({
+            geometryDecimated: msg.stats.lastStep > 1,
+            textTruncated: msg.stats.textsOverflow > 0,
+            skippedTypes: previous?.skippedTypes ?? [],
+          }))
+          currentPane?.handle({ type: 'getCamera', messageVersion: 2 })
+        }
+        else if (msg.type === 'camera') container.dataset.camera = JSON.stringify(msg.state)
         else if (msg.type === 'error') fail(msg.message)
         else if (msg.type === 'selectionChanged') {
           const targets = msg.targets.map(target => ({ ...target }))
@@ -114,8 +123,9 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           currentPane.handle({ type: 'zoomToRect', messageVersion: 2, rect: { x: rect.x * scale, y: rect.y * scale, width: rect.width * scale, height: rect.height * scale } })
         },
         setViewportInsets: insets => {
-          const scale = dpr()
-          currentPane.handle({ type: 'setViewportInsets', messageVersion: 2, top: insets.top * scale, right: insets.right * scale, bottom: insets.bottom * scale, left: insets.left * scale })
+          const scale = dpr(), physical = { top: insets.top * scale, right: insets.right * scale, bottom: insets.bottom * scale, left: insets.left * scale }
+          container.dataset.insets = JSON.stringify(physical)
+          currentPane.handle({ type: 'setViewportInsets', messageVersion: 2, ...physical })
         },
         setColorMode: mode => { currentPane.handle({ type: 'setColorMode', messageVersion: 2, mode }) },
       })
@@ -125,7 +135,8 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
     }
     return () => {
       disposed = true
-      void (async () => { try { await callback.current?.(null, descriptor) } catch { /* Disposal ignores stale invalidation failures. */ } })()
+      const reason = currentDescriptor.current === descriptor ? 'dispose' : 'invalidate'
+      void (async () => { try { await callback.current?.(null, descriptor, reason) } catch { /* Disposal ignores stale invalidation failures. */ } })()
       pane?.dispose()
       container.textContent = ''
     }

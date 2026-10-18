@@ -132,7 +132,7 @@ const ctx = {
   },
 }
 const code = (await fs.readFile(new URL('./lib/client.js', import.meta.url), 'utf8'))
-  .replace('exports.apply = apply', 'exports.__drawingReferenceTest = { addDrawingReferenceToDraft, addPreviewReferenceToDraft }; exports.apply = apply')
+  .replace('exports.apply = apply', 'exports.__drawingReferenceTest = { addDrawingReferenceToDraft, addPreviewReferenceToDraft, drawingReferenceController }; exports.apply = apply')
 vm.runInNewContext(code, {
   window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === 'react' ? { createElement: () => ({}), Component: class {} } : {}) } } },
   fetch, URLSearchParams, AbortController, Blob, URL, setTimeout, clearTimeout,
@@ -565,6 +565,17 @@ assert.equal(ownedIds().includes(30), false, 'cleanup cancels only the pending s
 assert.deepEqual(state.occurrences.filter(item => item.source === 'cam-drawing-ref').map(item => JSON.parse(item.ref).source.sha256), ['9'.repeat(64)], 'cleanup cannot remove a different active preview reference')
 deferred = null
 console.log('ok - preview cleanup is scoped to its source and pack identity')
+
+api.addPreviewReferenceToDraft('s1', null, otherReference, 'dispose')
+assert.equal(state.occurrences.filter(item => item.source === 'cam-drawing-ref').length, 1, 'ordinary preview disposal preserves the committed chip')
+api.addPreviewReferenceToDraft('s1', null, otherReference, 'invalidate')
+assert.equal(state.occurrences.filter(item => item.source === 'cam-drawing-ref').length, 0, 'source or pack invalidation consumes the old chip')
+console.log('ok - disposal and invalidation have distinct reference semantics')
+
+await api.addPreviewReferenceToDraft('s1', otherReference)
+api.drawingReferenceController('s1').invalidateSource(otherReference.source)
+assert.equal(state.occurrences.filter(item => item.source === 'cam-drawing-ref').length, 0, 'formal source changes invalidate by URI and SHA even without the old pack')
+console.log('ok - formal source invalidation does not depend on a successful conversion')
 
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()

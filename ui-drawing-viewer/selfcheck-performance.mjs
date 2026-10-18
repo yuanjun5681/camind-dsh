@@ -323,7 +323,7 @@ function makeEl() {
   const children = []
   const listeners = new Map()
   const el = {
-    style: {}, children, clientWidth: 1600, textContent: '', glMocks: [], c2dMocks: [],
+    style: {}, dataset: {}, children, clientWidth: 1600, textContent: '', glMocks: [], c2dMocks: [],
     appendChild(child) { children.push(child); return child },
     addEventListener(type, fn) { listeners.set(type, [...(listeners.get(type) ?? []), fn]) },
     removeEventListener(type, fn) { listeners.set(type, (listeners.get(type) ?? []).filter(item => item !== fn)) },

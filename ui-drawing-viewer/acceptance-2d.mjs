@@ -99,7 +99,7 @@ function makeDom(makeGlMock) {
     let ownText = ''
     let c2d = null
     const el = {
-      tagName: tagName.toUpperCase(), style: {}, children, listeners, parentNode: null,
+      tagName: tagName.toUpperCase(), style: {}, dataset: {}, children, listeners, parentNode: null,
       clientWidth: 800, glMocks: [], c2dMocks: [],
       appendChild(child) {
         if (child.parentNode) {
