@@ -1350,10 +1350,11 @@ function drawingEntityText(entity) {
   const cells = (entity.cells ?? []).map(cell => typeof cell?.text === 'string' ? cell.text : '').filter(Boolean)
   return [direct, ...cells].filter(Boolean).join(' ').trim()
 }
-function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef }) {
+function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef, degraded }) {
+  const actualDegraded = degraded ?? descriptor.degraded
   const [query, setQuery] = useState(''), [limit, setLimit] = useState(100), [open, setOpen] = useState(false)
   const [originalColors, setOriginalColors] = useState(false), [boxMode, setBoxMode] = useState(false), [boxRect, setBoxRect] = useState(null)
-  const controlsRef = useRef(null), boxDrag = useRef(null)
+  const controlsRef = useRef(null), boxDrag = useRef(null), annotationsRef = useRef(null)
   useEffect(() => { controller?.setColorMode(originalColors ? 'original' : 'readable') }, [controller, originalColors])
   useEffect(() => { setQuery(''); setLimit(100); setBoxMode(false); setBoxRect(null); boxDrag.current = null }, [descriptor])
   useEffect(() => {
@@ -1386,7 +1387,11 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
       const composerVisible = composerRect && composerRect.width > 0 && composerRect.height > 0
         && composerRect.top < rect.bottom && composerRect.bottom > rect.top && !composer.classList.contains('wb-composer-muted')
       const bottom = composerVisible ? Math.min(rect.height / 3, Math.max(16, rect.bottom - composerRect.top + 16)) : 16
-      const next = { top, right: 0, bottom, left: 0 }
+      const annotationRect = annotationsRef.current?.getBoundingClientRect()
+      const annotationVisible = annotationRect && annotationRect.width > 0 && annotationRect.height > 0
+        && annotationRect.left < rect.right && annotationRect.right > rect.left && annotationRect.top < rect.bottom && annotationRect.bottom > rect.top
+      const right = annotationVisible ? Math.min(rect.width / 2, Math.max(0, rect.right - annotationRect.left + 12)) : 0
+      const next = { top, right, bottom, left: 0 }
       if (lastInsets && lastInsets.top === next.top && lastInsets.right === next.right && lastInsets.bottom === next.bottom && lastInsets.left === next.left) return
       controller.setViewportInsets(next)
       lastInsets = next
@@ -1394,11 +1399,12 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     const resize = new ResizeObserver(update)
     resize.observe(viewport)
     if (controlsRef.current) resize.observe(controlsRef.current)
+    if (annotationsRef.current) resize.observe(annotationsRef.current)
     const mutation = new MutationObserver(update)
     if (observerRoot) mutation.observe(observerRoot, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style'] })
     window.addEventListener('resize', update); update()
     return () => { resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize', update) }
-  }, [controller, viewportRef])
+  }, [controller, viewportRef, open])
   const pack = React.useMemo(() => {
     try { return JSON.parse(descriptor.packText) } catch { return null }
   }, [descriptor])
@@ -1464,13 +1470,13 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
             h('p', null, '拖动或方向键平移 · 滚轮或 +/− 缩放 · F 适配全图 · Esc 取消框选'),
             h('section', { className: 'wb-conversion-details' }, h('strong', null, '转换详情'),
               h('p', null, `${descriptor.conversion?.tool ?? '未知转换器'} · ${descriptor.conversion?.commit ?? '未知版本'}`),
-              descriptor.degraded?.geometryDecimated && h('p', null, '几何已按帧预算抽稀，完整数据与索引保留。'),
-              descriptor.degraded?.textTruncated && h('p', null, '文字已按帧预算截断，完整数据保留。'),
-              descriptor.degraded?.skippedTypes?.length && h('p', null, `跳过未知类型：${descriptor.degraded.skippedTypes.join('、')}`),
+              actualDegraded?.geometryDecimated && h('p', null, '几何已按帧预算抽稀，完整数据与索引保留。'),
+              actualDegraded?.textTruncated && h('p', null, '文字已按帧预算截断，完整数据保留。'),
+              actualDegraded?.skippedTypes?.length && h('p', null, `跳过未知类型：${actualDegraded.skippedTypes.join('、')}`),
               descriptor.missing?.length && h('p', null, `缺失信息：${descriptor.missing.join('、')}`),
-              h('textarea', { readOnly: true, 'aria-label': '转换诊断信息，可复制', value: JSON.stringify({ conversion: descriptor.conversion, degraded: descriptor.degraded, missing: descriptor.missing }, null, 2) })))))),
+              h('textarea', { readOnly: true, 'aria-label': '转换诊断信息，可复制', value: JSON.stringify({ conversion: descriptor.conversion, degraded: actualDegraded, missing: descriptor.missing }, null, 2) })))))),
     boxSurface,
-    open && h('aside', { className: 'wb-drawing-annotations', 'aria-label': '查找图纸文字', onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false) } } },
+    open && h('aside', { ref: annotationsRef, className: 'wb-drawing-annotations', 'aria-label': '查找图纸文字', onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false) } } },
       h('header', null, h('h3', null, '查找图纸文字'), h(Button, { 'aria-label': '收起图纸文字搜索', onClick: () => setOpen(false) }, '收起')),
       h('input', { 'aria-label': '搜索图纸文字', placeholder: '搜索文字、尺寸或技术要求', value: query, onChange: event => { setQuery(event.target.value); setLimit(100) } }),
       h('p', { role: 'status' }, query.trim() ? `找到 ${filtered.length} 项` : '输入文字、尺寸或技术要求查找'),

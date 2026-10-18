@@ -25,6 +25,7 @@ interface DrawingAdapterProps {
   controller: DrawingController | null
   selection: readonly DrawingTarget[]
   viewportRef: React.RefObject<HTMLDivElement | null>
+  degraded: Loaded['degraded'] | null
   onReference?: ReferenceHandler
 }
 type DrawingAdapter = (props: DrawingAdapterProps) => React.ReactElement
@@ -142,7 +143,7 @@ export function DrawingPreview({ descriptor, onReference, adapter }: { descripto
           event.preventDefault()
         },
       }),
-      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, onReference }) : null))
+      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, degraded: visibleDegraded ?? null, onReference }) : null))
 }
 
 export const name = 'camind-ui-drawing-viewer'

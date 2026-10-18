@@ -7,14 +7,16 @@ let plugin
 const source = await fs.readFile(new URL('./lib/client.js', import.meta.url), 'utf8')
 const code = source.replace('exports.apply = apply', 'exports.__drawingAdapterTest = { DrawingWorkbenchAdapter, drawingDimensionComparison, drawingToleranceText }; exports.apply = apply')
 
-let hooks = [], cursor = 0, pendingEffects = []
+let hooks = [], cursor = 0, pendingEffects = [], annotationLeft = 800
 const sameDeps = (left, right) => left && right && left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
 function domFor(className = '') {
   return {
     className,
-    getBoundingClientRect: () => className === 'wb-drawing-controls'
-      ? { left: 0, top: -48, right: 700, bottom: 0, width: 700, height: 48 }
-      : { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 },
+    getBoundingClientRect: () => {
+      if (className === 'wb-drawing-controls') return { left: 0, top: -48, right: 700, bottom: 0, width: 700, height: 48 }
+      if (className === 'wb-drawing-annotations') return { left: annotationLeft, top: 0, right: annotationLeft + 300, bottom: 600, width: 300, height: 600 }
+      return { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 }
+    },
   }
 }
 const React = {
@@ -107,11 +109,11 @@ const descriptor = {
     entities,
   }),
   conversion: { tool: 'camind-draft-pack', commit: 'converter-v1', libredwg: 'test', ezdxf: 'test' },
-  degraded: { geometryDecimated: true, skippedTypes: ['proxy'] },
+  degraded: { geometryDecimated: false, textTruncated: false, skippedTypes: [] },
   missing: ['2 个图片对象未显示'],
 }
 const viewportRef = { current: viewport }
-let props = { descriptor, controller, selection: [], viewportRef }
+let props = { descriptor, controller, selection: [], viewportRef, degraded: { geometryDecimated: true, textTruncated: true, skippedTypes: ['proxy'] } }
 let tree
 function render() {
   cursor = 0; pendingEffects = []
@@ -167,6 +169,12 @@ assert.equal(nodes(node => node.props['aria-label'] === '查找图纸文字').le
 assert.equal(nodes(node => node.props['aria-label'] === '查找图纸文字' && node.type === 'aside').length, 0, 'search starts collapsed')
 one(node => node.type === 'button' && node.props['aria-label'] === '查找图纸文字', 'search toggle').props.onClick()
 render()
+annotationLeft = 500
+mutationObservers.at(-1).fn()
+assert.deepEqual(callsOf('setViewportInsets').at(-1)[1][0], { top: 16, right: 312, bottom: 116, left: 0 }, 'an overlaid search panel must reserve target-safe space')
+annotationLeft = 800
+mutationObservers.at(-1).fn()
+assert.deepEqual(callsOf('setViewportInsets').at(-1)[1][0], { top: 16, right: 0, bottom: 116, left: 0 })
 const search = one(node => node.props['aria-label'] === '搜索图纸文字', 'search input')
 search.props.onChange({ target: { value: '技术要求' } })
 render()
@@ -216,6 +224,8 @@ assert.equal(callsOf('setColorMode').at(-1)[1][0], 'original')
 const diagnostics = one(node => node.props['aria-label'] === '转换诊断信息，可复制', 'conversion diagnostics')
 assert.ok(diagnostics.props.value.includes('converter-v1'))
 assert.ok(diagnostics.props.value.includes('geometryDecimated'))
+assert.ok(diagnostics.props.value.includes('"textTruncated": true'), 'diagnostics must use live rendering degradation rather than the initial descriptor')
+assert.ok(text(tree).includes('文字已按帧预算截断'))
 assert.ok(text(tree).includes('2 个图片对象未显示'))
 assert.ok(text(tree).includes('proxy'))
 console.log('ok - readable/original colors and copyable conversion diagnostics')

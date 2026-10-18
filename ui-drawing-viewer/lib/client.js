@@ -2800,7 +2800,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           event.preventDefault();
         }
       }),
-      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, onReference }) : null
+      adapter ? h(adapter, { descriptor, controller, selection, viewportRef: host, degraded: visibleDegraded ?? null, onReference }) : null
     )
   );
 }

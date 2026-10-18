@@ -167,6 +167,7 @@ renderAdapter()
 assert.ok(findNode(tree, node => node?.props?.className?.includes('cdv-body-adapted')), 'adapter controls must use the separate grid row rather than covering pane chrome')
 let controls = adapterNode(tree).props
 assert.ok(controls.controller)
+assert.equal(controls.degraded?.geometryDecimated, false, 'the adapter must receive live renderer degradation state')
 assert.equal(controls.viewportRef.current, container)
 controls.controller.setViewportInsets({ top: 10, right: 20, bottom: 30, left: 40 })
 assert.deepEqual(Array.from(container.children[0].glMocks[0].callsOf('viewport').at(-1).args), [40, 30, 740, 560])
