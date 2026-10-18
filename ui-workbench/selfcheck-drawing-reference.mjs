@@ -510,6 +510,46 @@ assert.equal(submitCalls.length, 2)
 assert.deepEqual(submitCalls.at(-1).targets, [26], 'the retried handoff is present in the follow-up submission')
 console.log('ok - obsolete handoff completion retries the current reference before submit')
 
+const ref27 = await selectId(27)
+allow = false
+const failed27 = sourceDefinition.codec.serialize(ref27, new AbortController().signal)
+const rejected27 = assert.rejects(failed27, /失效/)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+publish({ draft: '核验失败时等待的追问 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+input.submit('queue', 'click')
+await rejected27
+allow = true
+await tick()
+assert.equal(submitCalls.length, 2, 'verification failure must reject rather than release a deferred submission')
+console.log('ok - deferred submit is rejected on verification failure')
+
+const ref28 = await selectId(28)
+let codec28 = true, release28
+deferred = claimed => {
+  if (claimed.target.id === 28 && codec28) {
+    return new Promise(resolve => {
+      release28 = () => {
+        codec28 = false; deferred = null
+        resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+      }
+    })
+  }
+  return { ok: true, json: async () => ({ reference: claimed, targetContent: {} }) }
+}
+const flight28 = sourceDefinition.codec.serialize(ref28, new AbortController().signal)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+publish({ draft: '提交时的原始问题 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+input.submit('queue', 'click')
+publish({ draft: '等待期间被改写的问题 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+release28()
+const sent28 = await flight28
+publishPending([{ requestId: 'request-28', placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
+await tick()
+assert.equal(submitCalls.length, 2, 'editing the draft after Enter cancels the deferred submission')
+assert.deepEqual(ownedIds(), [28], 'handoff may finish, but the changed submission is not sent')
+assert.match(sent28, /"id":28/)
+console.log('ok - deferred submit is cancelled when its draft changes')
+
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()
 assert.equal(stateListeners.size, 0)

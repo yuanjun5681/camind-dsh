@@ -1697,8 +1697,26 @@ function createDrawingQuestionController(options) {
       originalSubmit.apply(input, args)
       return
     }
+    const deferred = {
+      draft: state.draft, ref: snapshot.active?.ref,
+      attachmentIds: [...(state.attachmentIds ?? [])],
+      occurrences: state.occurrences.map(item => ({ source: item.source, ref: item.ref, offset: item.offset, length: item.length })),
+    }
+    if (!deferred.ref) { input.notify?.('error', '当前图纸引用尚未就绪，请稍后重试'); return }
+    const expectedDraft = `${deferred.draft}${clipboard(deferred.ref)} `
+    const otherOccurrences = deferred.occurrences.filter(item => item.source !== source)
+    const unchanged = () => {
+      const current = input.state.getSnapshot(), owned = current.occurrences.filter(item => item.source === source)
+      const currentOther = current.occurrences.filter(item => item.source !== source).map(item => ({ source: item.source, ref: item.ref, offset: item.offset, length: item.length }))
+      return snapshot.active?.ref === deferred.ref && snapshot.hasChip && current.draft === expectedDraft
+        && JSON.stringify(current.attachmentIds ?? []) === JSON.stringify(deferred.attachmentIds)
+        && JSON.stringify(currentOther) === JSON.stringify(otherOccurrences)
+        && owned.length === 1 && owned[0].ref === deferred.ref
+    }
     void waitForHandoff().then(() => {
-      if (!disposed) originalSubmit.apply(input, args)
+      if (disposed) return
+      if (!unchanged()) { input.notify?.('info', '草稿已变更，本次延迟提交已取消'); return }
+      originalSubmit.apply(input, args)
     }).catch(error => { if (error.message !== handoffFailure) input.notify?.('error', error.message) })
   }
   if (verifyHandoff) input.submit = guardedSubmit
@@ -1738,7 +1756,7 @@ function createDrawingQuestionController(options) {
       return attempt
     },
     confirmSend(attempt) { if (sendPending && sendPending === attempt) { handoffFailure = null; sendPending = null; sync() } },
-    cancelSend(attempt) { if (sendPending && sendPending === attempt) { handoffFailure = null; sendPending = null; handoff = false; publish({ active: snapshot.active, hasChip: snapshot.hasChip }); sync() } },
+    cancelSend(attempt, error) { if (sendPending && sendPending === attempt) { handoffFailure = error instanceof Error ? error.message : String(error ?? '图纸引用核验失败'); sendPending = null; handoff = false; publish({ active: snapshot.active, hasChip: snapshot.hasChip }); sync() } },
     setVersion(sourceValue, preview) {
       if (version?.source !== sourceValue || version?.preview !== preview) { sequence++; handoffSequence++; version = { source: sourceValue, preview }; sync() }
       if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
@@ -2117,7 +2135,7 @@ function apply(ctx) {
           const detail = targetContent ? `\n已核验图纸对象内容：${JSON.stringify(targetContent)}` : ''
           return `${drawingReferenceClipboard(JSON.stringify(verified))}${detail}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
         } catch (error) {
-          controller.cancelSend(attempt)
+          controller.cancelSend(attempt, error)
           throw error
         }
       },
