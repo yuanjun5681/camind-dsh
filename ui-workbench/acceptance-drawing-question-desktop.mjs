@@ -35,7 +35,11 @@ try {
     assert.equal(await chip.count(), 1)
     await page.waitForFunction(() => document.activeElement?.matches('[contenteditable="true"]'))
   }
-  const remount = async () => { await openTaskDrawing(page) }
+  const remount = async () => {
+    await page.getByRole('tab', { name: '对话', exact: true }).click()
+    await page.getByRole('tab', { name: '工作台', exact: true }).click()
+    return openTaskDrawing(page)
+  }
   try {
     host = await openTaskDrawing(page)
     const descriptor = await packDescriptor(page, sid, before.inputs.dwg.uri), pack = JSON.parse(descriptor.packText)
@@ -72,6 +76,7 @@ try {
         const response = await test.fetch.apply(window, args)
         if (test.sourceOverride && url?.endsWith(`/camind/api/cam/tasks/${sid}`)) {
           const body = await response.json()
+          body.data.version += 1
           body.data.inputs.dwg = { ...body.data.inputs.dwg, uri: `task-input://${body.data.revision + 1}/dwg`, sha256: 'f'.repeat(64) }
           return new Response(JSON.stringify(body), { status: response.status, headers: { 'content-type': 'application/json' } })
         }
@@ -97,12 +102,13 @@ try {
     await page.waitForFunction(() => window.__drawingQuestionTest.release !== null)
     await choose(first)
     assert.equal(await page.evaluate(() => window.__drawingQuestionTest.captured.target.id), second.id, 'Selecting A must not change the in-flight snapshot of B')
-    await page.evaluate(() => { window.__drawingQuestionTest.release(); window.__drawingQuestionTest.release = null })
+    await page.evaluate(() => { Object.assign(window.__drawingQuestionTest, { allow: false }); window.__drawingQuestionTest.release(); window.__drawingQuestionTest.release = null })
     assert.equal(await chip.count(), 1)
     await editor.focus(); await editor.press('End'); await page.keyboard.insertText('版本更新后保留问题文字')
     await page.evaluate(() => { window.__drawingQuestionTest.sourceOverride = true })
     await page.waitForFunction(() => !document.querySelector('[data-composer-chip="cam-drawing-ref"]'), null, { timeout: 15000 })
     assert((await editor.innerText()).includes('版本更新后保留问题文字'))
+    await page.evaluate(() => { window.__drawingQuestionTest.sourceOverride = false })
     assert.deepEqual(await api(), before, 'The controlled response override never mutates the authoritative task')
     assert.deepEqual(errors, [])
     const dir = path.resolve('.dsh/workbench-acceptance'); await fs.mkdir(dir, { recursive: true })

@@ -17,7 +17,11 @@ try {
   await page.getByRole('tab', { name: '工作台', exact: true }).click()
   const wasModel = await page.getByRole('button', { name: '3D 模型', exact: true }).getAttribute('aria-pressed') === 'true'
   const errors = []; page.on('pageerror', error => errors.push(error.message))
-  const remount = async () => { await openTaskDrawing(page) }
+  const remount = async () => {
+    await page.getByRole('tab', { name: '对话', exact: true }).click()
+    await page.getByRole('tab', { name: '工作台', exact: true }).click()
+    return openTaskDrawing(page)
+  }
   try {
     for (const status of ['partial', 'fallback']) {
       await page.evaluate(({ status, sid }) => {
@@ -29,7 +33,14 @@ try {
           if (!url?.includes(`/camind/api/drawings/sessions/${sid}/packs/`) || !url.includes('?path=')) return response
           const body = await response.json()
           body.missing = [...(body.missing ?? []), message]
-          if (status === 'fallback') body.degraded = { ...(body.degraded ?? {}), skippedTypes: [...(body.degraded?.skippedTypes ?? []), 'future_entity'] }
+          if (status === 'fallback') {
+            const pack = JSON.parse(body.packText), template = pack.entities.find(entity => entity.type === 'line') ?? pack.entities[0]
+            const nextId = Math.max(...pack.entities.map(entity => Number.isInteger(entity.id) ? entity.id : -1)) + 1
+            const future = { ...template, id: nextId, type: 'future_entity' }
+            delete future.dim_id
+            pack.entities.push(future)
+            body.packText = JSON.stringify(pack)
+          }
           return new Response(JSON.stringify(body), { status: response.status, headers: { 'content-type': 'application/json' } })
         }
       }, { status, sid })
