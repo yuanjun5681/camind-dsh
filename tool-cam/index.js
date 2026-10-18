@@ -114,7 +114,7 @@ export function apply(ctx, config) {
   registerCamTask(ctx, camTasks)
   registerTaskRoute(ctx, camTasks)
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
-    await validateTaskReferences(messages, agent.id, camTasks)
+    await validateTaskReferences(messages, agent.id, camTasks, () => ctx.get('drawingPreview'))
     if (signal.aborted) return { kind: 'reject' }
     return next()
   })
