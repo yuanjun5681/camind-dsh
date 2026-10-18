@@ -90,7 +90,7 @@ class ResizeObserverMock {
 }
 
 function makeEl(tag = 'div') {
-  const children = [], listeners = new Map()
+  const children = [], listeners = new Map(), attributes = new Map()
   let ownText = ''
   const el = {
     tag,
@@ -102,6 +102,7 @@ function makeEl(tag = 'div') {
     rect: { left: 0, top: 0, width: 800, height: 600 },
     parent: null,
     hidden: false,
+    className: '',
     get clientWidth() { return el.rect.width },
     get clientHeight() { return el.rect.height },
     get textContent() { return ownText },
@@ -118,6 +119,8 @@ function makeEl(tag = 'div') {
     addEventListener(type, fn) { addListener(listeners, type, fn) },
     removeEventListener(type, fn) { removeListener(listeners, type, fn) },
     dispatch(type, event = {}) { dispatch(listeners, type, event) },
+    setAttribute(name, value) { attributes.set(name, String(value)) },
+    getAttribute(name) { return attributes.get(name) ?? null },
     querySelector() { return null },
     querySelectorAll() { return [] },
     getBoundingClientRect() { return { ...el.rect } },
@@ -140,6 +143,18 @@ function makeEl(tag = 'div') {
       if (index >= 0) el.parent.children.splice(index, 1)
       el.parent = null
     },
+  }
+  el.classList = {
+    add(...names) {
+      const current = new Set(el.className.split(/\s+/).filter(Boolean))
+      for (const name of names) current.add(name)
+      el.className = [...current].join(' ')
+    },
+    remove(...names) {
+      const removed = new Set(names)
+      el.className = el.className.split(/\s+/).filter(name => name && !removed.has(name)).join(' ')
+    },
+    contains(name) { return el.className.split(/\s+/).includes(name) },
   }
   return el
 }

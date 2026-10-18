@@ -49,13 +49,15 @@ runInNewContext(outputFiles[0].text, {
 const { DrawingPreview, fitView, makeGlMock } = module.exports
 
 function makeEl() {
-  const children = [], listeners = new Map()
+  const children = [], listeners = new Map(), attributes = new Map()
   const el = {
-    style: {}, dataset: {}, children, clientWidth: 800, textContent: '', glMocks: [],
+    style: {}, dataset: {}, children, clientWidth: 800, textContent: '', glMocks: [], className: '',
     appendChild(c) { children.push(c); return c },
     addEventListener(type, fn) { listeners.set(type, [...(listeners.get(type) ?? []), fn]) },
     removeEventListener(type, fn) { listeners.set(type, (listeners.get(type) ?? []).filter(f => f !== fn)) },
     dispatch(type, event) { for (const fn of listeners.get(type) ?? []) fn(event) },
+    setAttribute(name, value) { attributes.set(name, String(value)) },
+    getAttribute(name) { return attributes.get(name) ?? null },
     querySelector() { return null }, querySelectorAll() { return [] },
     getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 } },
     getContext(kind) {
@@ -65,6 +67,18 @@ function makeEl() {
       }
       return new Proxy({ measureText: () => ({ width: 20 }) }, { get: (o, k) => k in o ? o[k] : () => {} })
     },
+  }
+  el.classList = {
+    add(...names) {
+      const current = new Set(el.className.split(/\s+/).filter(Boolean))
+      for (const name of names) current.add(name)
+      el.className = [...current].join(' ')
+    },
+    remove(...names) {
+      const removed = new Set(names)
+      el.className = el.className.split(/\s+/).filter(name => name && !removed.has(name)).join(' ')
+    },
+    contains(name) { return el.className.split(/\s+/).includes(name) },
   }
   return el
 }

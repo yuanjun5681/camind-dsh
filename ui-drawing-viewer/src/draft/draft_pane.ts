@@ -9,6 +9,99 @@ import { detailFor, originInfo } from "./draft_detail.ts";
 
 export const DRAFT_PANE_MESSAGE_VERSION = 2 as const;
 
+const DRAFT_PANE_CSS = `
+.cdv-draft-pane {
+  position:relative; overflow:hidden; font-size:13px; line-height:20px;
+  color:var(--camind-color-text,var(--dsw-alias-label-primary,CanvasText));
+  background:var(--camind-surface-page,var(--dsw-alias-bg-base,Canvas));
+}
+.cdv-draft-pane .cdv-draft-canvas { position:absolute; inset:0; width:100%; height:100%; }
+.cdv-draft-pane .cdv-draft-text-canvas { pointer-events:none; }
+.cdv-draft-pane .cdv-draft-surface {
+  border:1px solid var(--camind-border-default,var(--dsw-alias-border-l2,CanvasText));
+  border-radius:6px; overflow-wrap:anywhere;
+  color:var(--camind-color-text,var(--dsw-alias-label-primary,CanvasText));
+  background:var(--camind-surface-raised,var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-panel { position:absolute; z-index:5; box-sizing:border-box; padding:6px 10px; }
+.cdv-draft-pane .cdv-draft-origin { left:8px; top:8px; max-width:min(460px,calc(100% - 16px)); }
+.cdv-draft-pane .cdv-draft-layers {
+  right:8px; top:8px; max-width:calc(100% - 16px); max-height:60%; overflow:auto;
+}
+.cdv-draft-pane .cdv-draft-detail {
+  right:8px; bottom:8px; width:min(280px,calc(100% - 16px)); max-height:40%; overflow:auto;
+}
+.cdv-draft-pane .cdv-draft-heading { font-weight:600; }
+.cdv-draft-pane .cdv-draft-muted {
+  color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-button {
+  margin:6px 0 0; padding:2px 8px;
+  border:1px solid var(--camind-border-default,var(--dsw-alias-border-l2,CanvasText));
+  border-radius:6px; font:inherit; cursor:pointer;
+  color:var(--camind-color-text,var(--dsw-alias-label-primary,CanvasText));
+  background:var(--camind-surface-layer,var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-button:hover:not(:disabled):not([aria-busy="true"]) {
+  background:var(--camind-surface-hover,var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-1,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-button:active:not(:disabled):not([aria-busy="true"]) {
+  background:var(--camind-surface-active,var(--dsw-alias-interactive-bg-active,var(--dsw-alias-bg-layer-2,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-button:focus-visible,
+.cdv-draft-pane .cdv-draft-choice-input:focus-visible {
+  outline:2px solid var(--camind-focus-ring,var(--dsw-alias-state-business-primary,Highlight));
+  outline-offset:2px;
+}
+.cdv-draft-pane .cdv-draft-button:disabled,
+.cdv-draft-pane .cdv-draft-choice-input:disabled { opacity:.55; cursor:default; }
+.cdv-draft-pane .cdv-draft-button[aria-busy="true"] { opacity:.65; cursor:progress; }
+.cdv-draft-pane .cdv-draft-layer-row { display:block; white-space:nowrap; cursor:pointer; border-radius:4px; }
+.cdv-draft-pane .cdv-draft-layer-row:hover {
+  background:var(--camind-surface-hover,var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-1,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-layer-row:active {
+  background:var(--camind-surface-active,var(--dsw-alias-interactive-bg-active,var(--dsw-alias-bg-layer-2,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-choice-input {
+  accent-color:var(--camind-color-accent,var(--dsw-alias-state-business-primary,Highlight));
+}
+.cdv-draft-pane .cdv-draft-origin-badge { font-weight:600; }
+.cdv-draft-pane .cdv-draft-origin-badge[data-tone="ok"] {
+  color:var(--camind-color-success,var(--dsw-alias-state-success-primary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-origin-badge[data-tone="warn"] {
+  color:var(--camind-color-warning,var(--dsw-alias-state-warn-label,var(--dsw-alias-state-warn-primary,CanvasText)));
+}
+.cdv-draft-pane .cdv-draft-origin-badge[data-tone="unknown"] {
+  color:var(--camind-color-accent,var(--dsw-alias-state-business-primary,Highlight));
+}
+.cdv-draft-pane .cdv-draft-rechooser {
+  position:absolute; left:50%; top:30%; z-index:50; transform:translateX(-50%);
+  box-sizing:border-box; width:min(520px,calc(100% - 32px)); max-height:70%; overflow:auto;
+  padding:14px 18px; border-radius:14px;
+}
+.cdv-draft-pane .cdv-draft-dialog-title { margin:0 0 8px; font-size:16px; line-height:24px; font-weight:600; }
+.cdv-draft-pane .cdv-draft-choice { display:block; cursor:pointer; }
+.cdv-draft-pane .cdv-draft-choice-description {
+  margin:2px 0 8px 22px; font-size:12px; line-height:18px;
+  color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+.cdv-draft-pane .cdv-draft-dialog-actions .cdv-draft-button { margin:0; }
+.cdv-draft-pane .cdv-draft-detail-value { margin:4px 0; font-size:20px; line-height:28px; }
+.cdv-draft-pane .cdv-draft-detail-value[data-tone="error"] {
+  color:var(--camind-color-danger,var(--dsw-alias-state-error-primary,var(--dsw-alias-label-error,CanvasText)));
+}
+.cdv-draft-pane .cdv-draft-detail-table { border-spacing:0; }
+.cdv-draft-pane .cdv-draft-detail-key {
+  padding:1px 4px; white-space:nowrap; text-align:left; font-weight:400;
+  color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-detail-cell { padding:1px 4px; }
+`;
+let nextDraftPaneId = 0;
+
 export interface DraftProvenance {
     session: string;
     source: { uri: string; sha256: string; name: string };
@@ -103,6 +196,10 @@ export class DraftPane {
     private disposers: Array<() => void> = [];
     private ro: ResizeObserver | null = null;
     private destroyed = false;
+    private readonly instanceId = ++nextDraftPaneId;
+    private readonly radioName = `cdv-origin-channel-${this.instanceId}`;
+    private rechooserReturnFocus: HTMLElement | null = null;
+    private rootClassAdded = false;
 
     // Pane 自建 DOM
     private glCanvas!: HTMLCanvasElement;
@@ -293,39 +390,58 @@ export class DraftPane {
     // ── DOM 构建(出身条/图层/详情/改判对话框 + 双画布)──
     private buildDom(): void {
         const c = this.container;
-        c.style.position = "relative";
-        c.style.background = "#1e2023";
-        c.style.overflow = "hidden";
-        const mk = (tag: string, css: Partial<CSSStyleDeclaration>): HTMLElement => {
+        if (!c.classList.contains("cdv-draft-pane")) {
+            c.classList.add("cdv-draft-pane");
+            this.rootClassAdded = true;
+        }
+        const mk = (tag: string, className: string, parent: HTMLElement = c): HTMLElement => {
             const el = document.createElement(tag);
-            Object.assign(el.style, css);
-            c.appendChild(el);
+            el.className = className;
+            parent.appendChild(el);
             return el;
         };
-        this.glCanvas = mk("canvas", { position: "absolute", left: "0", top: "0", width: "100%", height: "100%" }) as HTMLCanvasElement;
-        this.textCanvas = mk("canvas", { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", pointerEvents: "none" }) as HTMLCanvasElement;
-        this.originDiv = mk("div", { position: "absolute", left: "8px", top: "8px", maxWidth: "460px",
-            background: "rgba(30,32,35,0.92)", border: "1px solid #3a3d42", padding: "6px 10px", zIndex: "5" });
-        this.layersDiv = mk("div", { position: "absolute", right: "8px", top: "8px", maxHeight: "60%",
-            overflowY: "auto", background: "rgba(30,32,35,0.92)", border: "1px solid #3a3d42",
-            padding: "6px 10px", zIndex: "5" });
+        this.glCanvas = mk("canvas", "cdv-draft-canvas cdv-draft-gl-canvas") as HTMLCanvasElement;
+        this.textCanvas = mk("canvas", "cdv-draft-canvas cdv-draft-text-canvas") as HTMLCanvasElement;
+        this.originDiv = mk("div", "cdv-draft-surface cdv-draft-panel cdv-draft-origin");
+        this.layersDiv = mk("div", "cdv-draft-surface cdv-draft-panel cdv-draft-layers");
         const hd = document.createElement("div");
+        hd.className = "cdv-draft-heading";
         hd.textContent = "DXF 图层";
-        hd.style.fontWeight = "bold";
         this.layersDiv.appendChild(hd);
-        const detailDiv = mk("div", { position: "absolute", right: "8px", bottom: "8px", width: "280px",
-            maxHeight: "40%", overflowY: "auto", background: "rgba(30,32,35,0.92)",
-            border: "1px solid #3a3d42", padding: "6px 10px", zIndex: "5" });
+        const detailDiv = mk("div", "cdv-draft-surface cdv-draft-panel cdv-draft-detail");
         const dhd = document.createElement("div");
+        dhd.className = "cdv-draft-heading";
         dhd.textContent = "详情";
-        dhd.style.fontWeight = "bold";
         detailDiv.appendChild(dhd);
-        this.detailBody = mk("div", {});
+        this.detailBody = mk("div", "cdv-draft-detail-body", detailDiv);
         this.detailBody.textContent = "点击实体查看详情";
-        detailDiv.appendChild(this.detailBody);
-        this.rechooser = mk("div", { position: "absolute", left: "50%", top: "30%",
-            transform: "translateX(-50%)", background: "#26282c", border: "1px solid #5a5d62",
-            padding: "14px 18px", display: "none", zIndex: "50" });
+        this.rechooser = mk("div", "cdv-draft-surface cdv-draft-rechooser");
+        this.rechooser.id = `cdv-origin-dialog-${this.instanceId}`;
+        this.rechooser.hidden = true;
+        this.rechooser.tabIndex = -1;
+        // 独立渲染进程没有 dsh React Modal；dialog aria/Escape/焦点恢复在此自含，升级时复核。
+        this.rechooser.setAttribute("role", "dialog");
+        this.rechooser.setAttribute("aria-modal", "false");
+        this.rechooser.setAttribute("aria-labelledby", `${this.rechooser.id}-title`);
+        const onRechooserKeyDown = (e: KeyboardEvent): void => {
+            if (e.key !== "Escape" || this.rechooser.hidden) return;
+            e.preventDefault();
+            e.stopPropagation();
+            this.closeRechooser();
+        };
+        this.rechooser.addEventListener("keydown", onRechooserKeyDown);
+        this.disposers.push(() => this.rechooser.removeEventListener("keydown", onRechooserKeyDown));
+        const style = mk("style", "cdv-draft-style");
+        style.textContent = DRAFT_PANE_CSS;
+    }
+
+    private closeRechooser(restoreFocus = true): void {
+        if (this.rechooser.hidden) return;
+        this.rechooser.hidden = true;
+        const target = this.rechooserReturnFocus;
+        this.rechooserReturnFocus = null;
+        target?.setAttribute("aria-expanded", "false");
+        if (restoreFocus) target?.focus();
     }
 
     private cancelClickTimer(): void {
@@ -562,15 +678,14 @@ export class DraftPane {
         if (!this.view || !this.draft) return;
         this.layersDiv.textContent = "";
         const hd = document.createElement("div");
+        hd.className = "cdv-draft-heading";
         hd.textContent = "DXF 图层";
-        hd.style.fontWeight = "bold";
         this.layersDiv.appendChild(hd);
         for (const name of this.view.layerNames()) {
             const label = document.createElement("label");
-            label.style.display = "block";
-            label.style.whiteSpace = "nowrap";
-            label.style.cursor = "pointer";
+            label.className = "cdv-draft-layer-row";
             const cb = document.createElement("input");
+            cb.className = "cdv-draft-choice-input";
             cb.type = "checkbox";
             cb.checked = this.view.isLayerVisible(name);
             cb.addEventListener("change", () => {
@@ -593,19 +708,26 @@ export class DraftPane {
         const info = originInfo(this.originNow, this.draft.sourceFile);
         this.originDiv.textContent = "";
         const badge = document.createElement("div");
-        badge.style.fontWeight = "bold";
-        badge.style.color = info.tone === "ok" ? "#7ec97e" : info.tone === "warn" ? "#e0b050" : "#b080c0";
+        badge.className = "cdv-draft-origin-badge";
+        badge.dataset.tone = info.tone;
         badge.textContent = info.badge;
         const note = document.createElement("div");
-        note.style.color = "#a0a4a8";
+        note.className = "cdv-draft-muted";
         note.textContent = info.note;
         const btn = document.createElement("button");
+        btn.className = "cdv-draft-button cdv-draft-origin-action";
+        btn.type = "button";
         btn.textContent = "出身改判…";
+        btn.setAttribute("aria-haspopup", "dialog");
+        btn.setAttribute("aria-controls", this.rechooser.id);
+        btn.setAttribute("aria-expanded", "false");
         btn.addEventListener("click", () => {
+            this.rechooserReturnFocus = btn;
             this.rechooser.textContent = "";
-            const hd = document.createElement("div");
+            const hd = document.createElement("h2");
+            hd.className = "cdv-draft-dialog-title";
+            hd.id = `${this.rechooser.id}-title`;
             hd.textContent = "出身手动指定";
-            hd.style.fontWeight = "bold";
             this.rechooser.appendChild(hd);
             for (const [ch, label, desc] of [
                 ["autocad", "AutoCAD 原生绘制", "按 AutoCAD 规则集解析"],
@@ -613,41 +735,50 @@ export class DraftPane {
                 ["unknown", "不确定", "保留 unknown,后续人工确认"],
             ] as const) {
                 const lab = document.createElement("label");
-                lab.style.display = "block";
+                lab.className = "cdv-draft-choice";
                 const radio = document.createElement("input");
+                radio.className = "cdv-draft-choice-input";
                 radio.type = "radio";
-                radio.name = "pane-ch";
+                radio.name = this.radioName;
                 radio.value = ch;
                 radio.checked = ch === this.originNow!.channel; // 打开按当前生效出身重置
                 lab.appendChild(radio);
                 lab.appendChild(document.createTextNode(" " + label));
                 const d = document.createElement("div");
+                d.className = "cdv-draft-choice-description";
                 d.textContent = desc;
-                d.style.cssText = "color:#a0a4a8;margin:2px 0 8px 22px;font-size:12px";
                 lab.appendChild(d);
                 this.rechooser.appendChild(lab);
             }
             const row = document.createElement("div");
-            row.style.textAlign = "right";
+            row.className = "cdv-draft-dialog-actions";
             const cancel = document.createElement("button");
+            cancel.className = "cdv-draft-button";
+            cancel.type = "button";
             cancel.textContent = "取消";
-            cancel.addEventListener("click", () => { this.rechooser.style.display = "none"; });
+            cancel.addEventListener("click", () => this.closeRechooser());
             const ok = document.createElement("button");
+            ok.className = "cdv-draft-button";
+            ok.type = "button";
             ok.textContent = "确认改判";
-            ok.style.marginLeft = "8px";
             ok.addEventListener("click", () => {
-                const picked = this.rechooser.querySelector("input[name=pane-ch]:checked") as HTMLInputElement | null;
+                const picked = this.rechooser.querySelector(`input[name="${this.radioName}"]:checked`) as HTMLInputElement | null;
+                this.closeRechooser(false);
                 if (picked && this.originNow) {
                     this.handle({ type: "setOriginOverride",
                         channel: picked.value as DraftOrigin["channel"],
                         evidence: [`人工指认(${new Date().toISOString().slice(0, 10)})`] });
                 }
-                this.rechooser.style.display = "none";
+                const trigger = this.originDiv.querySelector(".cdv-draft-origin-action") as HTMLElement | null;
+                (trigger ?? btn).focus();
             });
             row.appendChild(cancel);
             row.appendChild(ok);
             this.rechooser.appendChild(row);
-            this.rechooser.style.display = "block";
+            this.rechooser.hidden = false;
+            btn.setAttribute("aria-expanded", "true");
+            const picked = this.rechooser.querySelector(`input[name="${this.radioName}"]:checked`) as HTMLInputElement | null;
+            (picked ?? this.rechooser).focus();
         });
         this.originDiv.appendChild(badge);
         this.originDiv.appendChild(note);
@@ -659,18 +790,19 @@ export class DraftPane {
         if (d === null) { this.detailBody.textContent = "点击实体查看详情"; return; }
         if (d.kind === "dim") {
             const big = document.createElement("div");
-            big.style.cssText = "font-size:20px;margin:4px 0";
-            if (d.compare === "mismatch") big.style.color = "#e06060";
+            big.className = "cdv-draft-detail-value";
+            if (d.compare === "mismatch") big.dataset.tone = "error";
             big.textContent = d.displayText + (d.inferred ? "(推断)" : "");
             this.detailBody.appendChild(big);
             const tbl = document.createElement("table");
+            tbl.className = "cdv-draft-detail-table";
             const row = (k: string, v: string): void => {
                 const tr = document.createElement("tr");
                 const t1 = document.createElement("td");
-                t1.style.cssText = "color:#909498;white-space:nowrap;padding:1px 4px";
+                t1.className = "cdv-draft-detail-key";
                 t1.textContent = k;
                 const t2 = document.createElement("td");
-                t2.style.padding = "1px 4px";
+                t2.className = "cdv-draft-detail-cell";
                 t2.textContent = v;
                 tr.appendChild(t1); tr.appendChild(t2); tbl.appendChild(tr);
             };
@@ -685,13 +817,14 @@ export class DraftPane {
             this.detailBody.appendChild(tbl);
         } else {
             const tbl = document.createElement("table");
+            tbl.className = "cdv-draft-detail-table";
             const row = (k: string, v: string): void => {
                 const tr = document.createElement("tr");
                 const t1 = document.createElement("td");
-                t1.style.cssText = "color:#909498;padding:1px 4px";
+                t1.className = "cdv-draft-detail-key";
                 t1.textContent = k;
                 const t2 = document.createElement("td");
-                t2.style.padding = "1px 4px";
+                t2.className = "cdv-draft-detail-cell";
                 t2.textContent = v;
                 tr.appendChild(t1); tr.appendChild(t2); tbl.appendChild(tr);
             };
@@ -712,6 +845,9 @@ export class DraftPane {
         this.view?.dispose();
         this.view = null;
         this.contextSnapshot = null;
+        this.rechooserReturnFocus = null;
         this.container.textContent = "";
+        if (this.rootClassAdded) this.container.classList.remove("cdv-draft-pane");
+        this.rootClassAdded = false;
     }
 }

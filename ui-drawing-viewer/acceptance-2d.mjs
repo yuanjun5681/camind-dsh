@@ -96,11 +96,12 @@ function makeDom(makeGlMock) {
   function makeEl(tagName = 'div') {
     const children = []
     const listeners = new Map()
+    const attributes = new Map()
     let ownText = ''
     let c2d = null
     const el = {
       tagName: tagName.toUpperCase(), style: {}, dataset: {}, children, listeners, parentNode: null,
-      clientWidth: 800, glMocks: [], c2dMocks: [],
+      clientWidth: 800, glMocks: [], c2dMocks: [], className: '', hidden: false,
       appendChild(child) {
         if (child.parentNode) {
           const old = child.parentNode.children
@@ -114,9 +115,18 @@ function makeDom(makeGlMock) {
       addEventListener(type, fn) { addListener(listeners, type, fn) },
       removeEventListener(type, fn) { removeListener(listeners, type, fn) },
       dispatch(type, event = {}) { for (const fn of [...(listeners.get(type) ?? [])]) fn(event) },
+      setAttribute(name, value) { attributes.set(name, String(value)) },
+      getAttribute(name) { return attributes.get(name) ?? null },
+      focus() { document.activeElement = el },
       querySelector(selector) {
-        if (selector === 'input[name=pane-ch]:checked') {
-          return descendants(el).find(node => node.tagName === 'INPUT' && node.name === 'pane-ch' && node.checked) ?? null
+        const radio = selector.match(/^input\[name="([^"]+)"\]:checked$/)
+        if (radio) {
+          return descendants(el).find(node => node.tagName === 'INPUT' && node.type === 'radio'
+            && node.name === radio[1] && node.checked) ?? null
+        }
+        if (selector.startsWith('.')) {
+          const name = selector.slice(1)
+          return descendants(el).find(node => String(node.className ?? '').split(/\s+/).includes(name)) ?? null
         }
         return null
       },
@@ -150,9 +160,22 @@ function makeDom(makeGlMock) {
         children.length = 0
       },
     })
+    el.classList = {
+      add(...names) {
+        const current = new Set(el.className.split(/\s+/).filter(Boolean))
+        for (const name of names) current.add(name)
+        el.className = [...current].join(' ')
+      },
+      remove(...names) {
+        const removed = new Set(names)
+        el.className = el.className.split(/\s+/).filter(name => name && !removed.has(name)).join(' ')
+      },
+      contains(name) { return el.className.split(/\s+/).includes(name) },
+    }
     return el
   }
   const document = {
+    activeElement: null,
     createElement: tag => makeEl(tag),
     createTextNode: text => ({ tagName: '#text', text, textContent: text, children: [], parentNode: null }),
   }
@@ -212,6 +235,47 @@ async function clickWorld(paneContext, raw, wx, wy) {
 function detailBody(container) {
   return container.children[4].children[1]
 }
+
+function assertSkinCss(css, scope) {
+  const blocks = [...css.matchAll(/(?:^|\})\s*([^{}]+)\{/g)].map(match => match[1])
+  assert.ok(blocks.length > 0)
+  for (const block of blocks) {
+    for (const selector of block.split(',')) assert.ok(selector.trim().startsWith(scope), `未 scoped 选择器：${selector.trim()}`)
+  }
+  for (const declaration of css.split(';')) {
+    if (declaration.includes('var(--camind-')) assert.ok(declaration.includes('--dsw-alias-'), `Camind token 缺少 DSW 回退：${declaration.trim()}`)
+  }
+}
+
+await scenario('skin', 'M5-02 无固定色/内联表现样式，token 回退与 cdv 作用域选择器静态门禁', () => {
+  const paneSource = fs.readFileSync(path.join(root, 'src/draft/draft_pane.ts'), 'utf8')
+  const stylesSource = fs.readFileSync(path.join(root, 'src/styles.ts'), 'utf8')
+  const paneCss = paneSource.match(/const DRAFT_PANE_CSS = `([\s\S]*?)`;/)?.[1]
+  const outerCss = stylesSource.match(/export const drawingCss = `([\s\S]*?)`/)?.[1]
+  assert.ok(paneCss)
+  assert.ok(outerCss)
+  assert.equal(/\.style(?:\.|\[)/.test(paneSource), false, 'DraftPane 不得写内联样式')
+  assert.equal(/#[0-9a-f]{3,8}\b|(?:rgb|hsl)a?\(/i.test(`${paneSource}\n${stylesSource}`), false, 'DOM chrome 不得使用固定色值')
+  assert.equal(paneSource.includes('--dsw-alias-background-base') || stylesSource.includes('--dsw-alias-background-base'), false)
+  assert.equal(paneSource.includes('--camind-color-primary') || stylesSource.includes('--camind-color-primary'), false)
+  assert.ok(paneCss.includes('--camind-focus-ring'))
+  assert.ok(stylesSource.includes('--camind-focus-ring'))
+  assert.ok(paneCss.includes('--dsw-alias-bg-base'))
+  assert.ok(stylesSource.includes('--dsw-alias-bg-base'))
+  assertSkinCss(paneCss, '.cdv-draft-pane')
+  assertSkinCss(outerCss, '.cdv')
+
+  const context = openPane()
+  assert.ok(context.container.classList.contains('cdv-draft-pane'))
+  const directChrome = context.container.children.filter(node => node.tagName === 'DIV')
+  assert.deepEqual(directChrome.map(node => node.className), [
+    'cdv-draft-surface cdv-draft-panel cdv-draft-origin',
+    'cdv-draft-surface cdv-draft-panel cdv-draft-layers',
+    'cdv-draft-surface cdv-draft-panel cdv-draft-detail',
+    'cdv-draft-surface cdv-draft-rechooser',
+  ])
+  context.pane.dispose()
+})
 
 await scenario('entities', 'line/circle/arc/polyline 凸度/point/hatch/solid/text/mtext/leader/mleader/tolerance 全类型展开', () => {
   assert.deepEqual(core.checkDraftPack(clone(goodRaw), 'writer').errors, [])
@@ -472,7 +536,7 @@ await scenario('dims', 'dims display_text/measured 比对标红、归组与公�
   const selected = matched.messages.filter(message => message.type === 'selectionChanged').at(-1)
   assert.equal(selected.targets[0].type, 'dim')
   assert.equal(selected.targets[0].id, 'D2A/30')
-  assert.notEqual(detailBody(matched.container).children[0].style.color, '#e06060')
+  assert.equal(detailBody(matched.container).children[0].dataset.tone, undefined)
   assert.match(detailBody(matched.container).textContent, /公差±0\.05/)
   matched.pane.dispose()
 
@@ -487,13 +551,14 @@ await scenario('dims', 'dims display_text/measured 比对标红、归组与公�
   assert.equal(mismatchDetail.toleranceText, '±0.05')
   const body = detailBody(mismatch.container)
   assert.equal(body.children[0].textContent, 'Ø14')
-  assert.equal(body.children[0].style.color, '#e06060')
+  assert.equal(body.children[0].className, 'cdv-draft-detail-value')
+  assert.equal(body.children[0].dataset.tone, 'error')
   assert.match(body.textContent, /⚠ 显示与测量不一致/)
   assert.match(body.textContent, /公差±0\.05/)
   mismatch.pane.dispose()
 })
 
-await scenario('origin', '出身徽标、NX 提示与手动改判 UI 闭环', () => {
+await scenario('origin', '出身徽标、NX 提示与手动改判 UI、Escape 和焦点恢复闭环', () => {
   const automatic = core.originInfo({ channel: 'autocad', evidence: ['synthetic'], method: 'auto', ruleVersion: 'r' }, 'a.dwg')
   assert.equal(automatic.tone, 'ok')
   assert.match(automatic.badge, /AutoCAD 出身\(自动\)/)
@@ -503,12 +568,31 @@ await scenario('origin', '出身徽标、NX 提示与手动改判 UI 闭环', ()
   const context = openPane()
   const originDiv = context.container.children[2]
   assert.match(originDiv.textContent, /AutoCAD 出身\(自动\)/)
-  assert.equal(originDiv.children[0].style.color, '#7ec97e')
+  assert.equal(originDiv.children[0].className, 'cdv-draft-origin-badge')
+  assert.equal(originDiv.children[0].dataset.tone, 'ok')
   const open = descendants(originDiv).find(node => node.textContent === '出身改判…')
   assert.ok(open)
+  open.focus()
   open.dispatch('click')
   const chooser = context.container.children[5]
-  assert.equal(chooser.style.display, 'block')
+  assert.equal(chooser.hidden, false)
+  assert.equal(chooser.getAttribute('role'), 'dialog')
+  assert.equal(chooser.getAttribute('aria-modal'), 'false')
+  assert.equal(chooser.getAttribute('aria-labelledby'), `${chooser.id}-title`)
+  assert.equal(chooser.children[0].id, `${chooser.id}-title`)
+  assert.equal(open.getAttribute('aria-expanded'), 'true')
+  assert.equal(context.env.document.activeElement.type, 'radio')
+  let prevented = 0, stopped = 0
+  chooser.dispatch('keydown', {
+    key: 'Escape', preventDefault() { prevented++ }, stopPropagation() { stopped++ },
+  })
+  assert.equal(prevented, 1)
+  assert.equal(stopped, 1)
+  assert.equal(chooser.hidden, true)
+  assert.equal(open.getAttribute('aria-expanded'), 'false')
+  assert.equal(context.env.document.activeElement, open)
+
+  open.dispatch('click')
   const radios = descendants(chooser).filter(node => node.tagName === 'INPUT' && node.type === 'radio')
   assert.equal(radios.length, 3)
   for (const radio of radios) radio.checked = radio.value === 'nx'
@@ -520,8 +604,11 @@ await scenario('origin', '出身徽标、NX 提示与手动改判 UI 闭环', ()
   assert.match(changed.origin.evidence[0], /人工指认/)
   assert.match(originDiv.textContent, /NX 出身\(手动\)/)
   assert.match(originDiv.textContent, /补传对应 prt/)
-  assert.equal(originDiv.children[0].style.color, '#e0b050')
-  assert.equal(chooser.style.display, 'none')
+  assert.equal(originDiv.children[0].dataset.tone, 'warn')
+  assert.equal(chooser.hidden, true)
+  const newOpen = originDiv.querySelector('.cdv-draft-origin-action')
+  assert.notEqual(newOpen, open)
+  assert.equal(context.env.document.activeElement, newOpen)
   context.pane.dispose()
 })
 
@@ -648,6 +735,6 @@ await scenario('degradation', 'DrawingPreview 实际显示抽稀、文字截断�
   for (const cleanup of cleanups) if (typeof cleanup === 'function') cleanup()
 })
 
-const requiredCoverage = ['entities', 'stipple', 'render', 'color', 'layers', 'csr', 'text-priority', 'dims', 'origin', 'budget', 'degradation']
+const requiredCoverage = ['skin', 'entities', 'stipple', 'render', 'color', 'layers', 'csr', 'text-priority', 'dims', 'origin', 'budget', 'degradation']
 for (const id of requiredCoverage) assert.ok(coverage.has(id), `综合入口未执行覆盖项：${id}`)
 console.log(`M3-03 2D 功能迁移验收通过：${scenarioCount} 个综合场景，${assertionCount} 项断言（合成概览，不代表完整审图）。`)

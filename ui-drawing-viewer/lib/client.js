@@ -1897,6 +1897,98 @@ function originInfo(origin, sourceFile) {
 
 // ui-drawing-viewer/src/draft/draft_pane.ts
 var DRAFT_PANE_MESSAGE_VERSION = 2;
+var DRAFT_PANE_CSS = `
+.cdv-draft-pane {
+  position:relative; overflow:hidden; font-size:13px; line-height:20px;
+  color:var(--camind-color-text,var(--dsw-alias-label-primary,CanvasText));
+  background:var(--camind-surface-page,var(--dsw-alias-bg-base,Canvas));
+}
+.cdv-draft-pane .cdv-draft-canvas { position:absolute; inset:0; width:100%; height:100%; }
+.cdv-draft-pane .cdv-draft-text-canvas { pointer-events:none; }
+.cdv-draft-pane .cdv-draft-surface {
+  border:1px solid var(--camind-border-default,var(--dsw-alias-border-l2,CanvasText));
+  border-radius:6px; overflow-wrap:anywhere;
+  color:var(--camind-color-text,var(--dsw-alias-label-primary,CanvasText));
+  background:var(--camind-surface-raised,var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-panel { position:absolute; z-index:5; box-sizing:border-box; padding:6px 10px; }
+.cdv-draft-pane .cdv-draft-origin { left:8px; top:8px; max-width:min(460px,calc(100% - 16px)); }
+.cdv-draft-pane .cdv-draft-layers {
+  right:8px; top:8px; max-width:calc(100% - 16px); max-height:60%; overflow:auto;
+}
+.cdv-draft-pane .cdv-draft-detail {
+  right:8px; bottom:8px; width:min(280px,calc(100% - 16px)); max-height:40%; overflow:auto;
+}
+.cdv-draft-pane .cdv-draft-heading { font-weight:600; }
+.cdv-draft-pane .cdv-draft-muted {
+  color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-button {
+  margin:6px 0 0; padding:2px 8px;
+  border:1px solid var(--camind-border-default,var(--dsw-alias-border-l2,CanvasText));
+  border-radius:6px; font:inherit; cursor:pointer;
+  color:var(--camind-color-text,var(--dsw-alias-label-primary,CanvasText));
+  background:var(--camind-surface-layer,var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-button:hover:not(:disabled):not([aria-busy="true"]) {
+  background:var(--camind-surface-hover,var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-1,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-button:active:not(:disabled):not([aria-busy="true"]) {
+  background:var(--camind-surface-active,var(--dsw-alias-interactive-bg-active,var(--dsw-alias-bg-layer-2,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-button:focus-visible,
+.cdv-draft-pane .cdv-draft-choice-input:focus-visible {
+  outline:2px solid var(--camind-focus-ring,var(--dsw-alias-state-business-primary,Highlight));
+  outline-offset:2px;
+}
+.cdv-draft-pane .cdv-draft-button:disabled,
+.cdv-draft-pane .cdv-draft-choice-input:disabled { opacity:.55; cursor:default; }
+.cdv-draft-pane .cdv-draft-button[aria-busy="true"] { opacity:.65; cursor:progress; }
+.cdv-draft-pane .cdv-draft-layer-row { display:block; white-space:nowrap; cursor:pointer; border-radius:4px; }
+.cdv-draft-pane .cdv-draft-layer-row:hover {
+  background:var(--camind-surface-hover,var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-1,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-layer-row:active {
+  background:var(--camind-surface-active,var(--dsw-alias-interactive-bg-active,var(--dsw-alias-bg-layer-2,Canvas)));
+}
+.cdv-draft-pane .cdv-draft-choice-input {
+  accent-color:var(--camind-color-accent,var(--dsw-alias-state-business-primary,Highlight));
+}
+.cdv-draft-pane .cdv-draft-origin-badge { font-weight:600; }
+.cdv-draft-pane .cdv-draft-origin-badge[data-tone="ok"] {
+  color:var(--camind-color-success,var(--dsw-alias-state-success-primary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-origin-badge[data-tone="warn"] {
+  color:var(--camind-color-warning,var(--dsw-alias-state-warn-label,var(--dsw-alias-state-warn-primary,CanvasText)));
+}
+.cdv-draft-pane .cdv-draft-origin-badge[data-tone="unknown"] {
+  color:var(--camind-color-accent,var(--dsw-alias-state-business-primary,Highlight));
+}
+.cdv-draft-pane .cdv-draft-rechooser {
+  position:absolute; left:50%; top:30%; z-index:50; transform:translateX(-50%);
+  box-sizing:border-box; width:min(520px,calc(100% - 32px)); max-height:70%; overflow:auto;
+  padding:14px 18px; border-radius:14px;
+}
+.cdv-draft-pane .cdv-draft-dialog-title { margin:0 0 8px; font-size:16px; line-height:24px; font-weight:600; }
+.cdv-draft-pane .cdv-draft-choice { display:block; cursor:pointer; }
+.cdv-draft-pane .cdv-draft-choice-description {
+  margin:2px 0 8px 22px; font-size:12px; line-height:18px;
+  color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+.cdv-draft-pane .cdv-draft-dialog-actions .cdv-draft-button { margin:0; }
+.cdv-draft-pane .cdv-draft-detail-value { margin:4px 0; font-size:20px; line-height:28px; }
+.cdv-draft-pane .cdv-draft-detail-value[data-tone="error"] {
+  color:var(--camind-color-danger,var(--dsw-alias-state-error-primary,var(--dsw-alias-label-error,CanvasText)));
+}
+.cdv-draft-pane .cdv-draft-detail-table { border-spacing:0; }
+.cdv-draft-pane .cdv-draft-detail-key {
+  padding:1px 4px; white-space:nowrap; text-align:left; font-weight:400;
+  color:var(--camind-color-text-secondary,var(--dsw-alias-label-secondary,CanvasText));
+}
+.cdv-draft-pane .cdv-draft-detail-cell { padding:1px 4px; }
+`;
+var nextDraftPaneId = 0;
 function validateProvenance(p) {
   if (p === null || p === void 0) return null;
   const text = (v) => typeof v === "string" && v.length > 0;
@@ -1927,6 +2019,10 @@ var DraftPane = class {
   disposers = [];
   ro = null;
   destroyed = false;
+  instanceId = ++nextDraftPaneId;
+  radioName = `cdv-origin-channel-${this.instanceId}`;
+  rechooserReturnFocus = null;
+  rootClassAdded = false;
   // Pane 自建 DOM
   glCanvas;
   textCanvas;
@@ -2156,72 +2252,56 @@ var DraftPane = class {
   // ── DOM 构建(出身条/图层/详情/改判对话框 + 双画布)──
   buildDom() {
     const c = this.container;
-    c.style.position = "relative";
-    c.style.background = "#1e2023";
-    c.style.overflow = "hidden";
-    const mk = (tag, css) => {
+    if (!c.classList.contains("cdv-draft-pane")) {
+      c.classList.add("cdv-draft-pane");
+      this.rootClassAdded = true;
+    }
+    const mk = (tag, className, parent = c) => {
       const el = document.createElement(tag);
-      Object.assign(el.style, css);
-      c.appendChild(el);
+      el.className = className;
+      parent.appendChild(el);
       return el;
     };
-    this.glCanvas = mk("canvas", { position: "absolute", left: "0", top: "0", width: "100%", height: "100%" });
-    this.textCanvas = mk("canvas", { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", pointerEvents: "none" });
-    this.originDiv = mk("div", {
-      position: "absolute",
-      left: "8px",
-      top: "8px",
-      maxWidth: "460px",
-      background: "rgba(30,32,35,0.92)",
-      border: "1px solid #3a3d42",
-      padding: "6px 10px",
-      zIndex: "5"
-    });
-    this.layersDiv = mk("div", {
-      position: "absolute",
-      right: "8px",
-      top: "8px",
-      maxHeight: "60%",
-      overflowY: "auto",
-      background: "rgba(30,32,35,0.92)",
-      border: "1px solid #3a3d42",
-      padding: "6px 10px",
-      zIndex: "5"
-    });
+    this.glCanvas = mk("canvas", "cdv-draft-canvas cdv-draft-gl-canvas");
+    this.textCanvas = mk("canvas", "cdv-draft-canvas cdv-draft-text-canvas");
+    this.originDiv = mk("div", "cdv-draft-surface cdv-draft-panel cdv-draft-origin");
+    this.layersDiv = mk("div", "cdv-draft-surface cdv-draft-panel cdv-draft-layers");
     const hd = document.createElement("div");
+    hd.className = "cdv-draft-heading";
     hd.textContent = "DXF \u56FE\u5C42";
-    hd.style.fontWeight = "bold";
     this.layersDiv.appendChild(hd);
-    const detailDiv = mk("div", {
-      position: "absolute",
-      right: "8px",
-      bottom: "8px",
-      width: "280px",
-      maxHeight: "40%",
-      overflowY: "auto",
-      background: "rgba(30,32,35,0.92)",
-      border: "1px solid #3a3d42",
-      padding: "6px 10px",
-      zIndex: "5"
-    });
+    const detailDiv = mk("div", "cdv-draft-surface cdv-draft-panel cdv-draft-detail");
     const dhd = document.createElement("div");
+    dhd.className = "cdv-draft-heading";
     dhd.textContent = "\u8BE6\u60C5";
-    dhd.style.fontWeight = "bold";
     detailDiv.appendChild(dhd);
-    this.detailBody = mk("div", {});
+    this.detailBody = mk("div", "cdv-draft-detail-body", detailDiv);
     this.detailBody.textContent = "\u70B9\u51FB\u5B9E\u4F53\u67E5\u770B\u8BE6\u60C5";
-    detailDiv.appendChild(this.detailBody);
-    this.rechooser = mk("div", {
-      position: "absolute",
-      left: "50%",
-      top: "30%",
-      transform: "translateX(-50%)",
-      background: "#26282c",
-      border: "1px solid #5a5d62",
-      padding: "14px 18px",
-      display: "none",
-      zIndex: "50"
-    });
+    this.rechooser = mk("div", "cdv-draft-surface cdv-draft-rechooser");
+    this.rechooser.id = `cdv-origin-dialog-${this.instanceId}`;
+    this.rechooser.hidden = true;
+    this.rechooser.tabIndex = -1;
+    this.rechooser.setAttribute("role", "dialog");
+    this.rechooser.setAttribute("aria-modal", "false");
+    this.rechooser.setAttribute("aria-labelledby", `${this.rechooser.id}-title`);
+    const onRechooserKeyDown = (e) => {
+      if (e.key !== "Escape" || this.rechooser.hidden) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.closeRechooser();
+    };
+    this.rechooser.addEventListener("keydown", onRechooserKeyDown);
+    this.disposers.push(() => this.rechooser.removeEventListener("keydown", onRechooserKeyDown));
+    const style = mk("style", "cdv-draft-style");
+    style.textContent = DRAFT_PANE_CSS;
+  }
+  closeRechooser(restoreFocus = true) {
+    if (this.rechooser.hidden) return;
+    this.rechooser.hidden = true;
+    const target = this.rechooserReturnFocus;
+    this.rechooserReturnFocus = null;
+    target?.setAttribute("aria-expanded", "false");
+    if (restoreFocus) target?.focus();
   }
   cancelClickTimer() {
     if (this.clickTimer !== null) clearTimeout(this.clickTimer);
@@ -2484,15 +2564,14 @@ var DraftPane = class {
     if (!this.view || !this.draft) return;
     this.layersDiv.textContent = "";
     const hd = document.createElement("div");
+    hd.className = "cdv-draft-heading";
     hd.textContent = "DXF \u56FE\u5C42";
-    hd.style.fontWeight = "bold";
     this.layersDiv.appendChild(hd);
     for (const name2 of this.view.layerNames()) {
       const label = document.createElement("label");
-      label.style.display = "block";
-      label.style.whiteSpace = "nowrap";
-      label.style.cursor = "pointer";
+      label.className = "cdv-draft-layer-row";
       const cb = document.createElement("input");
+      cb.className = "cdv-draft-choice-input";
       cb.type = "checkbox";
       cb.checked = this.view.isLayerVisible(name2);
       cb.addEventListener("change", () => {
@@ -2514,19 +2593,26 @@ var DraftPane = class {
     const info = originInfo(this.originNow, this.draft.sourceFile);
     this.originDiv.textContent = "";
     const badge = document.createElement("div");
-    badge.style.fontWeight = "bold";
-    badge.style.color = info.tone === "ok" ? "#7ec97e" : info.tone === "warn" ? "#e0b050" : "#b080c0";
+    badge.className = "cdv-draft-origin-badge";
+    badge.dataset.tone = info.tone;
     badge.textContent = info.badge;
     const note = document.createElement("div");
-    note.style.color = "#a0a4a8";
+    note.className = "cdv-draft-muted";
     note.textContent = info.note;
     const btn = document.createElement("button");
+    btn.className = "cdv-draft-button cdv-draft-origin-action";
+    btn.type = "button";
     btn.textContent = "\u51FA\u8EAB\u6539\u5224\u2026";
+    btn.setAttribute("aria-haspopup", "dialog");
+    btn.setAttribute("aria-controls", this.rechooser.id);
+    btn.setAttribute("aria-expanded", "false");
     btn.addEventListener("click", () => {
+      this.rechooserReturnFocus = btn;
       this.rechooser.textContent = "";
-      const hd = document.createElement("div");
+      const hd = document.createElement("h2");
+      hd.className = "cdv-draft-dialog-title";
+      hd.id = `${this.rechooser.id}-title`;
       hd.textContent = "\u51FA\u8EAB\u624B\u52A8\u6307\u5B9A";
-      hd.style.fontWeight = "bold";
       this.rechooser.appendChild(hd);
       for (const [ch, label, desc] of [
         ["autocad", "AutoCAD \u539F\u751F\u7ED8\u5236", "\u6309 AutoCAD \u89C4\u5219\u96C6\u89E3\u6790"],
@@ -2534,45 +2620,52 @@ var DraftPane = class {
         ["unknown", "\u4E0D\u786E\u5B9A", "\u4FDD\u7559 unknown,\u540E\u7EED\u4EBA\u5DE5\u786E\u8BA4"]
       ]) {
         const lab = document.createElement("label");
-        lab.style.display = "block";
+        lab.className = "cdv-draft-choice";
         const radio = document.createElement("input");
+        radio.className = "cdv-draft-choice-input";
         radio.type = "radio";
-        radio.name = "pane-ch";
+        radio.name = this.radioName;
         radio.value = ch;
         radio.checked = ch === this.originNow.channel;
         lab.appendChild(radio);
         lab.appendChild(document.createTextNode(" " + label));
         const d = document.createElement("div");
+        d.className = "cdv-draft-choice-description";
         d.textContent = desc;
-        d.style.cssText = "color:#a0a4a8;margin:2px 0 8px 22px;font-size:12px";
         lab.appendChild(d);
         this.rechooser.appendChild(lab);
       }
       const row = document.createElement("div");
-      row.style.textAlign = "right";
+      row.className = "cdv-draft-dialog-actions";
       const cancel = document.createElement("button");
+      cancel.className = "cdv-draft-button";
+      cancel.type = "button";
       cancel.textContent = "\u53D6\u6D88";
-      cancel.addEventListener("click", () => {
-        this.rechooser.style.display = "none";
-      });
+      cancel.addEventListener("click", () => this.closeRechooser());
       const ok = document.createElement("button");
+      ok.className = "cdv-draft-button";
+      ok.type = "button";
       ok.textContent = "\u786E\u8BA4\u6539\u5224";
-      ok.style.marginLeft = "8px";
       ok.addEventListener("click", () => {
-        const picked = this.rechooser.querySelector("input[name=pane-ch]:checked");
-        if (picked && this.originNow) {
+        const picked2 = this.rechooser.querySelector(`input[name="${this.radioName}"]:checked`);
+        this.closeRechooser(false);
+        if (picked2 && this.originNow) {
           this.handle({
             type: "setOriginOverride",
-            channel: picked.value,
+            channel: picked2.value,
             evidence: [`\u4EBA\u5DE5\u6307\u8BA4(${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)})`]
           });
         }
-        this.rechooser.style.display = "none";
+        const trigger = this.originDiv.querySelector(".cdv-draft-origin-action");
+        (trigger ?? btn).focus();
       });
       row.appendChild(cancel);
       row.appendChild(ok);
       this.rechooser.appendChild(row);
-      this.rechooser.style.display = "block";
+      this.rechooser.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      const picked = this.rechooser.querySelector(`input[name="${this.radioName}"]:checked`);
+      (picked ?? this.rechooser).focus();
     });
     this.originDiv.appendChild(badge);
     this.originDiv.appendChild(note);
@@ -2586,18 +2679,19 @@ var DraftPane = class {
     }
     if (d.kind === "dim") {
       const big = document.createElement("div");
-      big.style.cssText = "font-size:20px;margin:4px 0";
-      if (d.compare === "mismatch") big.style.color = "#e06060";
+      big.className = "cdv-draft-detail-value";
+      if (d.compare === "mismatch") big.dataset.tone = "error";
       big.textContent = d.displayText + (d.inferred ? "(\u63A8\u65AD)" : "");
       this.detailBody.appendChild(big);
       const tbl = document.createElement("table");
+      tbl.className = "cdv-draft-detail-table";
       const row = (k, v) => {
         const tr = document.createElement("tr");
         const t1 = document.createElement("td");
-        t1.style.cssText = "color:#909498;white-space:nowrap;padding:1px 4px";
+        t1.className = "cdv-draft-detail-key";
         t1.textContent = k;
         const t2 = document.createElement("td");
-        t2.style.padding = "1px 4px";
+        t2.className = "cdv-draft-detail-cell";
         t2.textContent = v;
         tr.appendChild(t1);
         tr.appendChild(t2);
@@ -2614,13 +2708,14 @@ var DraftPane = class {
       this.detailBody.appendChild(tbl);
     } else {
       const tbl = document.createElement("table");
+      tbl.className = "cdv-draft-detail-table";
       const row = (k, v) => {
         const tr = document.createElement("tr");
         const t1 = document.createElement("td");
-        t1.style.cssText = "color:#909498;padding:1px 4px";
+        t1.className = "cdv-draft-detail-key";
         t1.textContent = k;
         const t2 = document.createElement("td");
-        t2.style.padding = "1px 4px";
+        t2.className = "cdv-draft-detail-cell";
         t2.textContent = v;
         tr.appendChild(t1);
         tr.appendChild(t2);
@@ -2642,7 +2737,10 @@ var DraftPane = class {
     this.view?.dispose();
     this.view = null;
     this.contextSnapshot = null;
+    this.rechooserReturnFocus = null;
     this.container.textContent = "";
+    if (this.rootClassAdded) this.container.classList.remove("cdv-draft-pane");
+    this.rootClassAdded = false;
   }
 };
 
@@ -2682,22 +2780,21 @@ function drawingReferences(descriptor, targets) {
 var drawingCss = `
 .cdv { position:relative; display:flex; flex-direction:column; width:100%; height:100%; min-height:0;
   color:var(--camind-color-text, var(--dsw-alias-label-primary));
-  background:var(--camind-surface-page, var(--dsw-alias-background-base)); }
+  background:var(--camind-surface-page, var(--dsw-alias-bg-base)); }
 .cdv-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:6px 8px;
   font-size:12px; line-height:1.4; color:var(--camind-color-text-secondary, var(--dsw-alias-label-secondary)); }
 .cdv-meta strong { color:var(--camind-color-text, var(--dsw-alias-label-primary)); font-weight:600; }
 .cdv-badge { display:inline-flex; align-items:center; border:1px solid var(--camind-border-default, var(--dsw-alias-border-l2));
   border-radius:4px; padding:1px 5px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
 .cdv-error { margin:6px 8px; padding:8px; border:1px solid var(--camind-color-danger, var(--dsw-alias-state-error-primary));
-  color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); background:var(--camind-surface-warning, transparent); }
-.cdv-missing { margin:0 8px 6px; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
+  color:var(--camind-color-danger, var(--dsw-alias-state-error-primary)); overflow-wrap:anywhere;
+  background:color-mix(in srgb, var(--camind-color-danger, var(--dsw-alias-state-error-primary)) 8%, transparent); }
+.cdv-missing { margin:0 8px 6px; overflow-wrap:anywhere; color:var(--camind-color-warning, var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary))); }
 .cdv-body { position:relative; display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
 .cdv-body-adapted { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto minmax(0,1fr); }
 .cdv-body-adapted > .cdv-canvas { grid-column:1; grid-row:2; }
 .cdv-canvas { position:relative; flex:1; min-height:240px; min-width:0; overflow:hidden; }
-.cdv-canvas:focus-visible { outline:2px solid var(--camind-color-primary, var(--dsw-alias-state-business-primary)); outline-offset:-2px; }
-/* The mirrored DraftPane uses fixed-dark panels; keep a fixed light foreground in both themes. */
-.cdv-canvas > div:not(canvas) { color:#f5f5f5; }
+.cdv-canvas:focus-visible { outline:2px solid var(--camind-focus-ring, var(--dsw-alias-state-business-primary)); outline-offset:-2px; }
 `;
 
 // ui-drawing-viewer/src/client.ts

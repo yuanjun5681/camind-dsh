@@ -322,11 +322,14 @@ function makePerformancePack() {
 function makeEl() {
   const children = []
   const listeners = new Map()
+  const attributes = new Map()
   const el = {
-    style: {}, dataset: {}, children, clientWidth: 1600, textContent: '', glMocks: [], c2dMocks: [],
+    style: {}, dataset: {}, children, clientWidth: 1600, textContent: '', glMocks: [], c2dMocks: [], className: '',
     appendChild(child) { children.push(child); return child },
     addEventListener(type, fn) { listeners.set(type, [...(listeners.get(type) ?? []), fn]) },
     removeEventListener(type, fn) { listeners.set(type, (listeners.get(type) ?? []).filter(item => item !== fn)) },
+    setAttribute(name, value) { attributes.set(name, String(value)) },
+    getAttribute(name) { return attributes.get(name) ?? null },
     getBoundingClientRect() { return { left: 0, top: 0, width: 1600, height: 1000 } },
     querySelector() { return null },
     getContext(kind) {
@@ -339,6 +342,18 @@ function makeEl() {
       el.c2dMocks.push(mock)
       return mock.ctx
     },
+  }
+  el.classList = {
+    add(...names) {
+      const current = new Set(el.className.split(/\s+/).filter(Boolean))
+      for (const name of names) current.add(name)
+      el.className = [...current].join(' ')
+    },
+    remove(...names) {
+      const removed = new Set(names)
+      el.className = el.className.split(/\s+/).filter(name => name && !removed.has(name)).join(' ')
+    },
+    contains(name) { return el.className.split(/\s+/).includes(name) },
   }
   return el
 }
