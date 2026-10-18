@@ -552,6 +552,29 @@ assert.deepEqual(ownedIds(), [28], 'handoff may finish, but the changed submissi
 assert.match(sent28, /"id":28/)
 console.log('ok - deferred submit is cancelled when its draft changes')
 
+const ref31 = await selectId(31)
+await serializeAndClear(ref31, 'request-31')
+let resolve31
+deferred = claimed => new Promise(resolve => {
+  resolve31 = () => {
+    deferred = null
+    resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+  }
+})
+publishAdmitted([{ kind: 'user', turn: 12 }])
+mounted = 's2'
+resolve31()
+await tick(); await tick()
+mounted = 's1'
+publish({ draft: '返回后的追问 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+const before31 = submitCalls.length
+input.submit('queue', 'click')
+await tick(); await tick()
+assert.deepEqual(ownedIds(), [31], 'returning to the session restarts a skipped reattachment')
+assert.equal(submitCalls.length, before31 + 1)
+assert.deepEqual(submitCalls.at(-1).targets, [31])
+console.log('ok - session reactivation restarts retained reattachment')
+
 const otherReference = { ...reference, source: { ...reference.source, sha256: '9'.repeat(64) } }
 await api.addPreviewReferenceToDraft('s1', otherReference)
 deferred = claimed => new Promise(resolve => {

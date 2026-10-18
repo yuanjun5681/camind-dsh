@@ -1766,6 +1766,7 @@ function createDrawingQuestionController(options) {
         && JSON.stringify(currentOther) === JSON.stringify(otherOccurrences)
         && owned.length === 1 && owned[0].ref === deferred.ref
     }
+    if (!handoffFailure) attachRetained()
     void waitForHandoff().then(() => {
       if (disposed) return
       if (!unchanged()) { input.notify?.('info', '草稿已变更，本次延迟提交已取消'); return }
