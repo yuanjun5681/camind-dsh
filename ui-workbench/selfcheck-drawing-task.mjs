@@ -12,6 +12,7 @@ assert.ok(source.includes('refreshingTaskDrawing.current = true'), 'task input c
 assert.ok(source.includes('drawingReferenceController(sessionId).invalidateSource(previous)'), 'formal input URI/SHA changes must invalidate references even when conversion later fails')
 assert.ok(source.includes("subscribe(sessionId, initial => { if (!initial || !readBenchPreference(sessionId).mode) setMode('preview') }, 'default')"), 'default preview producers activate only after explicit changes or without a saved mode')
 assert.ok(source.includes('consumeActivation?.(sessionId)'), 'explicit preview activation must be honored once before later saved modes take precedence')
+assert.ok(source.includes("activation.channel === 'default' ? 'preview' : activation.channel"), 'default activation must map to the rendered preview mode')
 assert.ok(source.includes('const paneActive = active'), 'hidden stale panes must not invalidate newer verified references')
 assert.ok(source.includes('drawingActive: mode ==='), 'pane activity must be passed explicitly from the workbench mode')
 assert.ok(source.includes("hidden: mode !== 'preview' }, Preview"), 'default/content/run previews must have a visible workbench outlet')

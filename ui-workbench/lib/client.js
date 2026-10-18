@@ -2085,7 +2085,7 @@ function WorkbenchView({ sessionId }) {
   }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   useEffect(() => {
     const activation = previewService()?.consumeActivation?.(sessionId)
-    if (activation) setMode(activation.channel)
+    if (activation) setMode(activation.channel === 'default' ? 'preview' : activation.channel)
   }, [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!initial || !readBenchPreference(sessionId).mode) setMode('model') }, 'model'), [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!refreshingTaskDrawing.current && (!initial || !readBenchPreference(sessionId).mode)) setMode('drawing') }, 'drawing'), [sessionId])
