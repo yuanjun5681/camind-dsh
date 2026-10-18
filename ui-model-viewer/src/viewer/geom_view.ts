@@ -217,7 +217,7 @@ export class GeomView {
     // Browser loading is asynchronous; the plugin verifies the package before setPart/setMesh.
 
     /** 更新源/几何身份；任何变化都使角色声明与隔离失效，不按 partRef 或名称猜角色。 */
-    setPartIdentity(identity: GeomPartIdentity): void {
+    setPartIdentity(identity: GeomPartIdentity, notify = true): void {
         if (identity.sourceSha256 === this.partIdentity.sourceSha256
             && identity.geometrySha256 === this.partIdentity.geometrySha256)
             return;
@@ -227,21 +227,22 @@ export class GeomView {
         this.isolation = null;
         this.hiddenBodies = new Set();
         this.renderer?.setHiddenBodies(null);
-    }
-
-    private identityKey(): string {
-        return `${this.partIdentity.sourceSha256}#${this.partIdentity.geometrySha256}`;
+        if (notify) {
+            this.scheduleRender();
+            this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+        }
     }
 
     /** 换零件,清空选择集。bodies = 清单的体表(CAM-Agent T-398 ②;老包没有 ⇒ 空) */
     setPart(partRef: string, faces: FaceInfo[], bodies: BodyInfo[] = [], identity?: GeomPartIdentity): void {
-        this.setPartIdentity(identity ?? { sourceSha256: '', geometrySha256: '' });
+        this.setPartIdentity(identity ?? { sourceSha256: '', geometrySha256: '' }, false);
         this.partRef = partRef;
         this.faces = faces;
         this.bodies = bodies;
         this.declaredRole = null;
         this.isolation = null;
-        this.hiddenBodies = new Set();
+        // blanked 只决定初始显隐；后续显隐由用户当前状态驱动。
+        this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
         this.originOffset = [0, 0, 0];
         this.mesh = null;
         this.edges = null;
@@ -249,7 +250,7 @@ export class GeomView {
         this.selection.reset(faces.map((f) => f.surfaceType), faces.map((f) => f.body));
         this.fitPending = true;
         this.renderer?.clearPart();
-        this.renderer?.setHiddenBodies(null);
+        this.renderer?.setHiddenBodies(this.hiddenBodies);
         this.callbacks.partChanged?.();
         this.callbacks.selectionChanged?.();
         this.scheduleRender();

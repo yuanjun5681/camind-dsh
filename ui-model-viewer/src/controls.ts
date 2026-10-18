@@ -21,7 +21,7 @@ export function ModelControls({ view, onReference }: { view: GeomView; onReferen
     const faces = view.facesOf()
     const unknown = fids.filter(fid => !faces.some(face => face.fid === fid))
     const excluded = faces.filter(face => fids.includes(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType))
-    const declared = faces.filter(face => fids.includes(face.fid) && view.isDeclaredFace(faces.indexOf(face)))
+    const declared = faces.filter((face, index) => fids.includes(face.fid) && view.isDeclaredFace(index))
     if (unknown.length || excluded.length || declared.length) {
       setMessage([unknown.length ? `面编号不存在：${unknown.join('、')}` : '', excluded.length ? `面被类型筛选排除：${excluded.map(face => face.fid).join('、')}` : '', declared.length ? `已核声明体不可选：${declared.map(face => face.fid).join('、')}` : ''].filter(Boolean).join('；'))
       return

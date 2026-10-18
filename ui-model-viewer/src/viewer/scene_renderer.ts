@@ -325,7 +325,7 @@ export class SceneRenderer {
         const gl = this.gl;
         this.unbindVaoForElement();
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.edgeIndexBuf);
-        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch, 0, n);
+        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch.subarray(0, n));
         this.edgeVisibleIndexCount = n;
     }
 

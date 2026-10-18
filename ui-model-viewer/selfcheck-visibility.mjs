@@ -129,6 +129,9 @@ function testVisibilityStateMachine() {
   a.view.setHiddenBodies([3, 1])
   a.view.setHiddenBodies([2])
   deepEqual(events, [[1, 3], [2]])
+  a.view.setPartIdentity({ sourceSha256: 'source-3', geometrySha256: 'geometry-3' })
+  deepEqual(events, [[1, 3], [2], []])
+  deepEqual(a.runFrame(), [FACE_FULL])
 
   const b = makeView()
   b.view.setEdges(parseSyntheticEdges(b.pack))
@@ -138,6 +141,39 @@ function testVisibilityStateMachine() {
   b.canvas.dispatch('webglcontextrestored')
   assert.throws(() => b.runFrame(), /无挂起帧/)
   console.log('ok - visible indices, LOD swap, restore, reset and dispose')
+}
+
+function testBlankedAndSmallBuffers() {
+  const a = makeView()
+  for (const body of a.pack.bodies) body.blanked = true
+  a.view.setPart('blanked@gp-1', a.pack.faces, a.pack.bodies, { sourceSha256: 'source', geometrySha256: 'geometry' })
+  a.view.setMesh(a.mesh)
+  a.view.setEdges(parseSyntheticEdges(a.pack))
+  deepEqual(a.view.hiddenBodiesOf(), [0, 1, 2, 3])
+  deepEqual(a.runFrame(), [])
+  assert.equal(a.view.pickAt({ x: 150, y: 100 }).kind, 0)
+
+  const mock = makeGlMock()
+  const renderer = new SceneRenderer(mock.gl)
+  const pack = makeSyntheticPackMulti(4000, 4, 8, 120.0)
+  renderer.setMesh(parseSyntheticMesh(pack), pack.faces)
+  renderer.setEdges(parseSyntheticEdges(pack))
+  const params = viewParamsFromCamera(new OrbitCamera(), 1.5)
+  const options = { ...defaultRenderOptions(), showToolpath: false }
+  renderer.render(params, 300, 200, options)
+  const original = mock.gl.bufferSubData
+  mock.gl.bufferSubData = (target, offset, data, srcOffset, length) => {
+    if (length === 0 && data.byteLength > 0) throw new Error('INVALID_VALUE')
+    return original(target, offset, data, srcOffset, length)
+  }
+  renderer.setHiddenBodies([0, 1, 2, 3])
+  const fine = makeSyntheticPackMulti(1024, 4, 4)
+  renderer.setMesh(parseSyntheticMesh(fine), fine.faces)
+  renderer.setEdges(parseSyntheticEdges(fine))
+  renderer.render(params, 300, 200, options)
+  assert.equal(renderer.visibleIndexDrawCount(), 0)
+  assert.equal(renderer.edgeVisibleIndexDrawCount(), 0)
+  console.log('ok - blanked initial hidden and zero-length edge upload')
 }
 
 function testSelectionAndRoles() {
@@ -286,6 +322,7 @@ function testCpuAndPath() {
 }
 
 testVisibilityStateMachine()
+testBlankedAndSmallBuffers()
 testSelectionAndRoles()
 testCpuAndPath()
 console.log('multi-body visibility selfcheck complete; hidden bodies never remain pickable by visible-index or CPU paths.')

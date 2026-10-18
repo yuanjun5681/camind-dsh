@@ -1997,7 +1997,7 @@ var SceneRenderer = class {
     const gl = this.gl;
     this.unbindVaoForElement();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.edgeIndexBuf);
-    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch, 0, n);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.edgeVisibleScratch.subarray(0, n));
     this.edgeVisibleIndexCount = n;
   }
   clearPart() {
@@ -2669,7 +2669,7 @@ var GeomView = class _GeomView {
   // ───────────────────────────────────────────── 装载
   // Browser loading is asynchronous; the plugin verifies the package before setPart/setMesh.
   /** 更新源/几何身份；任何变化都使角色声明与隔离失效，不按 partRef 或名称猜角色。 */
-  setPartIdentity(identity) {
+  setPartIdentity(identity, notify = true) {
     if (identity.sourceSha256 === this.partIdentity.sourceSha256 && identity.geometrySha256 === this.partIdentity.geometrySha256)
       return;
     this.partIdentity = { ...identity };
@@ -2678,19 +2678,20 @@ var GeomView = class _GeomView {
     this.isolation = null;
     this.hiddenBodies = /* @__PURE__ */ new Set();
     this.renderer?.setHiddenBodies(null);
-  }
-  identityKey() {
-    return `${this.partIdentity.sourceSha256}#${this.partIdentity.geometrySha256}`;
+    if (notify) {
+      this.scheduleRender();
+      this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+    }
   }
   /** 换零件,清空选择集。bodies = 清单的体表(CAM-Agent T-398 ②;老包没有 ⇒ 空) */
   setPart(partRef, faces, bodies = [], identity) {
-    this.setPartIdentity(identity ?? { sourceSha256: "", geometrySha256: "" });
+    this.setPartIdentity(identity ?? { sourceSha256: "", geometrySha256: "" }, false);
     this.partRef = partRef;
     this.faces = faces;
     this.bodies = bodies;
     this.declaredRole = null;
     this.isolation = null;
-    this.hiddenBodies = /* @__PURE__ */ new Set();
+    this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
     this.originOffset = [0, 0, 0];
     this.mesh = null;
     this.edges = null;
@@ -2698,7 +2699,7 @@ var GeomView = class _GeomView {
     this.selection.reset(faces.map((f) => f.surfaceType), faces.map((f) => f.body));
     this.fitPending = true;
     this.renderer?.clearPart();
-    this.renderer?.setHiddenBodies(null);
+    this.renderer?.setHiddenBodies(this.hiddenBodies);
     this.callbacks.partChanged?.();
     this.callbacks.selectionChanged?.();
     this.scheduleRender();
@@ -3328,7 +3329,7 @@ function ModelControls({ view, onReference }) {
     const faces = view.facesOf();
     const unknown = fids.filter((fid) => !faces.some((face) => face.fid === fid));
     const excluded = faces.filter((face) => fids.includes(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType));
-    const declared = faces.filter((face) => fids.includes(face.fid) && view.isDeclaredFace(faces.indexOf(face)));
+    const declared = faces.filter((face, index) => fids.includes(face.fid) && view.isDeclaredFace(index));
     if (unknown.length || excluded.length || declared.length) {
       setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : "", declared.length ? `\u5DF2\u6838\u58F0\u660E\u4F53\u4E0D\u53EF\u9009\uFF1A${declared.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
       return;
