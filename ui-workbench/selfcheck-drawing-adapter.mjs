@@ -5,7 +5,7 @@ import vm from 'node:vm'
 
 let plugin
 const source = await fs.readFile(new URL('./lib/client.js', import.meta.url), 'utf8')
-const code = source.replace('exports.apply = apply', 'exports.__drawingAdapterTest = { DrawingWorkbenchAdapter, drawingDimensionComparison, drawingToleranceText }; exports.apply = apply')
+const code = source.replace('exports.apply = apply', 'exports.__drawingAdapterTest = { DrawingWorkbenchAdapter, drawingDimensionComparison, drawingToleranceText, drawingVerifiedSelection }; exports.apply = apply')
 
 let hooks = [], cursor = 0, pendingEffects = [], annotationLeft = 800
 const sameDeps = (left, right) => left && right && left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
@@ -74,7 +74,7 @@ vm.runInNewContext(code, {
   window, document: { activeElement: null }, ResizeObserver, MutationObserver,
   Blob, URL, URLSearchParams, AbortController, setTimeout, clearTimeout,
 })
-const { DrawingWorkbenchAdapter, drawingDimensionComparison, drawingToleranceText } = plugin.__drawingAdapterTest
+const { DrawingWorkbenchAdapter, drawingDimensionComparison, drawingToleranceText, drawingVerifiedSelection } = plugin.__drawingAdapterTest
 
 const composer = {
   classList: { contains: name => name === 'wb-composer-muted' ? false : false },
@@ -257,6 +257,14 @@ window.dispatch('keydown', { key: 'Escape', preventDefault() {} })
 render()
 assert.equal(nodes(node => node.props.className === 'wb-drawing-box-surface').length, 0, 'Escape cancels box zoom')
 console.log('ok - fit, zoom, rubber-band zoomToRect and Escape')
+
+const normalize = value => JSON.parse(JSON.stringify(value)), verifiedTarget = { type: 'dim', id: 'D1' }
+assert.equal(drawingVerifiedSelection(null, [verifiedTarget]), null)
+assert.deepEqual(normalize(drawingVerifiedSelection({ active: null, hasChip: false }, [verifiedTarget])), [])
+assert.equal(drawingVerifiedSelection({ active: { reference: { target: verifiedTarget } }, hasChip: false }, [verifiedTarget]), null, 'retained handoff selection is not cleared')
+assert.equal(drawingVerifiedSelection({ active: { reference: { target: verifiedTarget } }, hasChip: true }, [verifiedTarget]), null)
+assert.deepEqual(normalize(drawingVerifiedSelection({ active: { reference: { target: verifiedTarget } }, hasChip: true }, [{ type: 'entity', id: 99 }])), [verifiedTarget], 'a stale highlight is restored to the verified chip target')
+console.log('ok - pane selection follows the verified native reference state')
 
 const adapterSource = DrawingWorkbenchAdapter.toString()
 assert.ok(source.includes('.cdv-body-adapted > .wb-drawing-controls'), 'adapter toolbar must occupy its own grid row outside pane chrome')

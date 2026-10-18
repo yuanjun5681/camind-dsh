@@ -185,4 +185,16 @@ controls.controller.locateTarget({ type: 'dim', id: 'D2A/30' }, true)
 assert.equal(controllerReferences.at(-1).target.id, 'D2A/30')
 controls.controller.clearSelection()
 assert.equal(controllerReferences.at(-1), null)
+const pans = [], corePan = controls.controller.pan
+controls.controller.pan = (dx, dy) => { pans.push([dx, dy]); corePan(dx, dy) }
+const canvas = findNode(tree, node => node?.props?.className === 'cdv-canvas')
+const eventTarget = { focus() {}, setPointerCapture() {}, releasePointerCapture() {} }
+canvas.props.onKeyDown({ key: 'ArrowLeft', shiftKey: false, preventDefault() {} })
+canvas.props.onKeyDown({ key: 'ArrowDown', shiftKey: true, preventDefault() {} })
+canvas.props.onPointerDown({ button: 1, pointerId: 7, clientX: 10, clientY: 20, currentTarget: eventTarget, preventDefault() {} })
+canvas.props.onPointerMove({ pointerId: 7, clientX: 15, clientY: 32, currentTarget: eventTarget, preventDefault() {} })
+canvas.props.onPointerUp({ pointerId: 7, currentTarget: eventTarget, preventDefault() {} })
+canvas.props.onPointerMove({ pointerId: 7, clientX: 50, clientY: 60, currentTarget: eventTarget, preventDefault() {} })
+assert.deepEqual(pans, [[-40, 0], [0, 120], [5, 12]])
 console.log('ok - public controller maps CSS controls to pane v2 and restores native selection')
+console.log('ok - arrow keys and middle-button dragging preserve drawing pan controls')

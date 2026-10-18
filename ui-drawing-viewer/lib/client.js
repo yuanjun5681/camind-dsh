@@ -2653,6 +2653,7 @@ var drawingCss = `
 var h = import_react.default.createElement;
 function DrawingPreview({ descriptor, onReference, adapter }) {
   const host = (0, import_react.useRef)(null);
+  const middleDrag = (0, import_react.useRef)(null);
   const callback = (0, import_react.useRef)(onReference);
   callback.current = onReference;
   const [loaded, setLoaded] = (0, import_react.useState)(null);
@@ -2661,6 +2662,7 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
   const [controller, setController] = (0, import_react.useState)(null);
   const [selection, setSelectionState] = (0, import_react.useState)([]);
   (0, import_react.useEffect)(() => {
+    middleDrag.current = null;
     setLoaded(null);
     setDegraded(null);
     setError("");
@@ -2724,6 +2726,10 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
           if (!rect || rect.width <= 0 || rect.height <= 0) return;
           const scale = dpr();
           currentPane.handle({ type: "zoomAt", messageVersion: 2, sx: rect.width * scale / 2, sy: rect.height * scale / 2, factor });
+        },
+        pan: (dx, dy) => {
+          const scale = dpr();
+          currentPane.handle({ type: "pan", messageVersion: 2, dx: dx * scale, dy: dy * scale });
         },
         locateTarget: (target, zoom = true) => {
           currentPane.handle({ type: "locateTarget", messageVersion: 2, target, zoom });
@@ -2789,10 +2795,36 @@ function DrawingPreview({ descriptor, onReference, adapter }) {
         "aria-label": "\u4E8C\u7EF4\u56FE\u7EB8\u753B\u5E03\uFF0C\u62D6\u52A8\u5E73\u79FB\uFF0C\u6EDA\u8F6E\u7F29\u653E\uFF0CF \u9002\u914D\u5168\u56FE",
         onPointerDown: (event) => {
           event.currentTarget.focus({ preventScroll: true });
+          if (event.button !== 1) return;
+          event.preventDefault();
+          middleDrag.current = { x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        },
+        onPointerMove: (event) => {
+          const previous = middleDrag.current;
+          if (!previous) return;
+          event.preventDefault();
+          middleDrag.current = { x: event.clientX, y: event.clientY };
+          controller?.pan(event.clientX - previous.x, event.clientY - previous.y);
+        },
+        onPointerUp: (event) => {
+          if (!middleDrag.current) return;
+          event.preventDefault();
+          middleDrag.current = null;
+          event.currentTarget.releasePointerCapture?.(event.pointerId);
+        },
+        onPointerCancel: (event) => {
+          if (!middleDrag.current) return;
+          event.preventDefault();
+          middleDrag.current = null;
+          event.currentTarget.releasePointerCapture?.(event.pointerId);
         },
         onKeyDown: (event) => {
           if (!controller) return;
-          if (event.key.toLowerCase() === "f") controller.fit();
+          if (event.key.startsWith("Arrow")) {
+            const step = event.shiftKey ? 120 : 40;
+            controller.pan(event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0, event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0);
+          } else if (event.key.toLowerCase() === "f") controller.fit();
           else if (event.key === "+" || event.key === "=") controller.zoom(1.3);
           else if (event.key === "-" || event.key === "_") controller.zoom(1 / 1.3);
           else if (event.key === "Escape") controller.clearSelection();

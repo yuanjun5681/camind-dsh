@@ -1331,12 +1331,35 @@ function drawingEntityText(entity) {
   const cells = (entity.cells ?? []).map(cell => typeof cell?.text === 'string' ? cell.text : '').filter(Boolean)
   return [direct, ...cells].filter(Boolean).join(' ').trim()
 }
+function drawingVerifiedSelection(question, selection) {
+  if (!question) return null
+  if (!question.active) return selection.length ? [] : null
+  if (!question.hasChip) return null
+  const target = question.active.reference?.target
+  if (!target) return selection.length ? [] : null
+  return selection.some(item => item.id === target.id && item.type === target.type) ? null : [target]
+}
 function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRef, degraded }) {
   const actualDegraded = degraded ?? descriptor.degraded
   const [query, setQuery] = useState(''), [limit, setLimit] = useState(100), [open, setOpen] = useState(false)
   const [originalColors, setOriginalColors] = useState(false), [boxMode, setBoxMode] = useState(false), [boxRect, setBoxRect] = useState(null)
+  const [verifiedQuestion, setVerifiedQuestion] = useState(null)
   const controlsRef = useRef(null), boxDrag = useRef(null), annotationsRef = useRef(null)
   useEffect(() => { controller?.setColorMode(originalColors ? 'original' : 'readable') }, [controller, originalColors])
+  useEffect(() => {
+    if (!descriptor.session) { setVerifiedQuestion(null); return }
+    let question
+    try { question = drawingReferenceController(descriptor.session) } catch { setVerifiedQuestion(null); return }
+    const update = () => setVerifiedQuestion({ ...question.getSnapshot() })
+    update()
+    return question.subscribe(update)
+  }, [descriptor.session])
+  useEffect(() => {
+    if (!controller) return
+    const next = drawingVerifiedSelection(verifiedQuestion, selection)
+    if (next?.length) controller.setSelection(next)
+    else if (next) controller.clearSelection()
+  }, [controller, verifiedQuestion, selection])
   useEffect(() => { setQuery(''); setLimit(100); setBoxMode(false); setBoxRect(null); boxDrag.current = null }, [descriptor])
   useEffect(() => {
     if (!boxMode) return
@@ -1993,6 +2016,7 @@ function WorkbenchView({ sessionId }) {
   }, [sessionId, mode, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model'), 'model'), [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, () => setMode('drawing'), 'drawing'), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('preview'), 'default'), [sessionId])
   // Auto-open the newest available PRT in the canvas: first detection switches,
   // each newly appearing PRT switches again; re-polls of the same file do not.
   const autoPrt = useRef('')
@@ -2037,6 +2061,7 @@ function WorkbenchView({ sessionId }) {
     h('div', { className: 'wb-scene' },
       h('main', { className: 'wb-canvas' },
         h('div', { className: 'wb-preview-stage', hidden: mode !== 'model' }, Preview ? h(Preview, { sessionId, channel: 'model', embedded: true, renderHeader: info => heading && mode === 'model' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
+        h('div', { className: 'wb-preview-stage', hidden: mode !== 'preview' }, Preview ? h(Preview, { sessionId, channel: 'default', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'preview' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         task?.inputs.dwg && h('div', { className: 'wb-preview-stage', hidden: mode !== 'drawing' }, Preview ? h(Preview, { sessionId, channel: 'drawing', embedded: true, drawingAdapter: DrawingWorkbenchAdapter, renderHeader: info => heading && mode === 'drawing' ? require('react-dom').createPortal(h(React.Fragment, null, h('strong', { title: info.meta }, info.title), info.openUrl && h('a', { href: info.openUrl, target: '_blank', rel: 'noreferrer' }, '新窗口打开')), heading) : null, onReference: reference => addPreviewReferenceToDraft(sessionId, reference) }) : h(CapabilityPlaceholder, { title: '文件预览未加载' }, '请启用内容预览插件。')),
         wizard && h('div', { className: 'wb-review-scrim' }, h(TaskWizard, { sessionId, record, close: later, complete }))),
       h('nav', { className: 'wb-context-nav', 'aria-label': '任务资料入口' }, [['requirements', '加工要求'], ['inputs', '输入文件'], ['operations', '工序方案'], ['runs', '加工记录'], ['delivery', '交付文件']].map(([id, label]) => h('button', { key: id, 'aria-label': label, title: label, 'aria-pressed': panel === id, onClick: () => togglePanel(id) }, h(TaskPanelIcon, { name: id })))),

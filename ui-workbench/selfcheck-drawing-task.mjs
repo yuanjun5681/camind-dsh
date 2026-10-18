@@ -8,6 +8,8 @@ assert.equal(source.includes('h(DwgPane, { sessionId, record'), false, 'the draw
 assert.ok(source.includes("hidden: mode !== 'drawing' }, Preview"), 'the drawing slot must render the shared Preview')
 assert.ok(source.includes("mode === 'drawing' ? require('react-dom').createPortal"), 'the drawing slot keeps the workbench header integration')
 assert.ok(source.includes("subscribe(sessionId, () => setMode('drawing'), 'drawing')"), 'opening a drawing reference must activate the drawing pane')
+assert.ok(source.includes("subscribe(sessionId, () => setMode('preview'), 'default')"), 'default preview producers must activate a rendered preview pane')
+assert.ok(source.includes("hidden: mode !== 'preview' }, Preview"), 'default/content/run previews must have a visible workbench outlet')
 assert.ok(source.includes('task?.inputs.dwg?.sha256])'), 'source SHA changes must retrigger the drawing preview effect')
 const code = source.replace('exports.apply = apply', 'exports.__drawingTaskTest = { openTaskDrawingPreview, openTaskModelPreview }; exports.apply = apply')
 let plugin
