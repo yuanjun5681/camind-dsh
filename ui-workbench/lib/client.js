@@ -850,13 +850,14 @@ function drawingReferenceController(sessionId) {
   if (!input) throw new Error('原生输入框未就绪，请稍后重试')
   const scope = applyCtx.get('sessions').scope(sessionId)
   const admitted = applyCtx.get('uiConversation').binding(sessionId).target('chat')
+  const pending = applyCtx.get('sessions').binding?.(sessionId)?.session
   const previous = drawingReferenceControllers.get(sessionId)
-  if (previous && (previous.input !== input || previous.admitted !== admitted)) {
+  if (previous && (previous.input !== input || previous.admitted !== admitted || previous.pending !== pending)) {
     previous.dispose(); drawingReferenceControllers.delete(sessionId)
   }
   if (!drawingReferenceControllers.has(sessionId)) {
     drawingReferenceControllers.set(sessionId, createDrawingQuestionController({
-      input, admitted,
+      input, admitted, pending,
       source: DRAWING_REFERENCE_SOURCE, placement: 'end', clipboard: drawingReferenceClipboard, verifyHandoff: true, labelPrefix: '',
       consume: span => scope.bail('slash/input-consume-token', { guard: { kind: 'span', span } }) === true,
       validate: async reference => (await verifyDrawingReference(sessionId, reference)).reference,
@@ -1624,7 +1625,7 @@ function drawingQuestionSpan(state, occurrence) {
 }
 // One owned native chip is the send snapshot; retained selection never rewrites a submitted request.
 function createDrawingQuestionController(options) {
-  const { input, consume, validate, isCurrent, admitted } = options
+  const { input, consume, validate, isCurrent, admitted, pending } = options
   const source = options.source ?? DRAWING_QUESTION_SOURCE, placement = options.placement ?? 'start'
   const clipboard = options.clipboard ?? (ref => `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]`)
   const labelPrefix = options.labelPrefix ?? '针对：', verifyHandoff = options.verifyHandoff === true
@@ -1632,7 +1633,7 @@ function createDrawingQuestionController(options) {
     reference: checked, ref: chip?.ref ?? JSON.stringify(checked),
     label: checked.entities?.[0]?.text || chip?.label.replace(/^针对：/, '') || '图纸文字',
   }))
-  let snapshot = { active: null, hasChip: false }, pendingSelections = 0, pendingReference = null, sequence = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
+  let snapshot = { active: null, hasChip: false }, pendingSelections = 0, pendingReference = null, sequence = 0, resetVersion = 0, selectionResetAtStart = 0, handoffSequence = 0, editing = false, handoff = false, sendPending = null, disposed = false, version = null, invalidNotice = false
   const listeners = new Set()
   const publish = next => { snapshot = { ...next, pending: pendingSelections > 0 }; for (const listener of listeners) listener() }
   const owned = state => state.occurrences.filter(item => item.source === source)
@@ -1717,11 +1718,21 @@ function createDrawingQuestionController(options) {
     const occurrenceReset = state.occurrences.length < previous.occurrences.length
     const attachmentReset = (previous.attachmentIds?.length ?? 0) > (state.attachmentIds?.length ?? 0)
     const draftReset = previous.draftRev !== state.draftRev && state.draft.length < previous.draft.length && previous.draft.endsWith(state.draft)
-    if (hadContent && (occurrenceReset || attachmentReset || draftReset)) sequence++
+    if (hadContent && (occurrenceReset || attachmentReset || draftReset)) resetVersion++
     observedState = state
     const phase = state.phase
     if (phase !== lastPhase) { if (phase !== 'plain') { sequence++; handoffSequence++ } lastPhase = phase }
     sync()
+  })
+  const seenSubmissions = new Set((pending?.getSnapshot()?.pendingSubmissions ?? []).map(item => item.requestId))
+  const unsubscribePending = pending?.subscribe?.(() => {
+    if (disposed) return
+    let crossed = false
+    for (const item of pending.getSnapshot()?.pendingSubmissions ?? []) {
+      if (!item.requestId || seenSubmissions.has(item.requestId)) continue
+      seenSubmissions.add(item.requestId); crossed = true
+    }
+    if (crossed && selectionResetAtStart < resetVersion) sequence++
   })
   let lastTurn = admitted?.getSnapshot()?.legacy?.nodes?.findLast(node => node.kind === 'user')?.turn
   const unsubscribeAdmitted = admitted?.subscribe(() => {
@@ -1775,11 +1786,11 @@ function createDrawingQuestionController(options) {
   }
   if (verifyHandoff) input.submit = guardedSubmit
   return {
-    input, admitted,
+    input, admitted, pending,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot,
     async select(reference, shouldFocus = () => true) {
       if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
-      const ticket = ++sequence; handoffSequence++; handoffFailure = null
+      const ticket = ++sequence; selectionResetAtStart = resetVersion; handoffSequence++; handoffFailure = null
       pendingReference = reference
       pendingSelections++; publish({ ...snapshot })
       try {
@@ -1844,7 +1855,7 @@ function createDrawingQuestionController(options) {
     dispose() {
       disposed = true; sequence++; handoffSequence++; sendPending = null; pendingReference = null
       if (verifyHandoff && input.submit === guardedSubmit) input.submit = originalSubmit
-      unsubscribe(); unsubscribeAdmitted?.()
+      unsubscribe(); unsubscribePending?.(); unsubscribeAdmitted?.()
       for (const listener of listeners) listener()
       listeners.clear()
     },
