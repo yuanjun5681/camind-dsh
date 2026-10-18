@@ -152,8 +152,9 @@ function normalizeRegeneration(value) {
     if (Object.keys(value).length === 0) return []
     const operation = typeof value.operation === 'string' && value.operation.trim() ? value.operation.trim()
       : typeof value.tool === 'string' && value.tool.trim() ? value.tool.trim() : '未知工序'
+    const tool = typeof value.tool === 'string' && value.tool.trim() ? value.tool.trim() : undefined
     const reason = typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim() : undefined
-    return [{ operation, ...(reason ? { reason } : {}) }]
+    return [{ operation, ...(tool ? { tool } : {}), ...(reason ? { reason } : {}) }]
   }
   return value ? [{ operation: '未知工序' }] : []
 }
@@ -163,16 +164,18 @@ function normalizeRegeneration(value) {
 export function regenerationItemsOf(op) {
   const items = [
     ...normalizeRegeneration(op?.other_operations_pending_regeneration),
+    ...normalizeRegeneration(op?.error_detail?.other_operations_pending_regeneration),
+    ...normalizeRegeneration(op?.errorDetail?.other_operations_pending_regeneration),
     ...normalizeRegeneration(op?.regeneration_required),
     ...normalizeRegeneration(op?.error_detail?.regeneration_required),
     ...normalizeRegeneration(op?.errorDetail?.regeneration_required),
   ]
-  const confirmation = op?.confirmation_param ?? op?.error_detail?.confirmation_param ?? op?.errorDetail?.confirmation_param
+  const confirmations = [op?.confirmation_param, op?.error_detail?.confirmation_param, op?.errorDetail?.confirmation_param]
   // 仅认 T-501 的专属参数名，不把普通 FieldGuardError/refused 误判为重算。
-  if (items.length === 0 && confirmation === 'allow_regenerate_toolpaths') items.push({ operation: '未知工序' })
+  if (items.length === 0 && confirmations.includes('allow_regenerate_toolpaths')) items.push({ operation: '未知工序' })
   const seen = new Set()
   return items.filter((item) => {
-    const key = JSON.stringify([item.operation, item.reason ?? null])
+    const key = JSON.stringify([item.operation, item.tool ?? null, item.reason ?? null])
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -191,11 +194,18 @@ export function t501FieldsOf(data, errorDetail) {
     data?.errorDetail?.regeneration_required,
     errorDetail?.regeneration_required,
   ].flatMap(normalizeRegeneration)
-  const confirmation = data?.confirmation_param ?? data?.error_detail?.confirmation_param
-    ?? data?.errorDetail?.confirmation_param ?? errorDetail?.confirmation_param
+  const otherPending = [
+    data?.other_operations_pending_regeneration,
+    data?.error_detail?.other_operations_pending_regeneration,
+    data?.errorDetail?.other_operations_pending_regeneration,
+    errorDetail?.other_operations_pending_regeneration,
+  ].flatMap(normalizeRegeneration)
+  const confirmations = [data?.confirmation_param, data?.error_detail?.confirmation_param,
+    data?.errorDetail?.confirmation_param, errorDetail?.confirmation_param].filter(value => value !== undefined)
+  const confirmation = confirmations.includes('allow_regenerate_toolpaths') ? 'allow_regenerate_toolpaths' : confirmations[0]
   return {
     ...(data?.regenerated_operations !== undefined ? { regenerated_operations: data.regenerated_operations } : {}),
-    ...(data?.other_operations_pending_regeneration !== undefined ? { other_operations_pending_regeneration: data.other_operations_pending_regeneration } : {}),
+    ...(otherPending.length > 0 ? { other_operations_pending_regeneration: otherPending } : {}),
     ...(regeneration.length > 0 ? { regeneration_required: regeneration } : {}),
     ...(confirmation !== undefined ? { confirmation_param: confirmation } : {}),
     ...(data?.tool_numbers_fixed !== undefined ? { tool_numbers_fixed: data.tool_numbers_fixed } : {}),
@@ -394,6 +404,25 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     summary.aborted = true
     summary.overall = 'error'
     summary.error = { error_type: 'cancelled', msg: '任务在开始执行前被取消。' }
+    return summary
+  }
+
+  // 任何持久 pending 都在首个 proxy 调用前阻断整次 resume；不能先 copy/init/
+  // 写刀号或 finalize，走到 ops 循环才停。只允许写本地 runstate 的阻断留痕。
+  if (resume && Array.isArray(state.ops) && state.ops.some(hasPendingRegeneration)) {
+    const { overall, reason } = overallOf(state.ops, null)
+    summary.ops = resolved.map((entry) => ({
+      index: entry.index, name: entry.name, type: entry.op?.type ?? 'unknown', status: 'pending',
+      ...state.ops[entry.index], decision: 'stop',
+    }))
+    summary.execution_overall = overall
+    summary.production_check = job.formal_task ? 'incomplete' : 'not_verified'
+    summary.overall = overall
+    state.execution_overall = overall
+    state.production_overall = summary.production_check
+    if (reason) summary.reason = reason
+    summary.advice.push('存在待重算刀路，已阻断整次 resume；请人工核对并显式授权后再处理。')
+    mark({ stage: 'regeneration_blocked', msg: reason ?? '存在待重算刀路，未调用 proxy。' })
     return summary
   }
 
@@ -600,12 +629,9 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   }
 
   mark({ stage: 'ops', total: resolved.length })
-  // pending 可能由后序工序记录、却点名前序工序；先扫完整 runstate，再决定
-  // 是否允许任何续跑动作，避免先执行 A、走到 B 才发现 A 待重算。
-  const stopAllForRegeneration = resume && Array.isArray(state.ops) && state.ops.some(hasPendingRegeneration)
   for (const entry of resolved) {
     const prev = state.ops[entry.index]
-    const decision = stopAllForRegeneration ? 'stop' : resume ? resumeDecisionOf(prev?.status, prev) : 'rerun'
+    const decision = resume ? resumeDecisionOf(prev?.status, prev) : 'rerun'
     if (decision === 'skip') {
       summary.ops.push({ ...prev, decision: 'skip' })
       mark({ stage: 'op', index: entry.index, name: entry.name, status: 'skip' })
@@ -614,7 +640,6 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     if (decision === 'stop') {
       summary.ops.push({ index: entry.index, name: entry.name, type: entry.op?.type ?? 'unknown', status: 'pending', ...prev, decision: 'stop' })
       mark({ stage: 'op', index: entry.index, name: entry.name, status: 'stop' })
-      if (stopAllForRegeneration) continue
       break
     }
     if (isCancelled()) {

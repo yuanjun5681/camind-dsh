@@ -135,7 +135,7 @@ try {
   invalidToolReadback = false
   assert.deepEqual(regenerationItemsOf({ other_operations_pending_regeneration: [], regeneration_required: false, error_detail: { regeneration_required: {} } }), [])
   assert.equal(resumeDecisionOf('ok', { other_operations_pending_regeneration: [] }), 'skip')
-  assert.deepEqual(regenerationItemsOf({ error_detail: { regeneration_required: [null, ' A ', { operation: 'B', reason: '需重算' }, true, {}] } }), [{ operation: 'A' }, { operation: 'B', reason: '需重算' }, { operation: '未知工序' }])
+  assert.deepEqual(regenerationItemsOf({ error_detail: { regeneration_required: [null, ' A ', { operation: 'B', tool: 'D8', reason: '需重算' }, true, {}] } }), [{ operation: 'A' }, { operation: 'B', tool: 'D8', reason: '需重算' }, { operation: '未知工序' }])
   assert.deepEqual(regenerationItemsOf({ regeneration_required: { operations: ['C', 'D'] } }), [{ operation: 'C' }, { operation: 'D' }])
   assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: true } }), 'stop')
   assert.equal(resumeDecisionOf('generated', { error_detail: { regeneration_required: 'A' } }), 'stop')
@@ -150,6 +150,11 @@ try {
   const conflictFields = t501FieldsOf({ error_detail: { regeneration_required: ['DATA_ONLY'] } }, { confirmation_param: 'allow_regenerate_toolpaths', posts: ['MILL_3_AXIS'] })
   assert.deepEqual(conflictFields.regeneration_required.map(item => item.operation), ['DATA_ONLY'])
   assert.equal(resumeDecisionOf('generated', conflictFields), 'stop')
+  const confirmationConflict = t501FieldsOf({ confirmation_param: 'other', error_detail: { confirmation_param: 'allow_regenerate_toolpaths' } })
+  assert.equal(confirmationConflict.confirmation_param, 'allow_regenerate_toolpaths')
+  assert.equal(resumeDecisionOf('generated', confirmationConflict), 'stop')
+  const otherFields = t501FieldsOf({ error_detail: { other_operations_pending_regeneration: ['OTHER_DATA'] } })
+  assert.deepEqual(otherFields.other_operations_pending_regeneration, [{ operation: 'OTHER_DATA' }])
   assert.equal(resumeDecisionOf('generated', { error_detail: { confirmation_param: 'allow_regenerate_toolpaths' } }), 'stop')
   assert.equal(resumeDecisionOf('generated', { error_detail: { confirmation_param: 'other_confirmation' } }), 'post')
   // Ordinary post failures retain generated/resume-post semantics; only T-501 becomes a hard error.
@@ -168,13 +173,18 @@ try {
   const scopedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
   scopedState.ops.push({ index: 1, name: 'OUTSIDE_JOB', type: 'from_scratch_workpiece_op', status: 'ok', other_operations_pending_regeneration: [scopedState.ops[0].name] })
   await fs.writeFile(scopedStatePath, JSON.stringify(scopedState))
-  const postsBeforeScopedResume = calls.filter(call => call.endpoint === '/postprocess').length
+  calls = []
   await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id, resume: true }, exec)
   const scopedResumeSummary = JSON.parse((await done).result)
   assert.equal(scopedResumeSummary.ops[0].decision, 'stop')
-  assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, postsBeforeScopedResume)
+  assert.deepEqual(calls, [])
   assert.match(scopedResumeSummary.reason, new RegExp(`待重算刀路：${scopedState.ops[0].name}`))
   postFailure = false
+  await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id }, exec)
+  const scopedClearedSummary = JSON.parse((await done).result)
+  assert.equal(scopedClearedSummary.overall, 'ok')
+  assert.equal(scopedClearedSummary.ops.length, 1)
+  assert.deepEqual(regenerationItemsOf(scopedClearedSummary.ops[0]), [])
   // T-501: refusal is an error, never a normal generated state, and no authorization flag is injected.
   const refusedT501 = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   postFailure = 't501'; calls = []
@@ -184,15 +194,18 @@ try {
   assert.equal(refusedT501Summary.ops[0].status, 'error')
   assert.equal(refusedT501Summary.ops[0].error_detail.confirmation_param, 'allow_regenerate_toolpaths')
   assert.equal(calls.every(call => !Object.hasOwn(call.params, 'allow_regenerate_toolpaths')), true)
-  const refusedPosts = calls.filter(call => call.endpoint === '/postprocess').length
+  calls = []
   await tools.get('cam_run').execute({ run_id: refusedT501.run_id, resume: true }, exec)
   const refusedResumeSummary = JSON.parse((await done).result)
   assert.equal(refusedResumeSummary.ops[0].decision, 'stop')
-  assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, refusedPosts)
+  assert.deepEqual(calls, [])
   postFailure = false
   const refusedDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: refusedT501.run_dir, runId: refusedT501.run_id, tasks, sessionId: 's1' })
   assert.ok(refusedDelivery.blockers.some(text => text.includes(`待重算刀路：${refusedT501Summary.ops[0].name}`)))
-  assert.match(await fs.readFile(path.join(refusedT501.run_dir, 'delivery/delivery_report.md'), 'utf8'), /待重算刀路/)
+  assert.ok(refusedDelivery.blockers.some(text => text.includes('刀具 AP_MILL_D10')))
+  const refusedManifest = JSON.parse(await fs.readFile(path.join(refusedT501.run_dir, 'delivery/manifest.json'), 'utf8'))
+  assert.equal(refusedManifest.package_complete, false)
+  assert.match(await fs.readFile(path.join(refusedT501.run_dir, 'delivery/delivery_report.md'), 'utf8'), /待重算刀路.*刀具 AP_MILL_D10/)
   // The copy path is fail-closed in the same way and cannot assume parameter forwarding.
   const copyT501 = JSON.parse(await tools.get('cam_plan').execute({ ...args, operations: task.operations.map(op => ({ ...op, type: 'copy_postprocess', template: 'TEMPLATE_OP' })) }, exec))
   postFailure = 't501'; calls = []
@@ -211,7 +224,7 @@ try {
   assert.equal(pendingT501Summary.overall, 'incomplete')
   assert.match(pendingT501Summary.reason, /待重算刀路：OTHER/)
   assert.equal(pendingT501Summary.ops[0].status, 'ok')
-  assert.equal(pendingT501Summary.ops[0].other_operations_pending_regeneration[0], 'OTHER')
+  assert.equal(pendingT501Summary.ops[0].other_operations_pending_regeneration[0].operation, 'OTHER')
   assert.equal(pendingT501Summary.ops[0].regenerated_operations[0], pendingT501Summary.ops[0].name)
   assert.equal(pendingT501Summary.ops[0].tool_numbers_fixed.AP_MILL_D10, 3)
   const pendingDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: pendingT501.run_dir, runId: pendingT501.run_id, tasks, sessionId: 's1' })
@@ -220,12 +233,12 @@ try {
   assert.equal(pendingManifest.package_complete, false)
   assert.ok(pendingManifest.blockers.some(text => typeof text === 'string' && text.includes('待重算刀路：OTHER')))
   assert.match(await fs.readFile(path.join(pendingT501.run_dir, 'delivery/delivery_report.md'), 'utf8'), /待重算刀路：OTHER/)
-  const postCallsBeforeResume = calls.filter(call => call.endpoint === '/postprocess').length
+  calls = []
   await tools.get('cam_run').execute({ run_id: pendingT501.run_id, resume: true }, exec)
   const resumeT501Summary = JSON.parse((await done).result)
   assert.equal(resumeT501Summary.overall, 'incomplete')
   assert.equal(resumeT501Summary.ops[0].decision, 'stop')
-  assert.equal(calls.filter(call => call.endpoint === '/postprocess').length, postCallsBeforeResume)
+  assert.deepEqual(calls, [])
   pendingRegeneration = false
   await tools.get('cam_run').execute({ run_id: pendingT501.run_id }, exec)
   const clearedT501Summary = JSON.parse((await done).result)
@@ -245,11 +258,12 @@ try {
   const crossT501Summary = await executeCamRun({ ...crossArgs, resume: false })
   assert.equal(crossT501Summary.ops[0].status, 'generated', JSON.stringify(crossT501Summary.ops))
   assert.equal(crossT501Summary.ops[1].status, 'ok')
-  assert.deepEqual(crossT501Summary.ops[1].other_operations_pending_regeneration, [crossT501Summary.ops[0].name])
+  assert.deepEqual(crossT501Summary.ops[1].other_operations_pending_regeneration, [{ operation: crossT501Summary.ops[0].name }])
   calls = []
   const crossResumeSummary = await executeCamRun({ ...crossArgs, resume: true })
   assert.deepEqual(crossResumeSummary.ops.map(op => op.decision), ['stop', 'stop'])
-  assert.equal(calls.some(call => ['/cam_build_workpiece_op', '/postprocess'].includes(call.endpoint)), false)
+  assert.equal(crossResumeSummary.ops[0].status, 'generated')
+  assert.deepEqual(calls, [])
   assert.match(crossResumeSummary.reason, new RegExp(`待重算刀路：${crossT501Summary.ops[0].name}`))
   const crossDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: crossDir, runId: 'cross-t501', tasks, sessionId: 's1' })
   assert.equal(crossDelivery.package_kind, 'process')

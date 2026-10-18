@@ -223,10 +223,10 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
   const pendingRegeneration = stateOps.flatMap(regenerationItemsOf)
   const pendingKeys = new Set()
   for (const item of pendingRegeneration) {
-    const key = JSON.stringify([item.operation, item.reason ?? null])
+    const key = JSON.stringify([item.operation, item.tool ?? null, item.reason ?? null])
     if (pendingKeys.has(key)) continue
     pendingKeys.add(key)
-    blockers.push(`待重算刀路：${item.operation}（${item.reason ?? '需人工复核并显式授权'}）`)
+    blockers.push(`待重算刀路：${item.operation}${item.tool ? ` / 刀具 ${item.tool}` : ''}（${item.reason ?? '需人工复核并显式授权'}）`)
   }
   const sourceLabels = { user: '用户确认', drawing: '图纸原文', nx: 'NX 实测', recommendation: 'Agent 建议' }
   const problemNote = formal ? `问题包：禁止作为已放行生产程序\n生产检查未完成：\n${blockers.map(text => `- ${text}`).join('\n')}\n冻结规划来源：\n${Object.entries(frozenScheme.setup).map(([id, item]) => `- ${id}：${item.value}（${sourceLabels[item.source?.kind] || '来源未核验'}）`).join('\n')}\nNC 回读：\n${ncAudit.map(item => `- ${item.operation}：预期 ${item.expected_tool || '未知'}；实际 ${item.toolNumbers.join('/') || '未读到'}；刀号${item.toolMatches ? '匹配' : '不匹配'}；转速${item.spindleFound ? '已匹配' : '未匹配'}；进给${item.feedFound ? '已匹配' : '未匹配'}`).join('\n')}\n${note ?? ''}` : note
