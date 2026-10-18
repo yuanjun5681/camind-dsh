@@ -332,7 +332,7 @@ pending.get(15)()
 await detached15
 assert.equal(ownedIds().includes(15), false, 'detached plain-phase send invalidates a pending old selection')
 deferred = null
-console.log('ok - pendingSubmissions closes the plain-phase submission boundary')
+console.log('ok - optimistic reset closes the plain-phase submission boundary before any late echo')
 
 const ref16 = await selectId(16)
 await serializeAndClear(ref16, 'request-16')
@@ -401,6 +401,60 @@ assert.deepEqual(ownedIds(), [20], 'confirmation releases the retained object in
 assert.ok(state.draft.startsWith('核验期间的追问 '))
 assert.match(sent20, /"id":20/)
 console.log('ok - provisional handoff waits for serialization confirmation')
+
+const ref21 = await selectId(21)
+const releases = new Map()
+deferred = claimed => new Promise(resolve => {
+  releases.set(claimed.target.id, () => {
+    if (claimed.target.id === 21) deferred = null
+    resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+  })
+})
+const flight21 = sourceDefinition.codec.serialize(ref21, new AbortController().signal)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+const select22 = api.addPreviewReferenceToDraft('s1', { ...reference, target: { type: 'entity', id: 22 } })
+releases.get(21)()
+const sent21 = await flight21
+publishPending([{ requestId: 'request-21', placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
+assert.equal(ownedIds().includes(22), false, 'the post-clear selection is still being verified')
+releases.get(22)()
+assert.equal(await select22, true, 'a late submission echo cannot cancel a selection made after the optimistic reset')
+publishAdmitted([{ kind: 'user', turn: 9 }])
+await tick()
+assert.deepEqual(ownedIds(), [22], 'the earlier request cannot reattach over the post-clear selection')
+assert.match(sent21, /"id":21/)
+console.log('ok - selection invalidation happens at optimistic reset, not late submission echo')
+
+const ref23 = await selectId(23)
+let rejectFirst23
+deferred = () => new Promise((_, reject) => { rejectFirst23 = reject })
+const flight23A = sourceDefinition.codec.serialize(ref23, new AbortController().signal)
+const rejected23A = assert.rejects(flight23A, /旧序列化失败/)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+deferred = null
+await selectId(23)
+let resolveSecond23
+deferred = claimed => new Promise(resolve => {
+  resolveSecond23 = () => {
+    deferred = null
+    resolve({ ok: true, json: async () => ({ reference: claimed, targetContent: {} }) })
+  }
+})
+const flight23B = sourceDefinition.codec.serialize(ref23, new AbortController().signal)
+publish({ draft: '', occurrences: [], attachmentIds: [], phase: 'plain' })
+rejectFirst23(new Error('旧序列化失败'))
+await rejected23A
+publish({ draft: '第二个请求的追问 ', occurrences: [], attachmentIds: [], phase: 'plain' })
+await tick()
+assert.equal(ownedIds().includes(23), false, 'the newer serialization remains provisional')
+resolveSecond23()
+const sent23 = await flight23B
+publishPending([{ requestId: 'request-23-b', placement: 'transcript', time: 1, text: 'sent', attachments: [] }])
+await tick()
+assert.deepEqual(ownedIds(), [23], 'an older failure cannot cancel the newer attempt with the same reference')
+assert.ok(state.draft.startsWith('第二个请求的追问 '))
+assert.match(sent23, /"id":23/)
+console.log('ok - handoff settlement is isolated by serialization attempt')
 
 api.addPreviewReferenceToDraft('s1', null)
 for (const dispose of disposers) dispose()

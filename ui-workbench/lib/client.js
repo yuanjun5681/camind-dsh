@@ -850,14 +850,13 @@ function drawingReferenceController(sessionId) {
   if (!input) throw new Error('原生输入框未就绪，请稍后重试')
   const scope = applyCtx.get('sessions').scope(sessionId)
   const admitted = applyCtx.get('uiConversation').binding(sessionId).target('chat')
-  const pending = applyCtx.get('sessions').binding?.(sessionId)?.session
   const previous = drawingReferenceControllers.get(sessionId)
-  if (previous && (previous.input !== input || previous.admitted !== admitted || previous.pending !== pending)) {
+  if (previous && (previous.input !== input || previous.admitted !== admitted)) {
     previous.dispose(); drawingReferenceControllers.delete(sessionId)
   }
   if (!drawingReferenceControllers.has(sessionId)) {
     drawingReferenceControllers.set(sessionId, createDrawingQuestionController({
-      input, admitted, pending,
+      input, admitted,
       source: DRAWING_REFERENCE_SOURCE, placement: 'end', clipboard: drawingReferenceClipboard, verifyHandoff: true, labelPrefix: '',
       consume: span => scope.bail('slash/input-consume-token', { guard: { kind: 'span', span } }) === true,
       validate: async reference => (await verifyDrawingReference(sessionId, reference)).reference,
@@ -1572,7 +1571,7 @@ function drawingQuestionSpan(state, occurrence) {
 }
 // One owned native chip is the send snapshot; retained selection never rewrites a submitted request.
 function createDrawingQuestionController(options) {
-  const { input, consume, validate, isCurrent, admitted, pending } = options
+  const { input, consume, validate, isCurrent, admitted } = options
   const source = options.source ?? DRAWING_QUESTION_SOURCE, placement = options.placement ?? 'start'
   const clipboard = options.clipboard ?? (ref => `[CAM_OBJECT]\n${ref}\n[/CAM_OBJECT]`)
   const labelPrefix = options.labelPrefix ?? '针对：', verifyHandoff = options.verifyHandoff === true
@@ -1643,22 +1642,19 @@ function createDrawingQuestionController(options) {
     // A new draft can start before admission settles. Only attach once it contains new user work.
     if (handoff && snapshot.active && !snapshot.hasChip && state.phase === 'plain' && (state.draft.trim() || state.attachmentIds?.length)) attachRetained()
   }
-  let lastPhase = input.state.getSnapshot().phase
+  let lastPhase = input.state.getSnapshot().phase, observedState = input.state.getSnapshot()
   const unsubscribe = input.state.subscribe(() => {
     if (disposed) return
-    const phase = input.state.getSnapshot().phase
+    const previous = observedState, state = input.state.getSnapshot()
+    const hadContent = previous.draft.trim() || previous.occurrences.length || previous.attachmentIds?.length
+    const occurrenceReset = state.occurrences.length < previous.occurrences.length
+    const attachmentReset = (previous.attachmentIds?.length ?? 0) > (state.attachmentIds?.length ?? 0)
+    const draftReset = previous.draftRev !== state.draftRev && state.draft.length < previous.draft.length && previous.draft.endsWith(state.draft)
+    if (hadContent && (occurrenceReset || attachmentReset || draftReset)) sequence++
+    observedState = state
+    const phase = state.phase
     if (phase !== lastPhase) { if (phase !== 'plain') { sequence++; handoffSequence++ } lastPhase = phase }
     sync()
-  })
-  const seenSubmissions = new Set((pending?.getSnapshot()?.pendingSubmissions ?? []).map(item => item.requestId))
-  const unsubscribePending = pending?.subscribe?.(() => {
-    if (disposed) return
-    let crossed = false
-    for (const item of pending.getSnapshot()?.pendingSubmissions ?? []) {
-      if (!item.requestId || seenSubmissions.has(item.requestId)) continue
-      seenSubmissions.add(item.requestId); crossed = true
-    }
-    if (crossed) sequence++
   })
   let lastTurn = admitted?.getSnapshot()?.legacy?.nodes?.findLast(node => node.kind === 'user')?.turn
   const unsubscribeAdmitted = admitted?.subscribe(() => {
@@ -1672,7 +1668,7 @@ function createDrawingQuestionController(options) {
   })
   sync()
   return {
-    input, admitted, pending,
+    input, admitted,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot,
     async select(reference, shouldFocus = () => true) {
       if (input.state.getSnapshot().phase !== 'plain') throw new Error('输入框正在提交或处理命令，请稍后添加引用')
@@ -1699,14 +1695,20 @@ function createDrawingQuestionController(options) {
       if (chips.length > 1 || (chips[0] && (state.phase !== 'plain' || !consume(drawingQuestionSpan(state, chips[0]))))) throw new Error('当前引用暂时无法清除，请稍后重试')
       handoff = false; sendPending = null; publish({ active: null, hasChip: false })
     },
-    beginSend(ref) { if (snapshot.active?.ref === ref) { handoffSequence++; handoff = true; sendPending = verifyHandoff ? ref : null } },
-    confirmSend(ref) { if (sendPending === ref) { sendPending = null; sync() } },
-    cancelSend(ref) { if (sendPending === ref) { sendPending = null; handoff = false; sync() } },
+    beginSend(ref) {
+      if (snapshot.active?.ref !== ref) return null
+      handoffSequence++; handoff = true
+      const attempt = verifyHandoff ? { ref } : null
+      sendPending = attempt
+      return attempt
+    },
+    confirmSend(attempt) { if (sendPending && sendPending === attempt) { sendPending = null; sync() } },
+    cancelSend(attempt) { if (sendPending && sendPending === attempt) { sendPending = null; handoff = false; sync() } },
     setVersion(sourceValue, preview) {
       if (version?.source !== sourceValue || version?.preview !== preview) { sequence++; handoffSequence++; version = { source: sourceValue, preview }; sync() }
       if (!snapshot.hasChip && snapshot.active && stale(snapshot.active.reference)) invalidate()
     },
-    dispose() { disposed = true; sequence++; handoffSequence++; sendPending = null; unsubscribe(); unsubscribePending?.(); unsubscribeAdmitted?.(); listeners.clear() },
+    dispose() { disposed = true; sequence++; handoffSequence++; sendPending = null; unsubscribe(); unsubscribeAdmitted?.(); listeners.clear() },
   }
 }
 function drawingQuestion(sessionId) {
@@ -2066,15 +2068,15 @@ function apply(ctx) {
         const checkSession = () => { if (ctx.get('sidebarRight').mounted.getSnapshot() !== reference.session) throw new Error('图纸引用不属于当前会话，请重新选择') }
         checkSession()
         const controller = drawingReferenceController(reference.session)
-        controller.beginSend(ref)
+        const attempt = controller.beginSend(ref)
         try {
           const { reference: verified, targetContent } = await verifyDrawingReference(reference.session, reference, signal)
           checkSession()
-          controller.confirmSend(ref)
+          controller.confirmSend(attempt)
           const detail = targetContent ? `\n已核验图纸对象内容：${JSON.stringify(targetContent)}` : ''
           return `${drawingReferenceClipboard(JSON.stringify(verified))}${detail}\n请结合已核验的图纸引用与问题回答；尺寸和图元以当前 pack 为准。`
         } catch (error) {
-          controller.cancelSend(ref)
+          controller.cancelSend(attempt)
           throw error
         }
       },
