@@ -14,6 +14,7 @@ try {
   const task = () => page.evaluate(async sid => (await (await fetch(`/camind/api/cam/tasks/${sid}`)).json()).data, sid)
   const before = await task()
   assert(before.inputs.dwg?.uri, 'Select an existing task with a frozen DWG input')
+  assert(!before.inputs.prt, 'Use a DWG-only task so opening the workbench cannot start model/NX geometry generation')
   const base = `/camind/api/drawings/sessions/${encodeURIComponent(sid)}/packs`
   const sourceUri = before.inputs.dwg.uri
   const started = await page.evaluate(async ({ base, sourceUri }) => {
