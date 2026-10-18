@@ -50,7 +50,7 @@ try {
     await editor.fill(ownText)
     await choose(first); assert((await editor.innerText()).includes(ownText))
     assert((await canvasColors(page)).yellow > 0, 'The selected dimension is visibly highlighted')
-    await page.getByRole('button', { name: '清除当前提问对象', exact: true }).click()
+    await page.locator('.wb-preview-stage:not([hidden])').getByRole('button', { name: '清除当前提问对象', exact: true }).click()
     await page.waitForFunction(() => !document.querySelector('[data-composer-chip="cam-drawing-ref"]'))
     assert((await editor.innerText()).includes(ownText))
     await choose(first); await choose(first); assert.equal(await chip.count(), 1)

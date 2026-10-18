@@ -38,8 +38,14 @@ try {
             const nextId = Math.max(...pack.entities.map(entity => Number.isInteger(entity.id) ? entity.id : -1)) + 1
             const future = { ...template, id: nextId, type: 'future_entity' }
             delete future.dim_id
+            if (future.color) future.color = { aci: 5, raw: 5 }
             pack.entities.push(future)
+            pack.self_check.input_entities += 1
+            pack.self_check.drawn_entities += 1
+            pack.coverage.entities_by_type.future_entity = 1
             body.packText = JSON.stringify(pack)
+            const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body.packText))
+            body.pack.sha256 = [...new Uint8Array(hash)].map(value => value.toString(16).padStart(2, '0')).join('')
           }
           return new Response(JSON.stringify(body), { status: response.status, headers: { 'content-type': 'application/json' } })
         }

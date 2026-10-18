@@ -93,6 +93,7 @@ try {
     assert.deepEqual((await camera(page)).camera, beforeSearch.camera, 'Input keys must not trigger canvas shortcuts')
     await aside.getByText('没有匹配的内容', { exact: true }).waitFor()
     await search.press('Escape'); assert.equal(await aside.count(), 0)
+    await fit()
     await more()
     previousColor = await colorToggle.isChecked()
     await colorToggle.check()

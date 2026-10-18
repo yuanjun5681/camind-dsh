@@ -85,7 +85,8 @@ export async function canvasColors(page) {
     let blue = 0, yellow = 0
     for (let i = 0; i + 3 < data.length; i += 4) {
       const r = data[i], g = data[i + 1], b = data[i + 2]
-      if (r === 0 && g === 0 && b === 255) blue++
+      // macOS color management can shift pure ACI blue to nearby bytes such as (8,0,255).
+      if (r <= 16 && g <= 16 && b >= 240) blue++
       if (r > 240 && g > 150 && g < 235 && b < 100) yellow++
     }
     return { blue, yellow }
