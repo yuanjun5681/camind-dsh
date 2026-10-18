@@ -135,8 +135,10 @@ function rawFileUrl(sessionId, path) {
 
 let slotsRef = null
 let sessionsRef = null
+const pendingActivations = new Map()
 
-function activateConversationView(sessionId, viewId) {
+function activateConversationView(sessionId, viewId, channel = 'default') {
+  pendingActivations.set(sessionId, { channel })
   try {
     const slots = slotsRef
     if (!slots || typeof slots.entriesOfSlot !== 'function' || typeof slots.hostFace !== 'function') return
@@ -552,13 +554,18 @@ function apply(ctx) {
         if (next !== previous) { previous = next; listener(false) }
       })
     },
+    consumeActivation(sessionId) {
+      const activation = pendingActivations.get(sessionId)
+      pendingActivations.delete(sessionId)
+      return activation
+    },
     // 路径模式：预览会话工作区 / upload:// 引用（经 Host 路由取数）。
     preview(sessionId, path, channel = 'default', version) {
       const id = String(sessionId ?? '')
       const target = String(path ?? '')
       if (!id || !target) return
       publish({ target: { kind: 'path', sessionId: id, path: target, channel, version } })
-      activateConversationView(id, 'preview')
+      activateConversationView(id, 'preview', channel)
     },
     previewRun(sessionId, runId) {
       const id = String(sessionId ?? ''), run = String(runId ?? '')

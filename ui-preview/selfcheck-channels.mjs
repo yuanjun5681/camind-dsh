@@ -27,6 +27,8 @@ let modelReplay = 0, drawingReplay = 0
 filePreview.subscribe('s1', () => { modelReplay++ }, 'model')
 filePreview.subscribe('s1', () => { drawingReplay++ }, 'drawing')
 assert.deepEqual([modelReplay, drawingReplay], [1, 1], 'mounting a subscriber replays the current channel target')
+assert.equal(filePreview.consumeActivation('s1').channel, 'drawing', 'an explicit activation is consumable once by a mounting workbench')
+assert.equal(filePreview.consumeActivation('s1'), undefined, 'the same activation cannot override later saved modes')
 filePreview.preview('s1', 'task-input://1/dwg', 'drawing', 'c'.repeat(64))
 assert.deepEqual([modelEvents, drawingEvents], [1, 2], 'same URI with a new source SHA is a new preview target')
 console.log('ok - model/drawing preview channels and source-version invalidation')

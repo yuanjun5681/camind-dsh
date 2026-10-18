@@ -2083,6 +2083,10 @@ function WorkbenchView({ sessionId }) {
     refreshingTaskDrawing.current = true
     try { openTaskDrawingPreview(sessionId, task) } finally { refreshingTaskDrawing.current = false }
   }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
+  useEffect(() => {
+    const activation = previewService()?.consumeActivation?.(sessionId)
+    if (activation) setMode(activation.channel)
+  }, [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!initial || !readBenchPreference(sessionId).mode) setMode('model') }, 'model'), [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!refreshingTaskDrawing.current && (!initial || !readBenchPreference(sessionId).mode)) setMode('drawing') }, 'drawing'), [sessionId])
   useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!initial || !readBenchPreference(sessionId).mode) setMode('preview') }, 'default'), [sessionId])
