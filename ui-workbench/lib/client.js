@@ -906,9 +906,12 @@ function AgentPanel({ sessionId }) {
   const [state, setState] = useState({ running: false, streaming: false, text: '', pending: false })
   const [dock, setDock] = useState(null), [stopping, setStopping] = useState(false), [error, setError] = useState('')
   const panel = React.useRef(null)
-  const [question, questionController] = useDrawingQuestion(sessionId)
+  const [legacyQuestion, legacyController] = useDrawingQuestion(sessionId)
+  const [referenceQuestion, referenceController] = useDrawingReferenceQuestion(sessionId)
+  const question = referenceQuestion.active ? referenceQuestion : legacyQuestion
+  const questionController = referenceQuestion.active ? referenceController : legacyController
   const clearTarget = () => { try { questionController.clear(); if (!state.running) sessionInput(sessionId)?.focus() } catch (e) { sessionInput(sessionId)?.notify('error', e.message) } }
-  const chipHost = !state.running && question.hasChip ? document.querySelector('.wb-floating-composer [data-composer-chip="cam-drawing"]') : null
+  const chipHost = !state.running && question.hasChip ? document.querySelector('.wb-floating-composer [data-composer-chip="cam-drawing"], .wb-floating-composer [data-composer-chip="cam-drawing-ref"]') : null
   const clearChip = chipHost ? require('react-dom').createPortal(h(Tooltip, { label: '清除当前提问对象', delayMs: 400 },
     h(Button, { className: 'wb-drawing-context-clear', 'aria-label': '清除当前提问对象', onPointerDown: e => e.preventDefault(), onClick: e => { e.preventDefault(); e.stopPropagation(); clearTarget() } }, '×')), chipHost) : null
   const badge = dock && question.active && (state.running || !question.hasChip) && !state.pending ? h('div', { className: 'wb-current-target', style: { ...dock, bottom: dock.bottom + 58 }, role: 'status' },
@@ -946,7 +949,7 @@ function AgentPanel({ sessionId }) {
     seat.classList.toggle('wb-composer-confirmation', state.pending)
     const measure = () => {
       const canvas = main.querySelector('.wb-canvas')
-      const stage = canvas?.querySelector('.wb-preview-stage:not([hidden]) .cmv-stage, .wb-preview-stage:not([hidden]) .wb-drawing-stage')
+      const stage = canvas?.querySelector('.wb-preview-stage:not([hidden]) .cmv-stage, .wb-preview-stage:not([hidden]) .cdv-canvas')
       const rect = composerViewportRect((canvas || content).getBoundingClientRect(), stage?.getBoundingClientRect(), state.pending)
       const side = main.querySelector('.wb-context')?.getBoundingClientRect()
       const right = side && side.left > rect.left && side.left < rect.right ? side.left : rect.right
@@ -964,7 +967,7 @@ function AgentPanel({ sessionId }) {
     const observeViewport = () => {
       observer.disconnect(); observer.observe(content); observer.observe(main)
       if (canvas) observer.observe(canvas)
-      const stage = canvas?.querySelector('.cmv-stage'); if (stage) observer.observe(stage)
+      const stage = canvas?.querySelector('.cmv-stage, .cdv-canvas'); if (stage) observer.observe(stage)
       measure()
     }
     const mutation = new MutationObserver(observeViewport)
@@ -1860,6 +1863,10 @@ function useDrawingQuestion(sessionId) {
   const controller = drawingQuestion(sessionId)
   return [React.useSyncExternalStore(controller.subscribe, controller.getSnapshot), controller]
 }
+function useDrawingReferenceQuestion(sessionId) {
+  const controller = drawingReferenceController(sessionId)
+  return [React.useSyncExternalStore(controller.subscribe, controller.getSnapshot), controller]
+}
 function OperationTable({ task }) {
   const headers = ['顺序 / 工序', '工位', '刀具 / 刀位', '转速 rpm', '进给 mm/min', '前置工序']
   return h('div', { className: 'wb-table-scroll' }, h('table', { className: 'wb-operation-table' },
@@ -2052,7 +2059,12 @@ function WorkbenchView({ sessionId }) {
   useEffect(() => { if (task) questionController.setVersion(task.inputs.dwg?.sha256) }, [task?.inputs.dwg?.sha256])
   useEffect(() => {
     const current = task?.inputs.dwg, previous = previousDwgInput.current
-    if (previous && (previous.uri !== current?.uri || previous.sha256 !== current?.sha256)) drawingReferenceController(sessionId).invalidateSource(previous)
+    if (previous === null) {
+      const active = drawingReferenceController(sessionId).getSnapshot().active?.reference
+      if (active?.source?.uri?.startsWith('task-input://') && task && !sameDrawingSource(active, current)) drawingReferenceController(sessionId).invalidateSource(active.source)
+    } else if (previous.uri !== current?.uri || previous.sha256 !== current?.sha256) {
+      drawingReferenceController(sessionId).invalidateSource(previous)
+    }
     previousDwgInput.current = current ? { uri: current.uri, sha256: current.sha256 } : null
   }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
   const Preview = previewService()?.View

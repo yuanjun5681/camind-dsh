@@ -13,6 +13,10 @@ assert.ok(source.includes('drawingReferenceController(sessionId).invalidateSourc
 assert.ok(source.includes("subscribe(sessionId, () => setMode('preview'), 'default')"), 'default preview producers must activate a rendered preview pane')
 assert.ok(source.includes("hidden: mode !== 'preview' }, Preview"), 'default/content/run previews must have a visible workbench outlet')
 assert.ok(source.includes('task?.inputs.dwg?.sha256])'), 'source SHA changes must retrigger the drawing preview effect')
+assert.ok(source.includes('useDrawingReferenceQuestion(sessionId)'), 'composer controls must observe the new drawing-reference controller')
+assert.ok(source.includes('[data-composer-chip="cam-drawing-ref"]'), 'composer clear action must recognize the migrated native chip')
+assert.ok(source.includes('.cmv-stage, .cdv-canvas'), 'composer positioning must include the new drawing viewport')
+assert.ok(source.includes("active?.source?.uri?.startsWith('task-input://')"), 'initial task load must also compare retained references with the frozen input')
 const code = source.replace('exports.apply = apply', 'exports.__drawingTaskTest = { openTaskDrawingPreview, openTaskModelPreview }; exports.apply = apply')
 let plugin
 const previewCalls = []
