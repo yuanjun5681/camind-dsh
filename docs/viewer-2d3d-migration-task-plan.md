@@ -7,12 +7,17 @@
 
 ## 当前执行状态与后续任务（2026-10-18）
 
-M1-01～M1-03 与 M6 已完成；M1-04 的离线自检、构建复现和 Codex 审核已完成，真实桌面冒烟尚未执行。不得将 M1 描述为全部完成。
+M0～M6 的既定任务（除条件任务 M5-05）均已完成并分别通过 Codex 闭环。M1-04-live、M2-06-live、M3-04-live、M4-05-live 已补齐；M5-01～M5-04 的实现、离线回归和真实桌面/三壳验收均通过。
 
-| 任务 | 当前状态 | 后续动作与解锁条件 |
+| 任务 | 当前状态 | 完成证据 / 后续条件 |
 |---|---|---|
-| **M1-04-live：`dsh-app://` 合成图冒烟** | **PENDING（后续补做）** | 安装或提供 Camind/DeepSeek Harness 桌面环境后，先运行 `scripts/desktop.sh --remote-debugging-port=9236`，再运行 `DESKTOP_REPO=/private/tmp/camind-desktop-viewer-2d3d CAM_AGENT_REPO=/Users/yj/Desktop/CAM-Agent node ui-drawing-viewer/acceptance-desktop.mjs`。验收通过并提交 Codex 审核后，M1 才能闭合 |
-| M2～M5 | 当前可启动 | 按并行批次执行；M1-04-live 移至后续补做，不作为 M2 启动前置，但在 M5 三壳验收前必须补做并通过 |
+| M1-04-live | **DONE** | `ui-drawing-viewer/acceptance-desktop.mjs`：真实 `dsh-app://` 插件图、合成包与双层画布渲染通过 |
+| M2-06-live | **DONE** | `acceptance-desktop-pack.mjs`：作业启动/轮询/读取、pack SHA、来源身份与任务不变性通过 |
+| M3-04-live | **DONE** | `acceptance-lifecycle-desktop.mjs`：A/B、失败清场、重挂载、DPR、pointercancel、WebGL 恢复与 dispose 通过，测试 DOM 已清理 |
+| M4-05-live | **DONE** | `drawing-report.json`、`drawing-status-report.json`、`drawing-question-report.json`：任务域三份真实桌面验收通过 |
+| M5-01～M5-03 | **DONE** | 默认/回滚/恢复默认、token 皮肤、三壳与 light/dark/system 计算样式、原生引用和 worker 取消证据通过 |
+| M5-04 | **DONE** | 三方差分 46 组/236 项、2D 368 项、上游 412 项、生命周期/性能/安全/Workbench/3D 与桌面纵向回归通过；黄金对照因未配置本地敏感条件，明确记为未执行 |
+| M5-05 | **PENDING（条件任务）** | 仍需一个完整版本周期无回滚事件，并取得用户确认后才能删除旧 DwgPane；本期不执行 |
 
 ## 1. 所有任务强制执行的通用规则
 

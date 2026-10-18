@@ -137,5 +137,7 @@ try {
   console.log(`drawing lifecycle desktop acceptance: PASS (${JSON.stringify(report)})`)
 } finally {
   if (cdp) await cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
+  const page = browser.contexts()[0]?.pages().find(item => item.url().startsWith('dsh-app:'))
+  if (page) await page.evaluate(() => { document.querySelectorAll('#viewer').forEach(el => el.remove()); delete window.__m3 }).catch(() => {})
   await browser.close()
 }
