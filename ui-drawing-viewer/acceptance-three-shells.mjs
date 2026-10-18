@@ -10,7 +10,7 @@ import { createRequire } from 'node:module'
 const { chromium } = createRequire(import.meta.url)(process.env.CAMIND_PLAYWRIGHT_PATH || 'playwright-core')
 const origin = process.env.CAMIND_WEB_ORIGIN || 'http://127.0.0.1:3080'
 const entryUrl = `${origin}/${process.env.CAMIND_WEB_TOKEN ? `?token=${encodeURIComponent(process.env.CAMIND_WEB_TOKEN)}` : ''}`
-const root = process.cwd()
+const dshHome = process.env.DSH_HOME ?? path.join(process.cwd(), '.dsh')
 const HEADER = `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n`
 const TABLES = `0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n0\nTABLE\n2\nLTYPE\n70\n1\n0\nLTYPE\n2\nContinuous\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n0\nTABLE\n2\nSTYLE\n70\n1\n0\nSTYLE\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n0\nENDTAB\n0\nENDSEC\n`
 function makeDxf(count) {
@@ -18,7 +18,7 @@ function makeDxf(count) {
   return `${HEADER}${TABLES}0\nSECTION\n2\nENTITIES\n${lines}0\nENDSEC\n0\nEOF\n`
 }
 async function sessionCwd(sid) {
-  const sessions = path.join(root, '.dsh/sessions')
+  const sessions = path.join(dshHome, 'sessions')
   for (const entry of await fs.readdir(sessions, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const dir = path.join(sessions, entry.name, sid)
@@ -83,15 +83,16 @@ async function cancelConversion(page, sid, before, shell) {
     }, { base, sourceUri })
     assert.equal(started.status, 202, JSON.stringify(started.body))
     const jobId = started.body.jobId
+    const baselineWorkers = (await statusOf(jobId)).activeWorkers ?? 0
     let converting = false
     for (let i = 0; i < 360 && !converting; i++) {
       const job = await statusOf(jobId)
       if (job.state === 'ready') throw new Error('Conversion completed before cancellation could start')
-      converting = job.stage === 'converting'
+      converting = job.stage === 'converting' && (job.activeWorkers ?? 0) > baselineWorkers
       if (!converting) await page.waitForTimeout(50)
     }
-    assert(converting, 'Conversion did not start before cancellation')
-    const cacheDir = path.join(root, '.dsh/draft-previews', sid)
+    assert(converting, 'No conversion worker started before cancellation')
+    const cacheDir = path.join(dshHome, 'draft-previews', sid)
     const beforeCache = await fs.readdir(cacheDir).catch(() => [])
     await page.evaluate(async ({ base, jobId }) => (await fetch(`${base}/${jobId}/cancel`, { method: 'POST' })), { base, jobId })
     let cancelledJob
@@ -102,13 +103,18 @@ async function cancelConversion(page, sid, before, shell) {
       await page.waitForTimeout(100)
     }
     assert.equal(cancelledJob?.error?.code, 'cancelled')
-    await page.waitForTimeout(1000)
-    const finalJob = await statusOf(jobId)
+    let finalJob
+    for (let i = 0; i < 360; i++) {
+      finalJob = await statusOf(jobId)
+      if ((finalJob.activeWorkers ?? 0) <= baselineWorkers) break
+      await page.waitForTimeout(50)
+    }
     assert.equal(finalJob.state, 'error')
+    assert((finalJob.activeWorkers ?? 0) <= baselineWorkers, 'Conversion worker did not exit after cancellation')
     assert(!finalJob.result, 'Cancelled conversion must not publish a late result')
     const afterCache = await fs.readdir(cacheDir).catch(() => [])
     assert.deepEqual(afterCache.sort(), beforeCache.sort(), 'Cancelled conversion must not write a late cache pack')
-    return { started: true, noLateResult: true, cacheStable: true }
+    return { started: true, workersExited: true, noLateResult: true, cacheStable: true }
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }

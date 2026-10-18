@@ -16,7 +16,7 @@ import { convertDxfText, PIPELINE_VERSION, RULES_VERSION, VIEW_RULE_VERSION } fr
 import { checkDraftPack } from './lib/packcheck.js'
 import { svgFromPack, drawingTargetsFromPack } from './lib/svg.js'
 import { libredwgVersionAsync, resolveDwg2dxf } from './lib/dwg.js'
-import { convertDwgAsync, convertDxfAsync } from './lib/worker.js'
+import { activeConversionWorkers, convertDwgAsync, convertDxfAsync } from './lib/worker.js'
 import { converterRelease, converterBuildFingerprint, conversionFingerprint, packIdentity } from './lib/identity.js'
 
 export const name = 'service-draft-converter'
@@ -60,6 +60,7 @@ export function apply(ctx, config) {
     check(pack, profile = 'writer') {
       return checkDraftPack(pack, profile)
     },
+    activeWorkers: activeConversionWorkers,
     conversionIdentity,
     async identity(pack, options = {}) {
       const fingerprint = options.conversionFingerprint ?? await conversionIdentity(options)

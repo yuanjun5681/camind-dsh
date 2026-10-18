@@ -192,7 +192,8 @@ export function createDrawingPreviewService({
     }
   }
 
-  const jobInfo = job => job ? ({ ...job, jobId: job.id }) : null
+  const jobInfo = job => job ? ({ ...job, jobId: job.id,
+    ...(typeof draftConverter.activeWorkers === 'function' ? { activeWorkers: draftConverter.activeWorkers() } : {}) }) : null
 
   async function read(sessionId, key, requested, displayName) {
     if (!/^[0-9a-f]{64}$/i.test(key)) throw new Error('非法图纸包身份')
