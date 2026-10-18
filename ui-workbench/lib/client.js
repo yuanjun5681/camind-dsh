@@ -1375,8 +1375,9 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     update()
     return question.subscribe(update)
   }, [descriptor.session])
+  const paneActive = viewportRef?.current?.closest('.wb-preview-stage')?.hidden !== true
   useEffect(() => {
-    if (!controller) return
+    if (!controller || !paneActive) return
     const next = drawingVerifiedSelection(descriptor, verifiedQuestion, selection)
     if (next === 'invalidate') {
       drawingReferenceController(descriptor.session).clear(verifiedQuestion.active.reference)
@@ -1385,7 +1386,7 @@ function DrawingWorkbenchAdapter({ descriptor, controller, selection, viewportRe
     }
     if (next?.length) controller.setSelection(next, false)
     else if (next) controller.clearSelection(false)
-  }, [controller, verifiedQuestion, selection])
+  }, [controller, verifiedQuestion, selection, paneActive])
   useEffect(() => { setQuery(''); setLimit(100); setBoxMode(false); setBoxRect(null); boxDrag.current = null }, [descriptor])
   useEffect(() => {
     if (!boxMode) return
@@ -2082,9 +2083,9 @@ function WorkbenchView({ sessionId }) {
     refreshingTaskDrawing.current = true
     try { openTaskDrawingPreview(sessionId, task) } finally { refreshingTaskDrawing.current = false }
   }, [sessionId, task?.inputs.dwg?.uri, task?.inputs.dwg?.sha256])
-  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('model'), 'model'), [sessionId])
-  useEffect(() => previewService()?.subscribe(sessionId, () => { if (!refreshingTaskDrawing.current) setMode('drawing') }, 'drawing'), [sessionId])
-  useEffect(() => previewService()?.subscribe(sessionId, () => setMode('preview'), 'default'), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!initial || !readBenchPreference(sessionId).mode) setMode('model') }, 'model'), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!refreshingTaskDrawing.current && (!initial || !readBenchPreference(sessionId).mode)) setMode('drawing') }, 'drawing'), [sessionId])
+  useEffect(() => previewService()?.subscribe(sessionId, initial => { if (!initial || !readBenchPreference(sessionId).mode) setMode('preview') }, 'default'), [sessionId])
   // Auto-open the newest available PRT in the canvas: first detection switches,
   // each newly appearing PRT switches again; re-polls of the same file do not.
   const autoPrt = useRef('')

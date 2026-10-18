@@ -546,10 +546,10 @@ function apply(ctx) {
     View: FilePreviewView,
     subscribe(sessionId, listener, channel = 'default') {
       let previous = snapshot.targets[targetKey(sessionId, channel)]
-      if (previous !== undefined) listener()
+      if (previous !== undefined) listener(true)
       return subscribe(() => {
         const next = snapshot.targets[targetKey(sessionId, channel)]
-        if (next !== previous) { previous = next; listener() }
+        if (next !== previous) { previous = next; listener(false) }
       })
     },
     // 路径模式：预览会话工作区 / upload:// 引用（经 Host 路由取数）。
