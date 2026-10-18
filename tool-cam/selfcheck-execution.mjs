@@ -24,7 +24,7 @@ try {
   task = await tasks.finishReview('s1', task.version, task.review.fingerprint, task.requirement_summary.draft.map(item => item.id))
   task = await tasks.authorize('s1', task.version, task.fingerprint, { op1: { feed: [80, 120] } })
   const tools = new Map(), services = new Map([['camTasks', tasks]])
-  let done, ncName, calls = [], stopBeforeNext = false, invalidToolReadback = false, failedFinalize = false, throwFinalize = false, postFailure = false, pendingRegeneration = false, crossOperationPending = false
+  let done, ncName, calls = [], stopBeforeNext = false, invalidToolReadback = false, failedFinalize = false, throwFinalize = false, postFailure = false, pendingRegeneration = false, crossOperationPending = false, copySuccess = false
   const ctx = { get: name => services.get(name), tools: { register: tool => tools.set(tool.name, tool) } }
   const exec = { agent: { id: 's1', session: { header: { cwd: home } } } }
   registerCamPlan(ctx, { machineRegistry: registry })
@@ -53,6 +53,18 @@ try {
         return { status: 'ok', data: { ok: true, saved: true, tools: { AP_MILL_D10: { after } } } }
       }
       if (endpoint === '/cam_copy_postprocess' && postFailure === 't501') return { status: 'error', errorType: 'FieldGuardError', errorClass: 'refused', errorDetail: { regeneration_required: [{ operation: params.new_name, tool: 'AP_MILL_D10', reason: 'missing T/H/D or definition bits' }], confirmation_param: 'allow_regenerate_toolpaths' } }
+      if (endpoint === '/cam_copy_postprocess' && copySuccess) {
+        const name = params.new_name
+        ncName = name + '.nc'
+        const pendingFields = copySuccess === 'pending' ? {
+          regenerated_operations: [name],
+          other_operations_pending_regeneration: [{ operation: 'OTHER_COPY', tool: 'AP_MILL_D10', reason: 'copy 同刀其他工序待重算' }],
+        } : {}
+        return { status: 'ok', data: {
+          copy: { copied: true, new_name: name, path_exists: true, toolpath_length: 10 },
+          postprocess: { files: { [name]: ncName }, ...pendingFields },
+        } }
+      }
       if (endpoint === '/cam_build_workpiece_op') return { status: 'ok', data: { created: true, path_exists: true, toolpath_length: 10 } }
       if (endpoint === '/postprocess' && crossOperationPending) {
         const name = params.operations[0]
@@ -178,6 +190,7 @@ try {
   const scopedStatePath = path.join(ordinaryPost.run_dir, 'runstate.json')
   const scopedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
   scopedState.ops.push({ index: 1, name: 'OUTSIDE_JOB', type: 'from_scratch_workpiece_op', status: 'ok', other_operations_pending_regeneration: [scopedState.ops[0].name] })
+  scopedState.cleanup = { status: 'pending', work_copy: 'synthetic-work.prt', reason: 'synthetic unfinished cleanup' }
   await fs.writeFile(scopedStatePath, JSON.stringify(scopedState))
   calls = []
   await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id, resume: true }, exec)
@@ -186,14 +199,20 @@ try {
   assert.equal(scopedResumeSummary.ops[0].status, 'generated')
   assert.equal(scopedResumeSummary.ops.length, 2)
   assert.equal(scopedResumeSummary.ops[1].name, 'OUTSIDE_JOB')
+  assert.equal(scopedResumeSummary.cleanup.status, 'pending')
+  assert.equal(scopedResumeSummary.cleanup.work_copy, 'synthetic-work.prt')
   assert.deepEqual(calls, [])
   assert.match(scopedResumeSummary.reason, new RegExp(`待重算刀路：${scopedState.ops[0].name}`))
-  postFailure = false
+  const blockedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
+  assert.equal(blockedState.execution_overall, 'incomplete')
+  assert.equal(blockedState.history.at(-1).stage, 'regeneration_blocked')
+  assert.equal(blockedState.cleanup.status, 'pending')
+  postFailure = false; calls = []
   await tools.get('cam_run').execute({ run_id: ordinaryPost.run_id }, exec)
-  const scopedClearedSummary = JSON.parse((await done).result)
-  assert.equal(scopedClearedSummary.overall, 'ok')
-  assert.equal(scopedClearedSummary.ops.length, 1)
-  assert.deepEqual(regenerationItemsOf(scopedClearedSummary.ops[0]), [])
+  const scopedFreshBlocked = JSON.parse((await done).result)
+  assert.equal(scopedFreshBlocked.overall, 'incomplete')
+  assert.deepEqual(scopedFreshBlocked.ops.map(op => op.decision), ['stop', 'stop'])
+  assert.deepEqual(calls, [])
   const malformedState = JSON.parse(await fs.readFile(scopedStatePath, 'utf8'))
   malformedState.ops = { unreadable: true }
   await fs.writeFile(scopedStatePath, JSON.stringify(malformedState))
@@ -201,6 +220,9 @@ try {
   const malformedSummary = await executeCamRun({ camPipeline: pipeline, runDir: ordinaryPost.run_dir, runId: ordinaryPost.run_id, resume: true, dshHome: home, isCancelled: () => false })
   assert.equal(malformedSummary.overall, 'error')
   assert.equal(malformedSummary.failed_stage, 'load')
+  const malformedDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: ordinaryPost.run_dir, runId: ordinaryPost.run_id, tasks, sessionId: 's1' })
+  assert.equal(malformedDelivery.status, 'error')
+  assert.equal(malformedDelivery.stage, 'load')
   assert.deepEqual(calls, [])
   // T-501: refusal is an error, never a normal generated state, and no authorization flag is injected.
   const refusedT501 = JSON.parse(await tools.get('cam_plan').execute(args, exec))
@@ -226,15 +248,48 @@ try {
   assert.equal(refusedManifest.package_complete, false)
   assert.match(await fs.readFile(path.join(refusedT501.run_dir, 'delivery/delivery_report.md'), 'utf8'), /待重算刀路.*刀具 AP_MILL_D10/)
   // The copy path is fail-closed in the same way and cannot assume parameter forwarding.
-  const copyT501 = JSON.parse(await tools.get('cam_plan').execute({ ...args, operations: task.operations.map(op => ({ ...op, type: 'copy_postprocess', template: 'TEMPLATE_OP' })) }, exec))
+  const copyRunArgs = async (runId) => {
+    const runDir = path.join(home, runId)
+    await fs.mkdir(runDir)
+    await fs.writeFile(path.join(runDir, 'job.json'), JSON.stringify({
+      prt: 'input/part.prt', out_dir: 'output', post_name: 'MILL_3_AXIS',
+      operations: [{ ...task.operations[0], type: 'copy_postprocess', template: 'TEMPLATE_OP', new_name: 'COPY_{suffix}' }],
+    }))
+    return { camPipeline: pipeline, runDir, runId, dshHome: home, isCancelled: () => false }
+  }
+  const copyT501Args = await copyRunArgs('copy-t501')
   postFailure = 't501'; calls = []
-  await tools.get('cam_run').execute({ run_id: copyT501.run_id }, exec)
-  const copyT501Summary = JSON.parse((await done).result)
+  const copyT501Summary = await executeCamRun({ ...copyT501Args, resume: false })
   assert.equal(copyT501Summary.overall, 'error')
   assert.equal(copyT501Summary.ops[0].error_detail.confirmation_param, 'allow_regenerate_toolpaths')
+  assert.equal(calls.some(call => call.endpoint === '/cam_copy_postprocess'), true)
   assert.equal(calls.some(call => call.endpoint === '/postprocess'), false)
   assert.equal(calls.every(call => !Object.hasOwn(call.params, 'allow_regenerate_toolpaths')), true)
   postFailure = false
+  const copyOkArgs = await copyRunArgs('copy-ok')
+  copySuccess = 'success'; calls = []
+  const copyOkSummary = await executeCamRun({ ...copyOkArgs, resume: false })
+  assert.equal(copyOkSummary.overall, 'ok', JSON.stringify(copyOkSummary))
+  assert.equal(copyOkSummary.ops[0].status, 'ok')
+  assert.equal(copyOkSummary.ops[0].nc_files.length, 1)
+  assert.equal(calls.some(call => call.endpoint === '/cam_copy_postprocess'), true)
+  assert.equal(calls.some(call => call.endpoint === '/cam_build_workpiece_op'), false)
+  const copyPendingArgs = await copyRunArgs('copy-pending')
+  copySuccess = 'pending'; calls = []
+  const copyPendingSummary = await executeCamRun({ ...copyPendingArgs, resume: false })
+  assert.equal(copyPendingSummary.overall, 'incomplete')
+  assert.equal(copyPendingSummary.ops[0].status, 'ok')
+  assert.equal(copyPendingSummary.ops[0].other_operations_pending_regeneration[0].operation, 'OTHER_COPY')
+  assert.equal(copyPendingSummary.ops[0].other_operations_pending_regeneration[0].tool, 'AP_MILL_D10')
+  calls = []
+  const copyPendingResume = await executeCamRun({ ...copyPendingArgs, resume: true })
+  assert.equal(copyPendingResume.ops[0].decision, 'stop')
+  assert.deepEqual(calls, [])
+  const copyPendingDelivery = await executeCamDeliver({ camPipeline: pipeline, runDir: copyPendingArgs.runDir, runId: copyPendingArgs.runId, tasks, sessionId: 's1' })
+  assert.ok(copyPendingDelivery.blockers.some(text => text.includes('OTHER_COPY') && text.includes('AP_MILL_D10')))
+  const copyPendingManifest = JSON.parse(await fs.readFile(path.join(copyPendingArgs.runDir, 'delivery/manifest.json'), 'utf8'))
+  assert.equal(copyPendingManifest.package_complete, false)
+  copySuccess = false
   // Successful current operation with another pending operation blocks delivery and resume.
   const pendingT501 = JSON.parse(await tools.get('cam_plan').execute(args, exec))
   pendingRegeneration = true; calls = []
@@ -259,11 +314,13 @@ try {
   assert.equal(resumeT501Summary.overall, 'incomplete')
   assert.equal(resumeT501Summary.ops[0].decision, 'stop')
   assert.deepEqual(calls, [])
-  pendingRegeneration = false
+  pendingRegeneration = false; calls = []
   await tools.get('cam_run').execute({ run_id: pendingT501.run_id }, exec)
-  const clearedT501Summary = JSON.parse((await done).result)
-  assert.equal(clearedT501Summary.overall, 'ok')
-  assert.deepEqual(regenerationItemsOf(clearedT501Summary.ops[0]), [])
+  const freshBlockedT501Summary = JSON.parse((await done).result)
+  assert.equal(freshBlockedT501Summary.overall, 'incomplete')
+  assert.equal(freshBlockedT501Summary.ops[0].decision, 'stop')
+  assert.equal(freshBlockedT501Summary.ops[0].other_operations_pending_regeneration[0].operation, 'OTHER')
+  assert.deepEqual(calls, [])
   // A later operation can name an earlier one as pending; resume must scan all records before any retry.
   const crossDir = path.join(home, 'cross-t501')
   await fs.mkdir(crossDir)

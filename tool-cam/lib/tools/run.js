@@ -251,7 +251,7 @@ export function overallOf(opEntries, check) {
   const pending = opEntries.flatMap(regenerationItemsOf)
   if (pending.length > 0) {
     const names = [...new Set(pending.map((item) => item.operation))]
-    return { overall: 'incomplete', reason: `存在待重算刀路：${names.join('、')}；未经显式授权不得交付或自动续跑。` }
+    return { overall: 'incomplete', reason: `存在待重算刀路：${names.join('、')}；未重新 cam_plan 并显式审核前不得交付、续跑或以同 run 重跑清除。` }
   }
   const notOk = opEntries.filter((o) => o.status !== OP_OK)
   if (notOk.length > 0) {
@@ -369,6 +369,9 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
       return failStage('load', { errorType: 'invalid_state', msg: 'runstate.json 的 ops 不是数组，无法证明是否存在待重算刀路；已阻断 resume，请人工核对。' })
     }
   }
+  if (state && !Array.isArray(state.ops)) {
+    return failStage('load', { errorType: 'invalid_state', msg: 'runstate.json 的 ops 不是数组，无法证明是否存在待重算刀路；已阻断本次执行，请人工核对或重新 cam_plan。' })
+  }
 
   const suffix = resume ? state.suffix : generateSuffix()
   const ops = Array.isArray(job.operations) ? job.operations : []
@@ -377,6 +380,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     op,
     name: String(op?.new_name ?? `op_${index}`).replaceAll('{suffix}', suffix),
   }))
+  const pendingState = state && state.ops.some(hasPendingRegeneration) ? state : null
   if (!resume || !state) {
     state = {
       run_id: runId,
@@ -397,7 +401,7 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
   }
   if (!Array.isArray(state.history)) state.history = [] // 旧格式 runstate 无 history
   summary.suffix = suffix
-  persist(state)
+  if (!pendingState) persist(state)
 
   // 过程时间线：每条阶段事件带时间戳 append 进 state.history 并原子落盘。
   const mark = (payload) => {
@@ -412,9 +416,11 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     return summary
   }
 
-  // 任何持久 pending 都在首个 proxy 调用前阻断整次 resume；不能先 copy/init/
-  // 写刀号或 finalize，走到 ops 循环才停。只允许写本地 runstate 的阻断留痕。
-  if (resume && Array.isArray(state.ops) && state.ops.some(hasPendingRegeneration)) {
+  // 任何既有 pending 都在首个 proxy 调用前阻断本次执行，无论 resume 与否；
+  // 不能用同 run 非 resume 重跑清掉 pending。只允许写本地 runstate 阻断留痕。
+  if (pendingState) {
+    state = pendingState
+    summary.suffix = state.suffix ?? suffix
     const { overall, reason } = overallOf(state.ops, null)
     // decision 记录本次阻断；status 保留上次终态供 overall/报告使用。
     summary.ops = state.ops.map((prev, index) => ({
@@ -428,8 +434,9 @@ export async function executeCamRun({ camPipeline, runDir, runId, resume, dshHom
     summary.overall = overall
     state.execution_overall = overall
     state.production_overall = summary.production_check
+    if (state.cleanup) summary.cleanup = state.cleanup
     if (reason) summary.reason = reason
-    summary.advice.push('存在待重算刀路，已阻断整次 resume；请人工核对并显式授权后再处理。')
+    summary.advice.push('存在待重算刀路，已阻断本次执行；请人工核对，重新 cam_plan 生成新 run_id 并显式审核后再执行。')
     mark({ stage: 'regeneration_blocked', msg: reason ?? '存在待重算刀路，未调用 proxy。' })
     return summary
   }

@@ -155,6 +155,7 @@ export async function executeCamDeliver({ camPipeline, runDir, runId, note, work
     catch (error) { return fail('authorization', { msg: error.message }) }
   }
   const state = stateRes.value
+  if (!Array.isArray(state?.ops)) return fail('load', { errorType: 'invalid_state', msg: 'runstate.json 的 ops 不是数组，无法核对工序与待重算刀路；交付已阻断，未回收或落盘任何文件。' })
   const declRes = readJson(path.join(runDir, 'declarations.json'))
   const machineRes = readJson(path.join(runDir, 'machine_snapshot.json'))
   const declarationsDoc = declRes.value ?? null
