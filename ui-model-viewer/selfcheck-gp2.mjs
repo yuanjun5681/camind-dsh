@@ -93,6 +93,9 @@ try {
     ['zero_body_face_nonzero', doc => {
       doc.bodies = []; doc.body_count = 0; doc.face_count = 1; doc.edge_count = 0; doc.enumerated_body_count = 1
     }, 'InvalidValue'],
+    ['blanked_non_boolean', doc => {
+      doc.bodies = [{ body: 0, n_faces: 1, blanked: 'true' }]; doc.body_count = 1; doc.enumerated_body_count = 2
+    }, 'BadJson'],
   ]) {
     const doc = structuredClone(baseManifest)
     mutate(doc)

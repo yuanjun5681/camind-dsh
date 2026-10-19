@@ -61,7 +61,7 @@ export interface GeomRoleStatus {
 export interface GeomViewCallbacks {
     partChanged?(): void;
     selectionChanged?(): void;
-    /** 仅 setHiddenBodies 有效变化时发；换零件由 partChanged 表达。 */
+    /** setHiddenBodies 有效变化、setPart 初始显隐和身份失效时发；partChanged 另行表达换件。 */
     visibilityChanged?(hiddenBodies: number[]): void;
     /** 角色声明生效、被拒绝或身份变化失效。 */
     roleChanged?(status: GeomRoleStatus): void;
@@ -235,8 +235,10 @@ export class GeomView {
             return;
         this.partIdentity = { ...identity };
         const previousRole = this.declaredRole;
-        this.roleError = previousRole ? '身份已变化，原角色声明失效' : null;
-        if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+        if (previousRole) {
+            this.roleError = '身份已变化，原角色声明失效';
+            this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+        }
         this.declaredRole = null;
         this.selection.setDeclaredBodies([]);
         this.isolation = null;
@@ -255,7 +257,6 @@ export class GeomView {
         this.faces = faces;
         this.bodies = bodies;
         this.declaredRole = null;
-        this.roleError = null;
         this.isolation = null;
         // blanked 只决定初始显隐；后续显隐由用户当前状态驱动。
         this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
@@ -300,13 +301,18 @@ export class GeomView {
             this.callbacks.roleChanged?.({ applied: false, reason });
             return { applied: false, reason };
         };
+        if (!declaration || typeof declaration !== 'object' || Array.isArray(declaration))
+            return reject('角色声明格式无效，未生效');
         if (!declaration.sourceSha256 || !declaration.geometrySha256)
             return reject('角色声明缺少源/几何身份，未生效');
         if (declaration.sourceSha256 !== this.partIdentity.sourceSha256
             || declaration.geometrySha256 !== this.partIdentity.geometrySha256)
             return reject('角色声明与当前源/几何版本不匹配，未生效');
+        if (!declaration.bodies || typeof declaration.bodies[Symbol.iterator] !== 'function')
+            return reject('角色声明缺少体集合，未生效');
         const known = new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
         const requested = [...new Set(declaration.bodies)];
+        if (requested.length === 0) return reject('角色声明未指定任何体，未生效');
         const unknown = requested.filter((body) => !known.has(body));
         if (unknown.length > 0)
             return reject(`声明体不属于当前几何包：${unknown.join('、')}`);

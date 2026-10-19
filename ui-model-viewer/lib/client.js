@@ -337,6 +337,8 @@ function parseBodies(value, bodyCount, file) {
     if (layer !== null) b.layer = layer;
     const color = optionalInt(item, "color");
     if (color !== null) b.color = color;
+    if (item.blanked !== void 0 && typeof item.blanked !== "boolean")
+      fail("BadJson", file + ":\u4F53 " + i + " \u7684 blanked \u5E94\u4E3A\u5E03\u5C14", file);
     if (typeof item.blanked === "boolean") b.blanked = item.blanked;
     if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
     out.push(b);
@@ -2679,8 +2681,10 @@ var GeomView = class _GeomView {
       return;
     this.partIdentity = { ...identity };
     const previousRole = this.declaredRole;
-    this.roleError = previousRole ? "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548" : null;
-    if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+    if (previousRole) {
+      this.roleError = "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
+      this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+    }
     this.declaredRole = null;
     this.selection.setDeclaredBodies([]);
     this.isolation = null;
@@ -2698,7 +2702,6 @@ var GeomView = class _GeomView {
     this.faces = faces;
     this.bodies = bodies;
     this.declaredRole = null;
-    this.roleError = null;
     this.isolation = null;
     this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
     this.originOffset = [0, 0, 0];
@@ -2742,12 +2745,17 @@ var GeomView = class _GeomView {
       this.callbacks.roleChanged?.({ applied: false, reason });
       return { applied: false, reason };
     };
+    if (!declaration || typeof declaration !== "object" || Array.isArray(declaration))
+      return reject("\u89D2\u8272\u58F0\u660E\u683C\u5F0F\u65E0\u6548\uFF0C\u672A\u751F\u6548");
     if (!declaration.sourceSha256 || !declaration.geometrySha256)
       return reject("\u89D2\u8272\u58F0\u660E\u7F3A\u5C11\u6E90/\u51E0\u4F55\u8EAB\u4EFD\uFF0C\u672A\u751F\u6548");
     if (declaration.sourceSha256 !== this.partIdentity.sourceSha256 || declaration.geometrySha256 !== this.partIdentity.geometrySha256)
       return reject("\u89D2\u8272\u58F0\u660E\u4E0E\u5F53\u524D\u6E90/\u51E0\u4F55\u7248\u672C\u4E0D\u5339\u914D\uFF0C\u672A\u751F\u6548");
+    if (!declaration.bodies || typeof declaration.bodies[Symbol.iterator] !== "function")
+      return reject("\u89D2\u8272\u58F0\u660E\u7F3A\u5C11\u4F53\u96C6\u5408\uFF0C\u672A\u751F\u6548");
     const known = /* @__PURE__ */ new Set([...this.bodies.map((b) => b.body), ...this.faces.map((f) => f.body)]);
     const requested = [...new Set(declaration.bodies)];
+    if (requested.length === 0) return reject("\u89D2\u8272\u58F0\u660E\u672A\u6307\u5B9A\u4EFB\u4F55\u4F53\uFF0C\u672A\u751F\u6548");
     const unknown = requested.filter((body2) => !known.has(body2));
     if (unknown.length > 0)
       return reject(`\u58F0\u660E\u4F53\u4E0D\u5C5E\u4E8E\u5F53\u524D\u51E0\u4F55\u5305\uFF1A${unknown.join("\u3001")}`);

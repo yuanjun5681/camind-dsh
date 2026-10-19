@@ -112,6 +112,8 @@ function parseBodies(value, bodyCount, file) {
     if (layer !== null) b.layer = layer;
     const color = optionalInt(item, "color");
     if (color !== null) b.color = color;
+    if (item.blanked !== void 0 && typeof item.blanked !== "boolean")
+      fail("BadJson", file + ":\u4F53 " + i + " \u7684 blanked \u5E94\u4E3A\u5E03\u5C14", file);
     if (typeof item.blanked === "boolean") b.blanked = item.blanked;
     if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
     out.push(b);

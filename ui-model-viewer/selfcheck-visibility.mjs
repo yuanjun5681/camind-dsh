@@ -20,6 +20,7 @@ const { outputFiles } = await build({
       export { cpuPick, rayThroughPixel, segmentToPickId } from './core/pick.ts';
       export { OrbitCamera } from './core/camera.ts';
       export { meshBounds } from './core/buffers.ts';
+      export { NO_FACE } from './core/geompack/mesh.ts';
       export { makeSyntheticPackMulti, parseSyntheticMesh, parseSyntheticEdges } from ${JSON.stringify(path.join(DESKTOP, 'packages/viewer/src/synthetic_pack.ts'))};
       export { makeGlMock } from ${JSON.stringify(path.join(DESKTOP, 'packages/viewer/test/gl_mock.ts'))};
     `,
@@ -34,7 +35,7 @@ runInNewContext(outputFiles[0].text, {
 })
 const {
   GeomView, SceneRenderer, viewParamsFromCamera, defaultRenderOptions, SelectionModel,
-  cpuPick, rayThroughPixel, segmentToPickId, OrbitCamera, meshBounds,
+  cpuPick, rayThroughPixel, segmentToPickId, OrbitCamera, meshBounds, NO_FACE,
   makeSyntheticPackMulti, parseSyntheticMesh, parseSyntheticEdges, makeGlMock,
 } = module.exports
 
@@ -178,6 +179,30 @@ function testBlankedAndSmallBuffers() {
   assert.equal(renderer.visibleIndexDrawCount(), 0)
   assert.equal(renderer.edgeVisibleIndexDrawCount(), 0)
   assert.equal(zeroLengthUploads, 0)
+
+  const sharedMock = makeGlMock()
+  const sharedRenderer = new SceneRenderer(sharedMock.gl)
+  sharedRenderer.setMesh(parseSyntheticMesh(pack), pack.faces)
+  sharedRenderer.setEdges(parseSyntheticEdges(pack))
+  sharedRenderer.render(params, 300, 200, options)
+  const fullEdge = sharedRenderer.edgeVisibleIndexDrawCount()
+  const parsedEdges = parseSyntheticEdges(pack)
+  sharedRenderer.setEdges(parsedEdges)
+  sharedRenderer.render(params, 300, 200, options)
+  const raw = parsedEdges.edges()
+  raw[0] = 0; raw[1] = 1
+  raw[4] = 0; raw[5] = NO_FACE
+  raw[8] = 2; raw[9] = NO_FACE
+  for (let i = 12; i < raw.length; i += 4) { raw[i] = NO_FACE; raw[i + 1] = NO_FACE }
+  sharedRenderer.setHiddenBodies([0])
+  assert.equal(sharedRenderer.edgeVisibleIndexDrawCount(), fullEdge - 16)
+  sharedMock.reset()
+  sharedRenderer.setHiddenBodies([1])
+  sharedRenderer.pick(params, 300, 200, 150, 100, options)
+  const pickDraws = sharedMock.callsOf('drawElements')
+  assert.equal(pickDraws.length, 1)
+  assert.equal(pickDraws[0].args[1], sharedRenderer.visibleIndexDrawCount())
+  assert.ok(pickDraws[0].args[1] < sharedRenderer.currentMesh().indexCount())
   console.log('ok - blanked initial hidden and zero-length edge upload')
 }
 
@@ -237,8 +262,17 @@ function testSelectionAndRoles() {
   const unknown = declare('source-2', 'geometry-2', [999])
   assert.equal(unknown.applied, false)
   assert.match(unknown.reason, /999/)
+  const empty = declare('source-2', 'geometry-2', [])
+  assert.equal(empty.applied, false)
+  assert.match(empty.reason, /未指定任何体/)
+  const invalid = a.view.setSelectableBodies(null)
+  assert.equal(invalid.applied, false)
   a.pack.bodies[0].name = '电极'
   assert.equal(a.view.isDeclaredFace(0), false)
+  a.view.setPart('new-part@gp-1', a.pack.faces, a.pack.bodies, { sourceSha256: 'source-3', geometrySha256: 'geometry-3' })
+  assert.equal(a.view.roleStatus().applied, false)
+  assert.match(a.view.roleStatus().reason, /格式无效/)
+  a.view.setMesh(a.mesh)
 
   a.view.setPartIdentity({ sourceSha256: 'source', geometrySha256: 'geometry' })
   a.view.setHiddenBodies([1])
@@ -252,8 +286,26 @@ function testSelectionAndRoles() {
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry-2' })
   assert.equal(a.view.isolationBody(), null)
   const bounds = a.view.getCamera().sceneBounds()
+  const expected = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }
+  const pos = a.mesh.positions(), idx = a.mesh.indices()
+  for (let f = 0; f < a.mesh.faceCount(); ++f) {
+    if (a.pack.faces[f].body !== 1) continue
+    const range = a.mesh.faceRange(f)
+    for (let i = range.indexOffset; i < range.indexOffset + range.indexCount; ++i) {
+      const v = idx[i] * 3
+      for (let axis = 0; axis < 3; ++axis) {
+        expected.min[axis] = Math.min(expected.min[axis], pos[v + axis])
+        expected.max[axis] = Math.max(expected.max[axis], pos[v + axis])
+      }
+    }
+  }
   a.view.fitToBody(1)
   deepEqual(a.view.getCamera().sceneBounds(), bounds)
+  const target = a.view.getCamera().target()
+  for (const [i, axis] of [[0, 'x'], [1, 'y'], [2, 'z']]) {
+    const want = (expected.min[i] + expected.max[i]) / 2
+    assert.ok(Math.abs(target[axis] - want) < 1e-6, `${axis}: ${target[axis]} != ${want}`)
+  }
   console.log('ok - selection predicates, declared identities, isolation and fitToBody')
 }
 
