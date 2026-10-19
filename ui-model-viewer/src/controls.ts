@@ -42,7 +42,7 @@ export function ModelControls({ view, onReference }: { view: GeomView; onReferen
         h('form', { className: 'cmv-face-form', onSubmit: select },
           h(Input, { 'aria-label': '面编号', placeholder: 'F000001，多个编号用空格或逗号分隔', value: input, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value) }),
           h(Button, { type: 'submit' }, '选择'),
-          h(Button, { type: 'button', onClick: () => { view.setHiddenBodies(null); setMessage('') } }, '全部显示'),
+          h(Button, { type: 'button', onClick: () => { view.showAllBodies(); setMessage('') } }, '全部显示'),
           h(Button, { type: 'button', onClick: () => { view.clearSelection(); setInput(''); setMessage('') } }, '清空')),
         onReference ? h(Button, { disabled: !selected.length || adding, onClick: async () => {
           setAdding(true); setMessage('')

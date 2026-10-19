@@ -2733,7 +2733,6 @@ var GeomView = class _GeomView {
   /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
   setHiddenBodies(bodies) {
     const next = new Set(bodies ?? []);
-    if (next.size === 0) this.isolation = null;
     const changed = next.size !== this.hiddenBodies.size || [...next].some((b) => !this.hiddenBodies.has(b));
     if (!changed)
       return;
@@ -2743,6 +2742,11 @@ var GeomView = class _GeomView {
     if (this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
       this.setHoverFace(null);
     this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+  }
+  /** 显式全部显示并退出隔离；隔离内部计算出的空隐藏集不得走此入口。 */
+  showAllBodies() {
+    this.isolation = null;
+    this.setHiddenBodies(null);
   }
   /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
   setSelectableBodies(declaration) {
@@ -3406,7 +3410,7 @@ function ModelControls({ view, onReference }) {
         h(import_dsh_client_ui_primitives.Input, { "aria-label": "\u9762\u7F16\u53F7", placeholder: "F000001\uFF0C\u591A\u4E2A\u7F16\u53F7\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694", value: input, onChange: (e) => setInput(e.target.value) }),
         h(import_dsh_client_ui_primitives.Button, { type: "submit" }, "\u9009\u62E9"),
         h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => {
-          view.setHiddenBodies(null);
+          view.showAllBodies();
           setMessage("");
         } }, "\u5168\u90E8\u663E\u793A"),
         h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => {

@@ -335,6 +335,24 @@ function testSelectionAndRoles() {
     const want = (expected.min[i] + expected.max[i]) / 2
     assert.ok(Math.abs(target[axis] - want) < 1e-6, `${axis}: ${target[axis]} != ${want}`)
   }
+
+  const single = makeView()
+  const singlePack = makeSyntheticPackMulti(1000, 1, 4, 120)
+  singlePack.bodies[0].blanked = true
+  single.view.setPart('single@gp-1', singlePack.faces, singlePack.bodies, { sourceSha256: 'single-source', geometrySha256: 'single-geometry' })
+  single.view.setMesh(parseSyntheticMesh(singlePack))
+  deepEqual(single.view.hiddenBodiesOf(), [0])
+  single.view.isolateBody(0)
+  deepEqual(single.view.hiddenBodiesOf(), [])
+  assert.equal(single.view.isolationBody(), 0)
+  single.view.clearIsolation()
+  deepEqual(single.view.hiddenBodiesOf(), [0])
+  single.view.isolateBody(0)
+  single.view.showAllBodies()
+  deepEqual(single.view.hiddenBodiesOf(), [])
+  assert.equal(single.view.isolationBody(), null)
+  single.view.clearIsolation()
+  deepEqual(single.view.hiddenBodiesOf(), [])
   console.log('ok - selection predicates, declared identities, isolation and fitToBody')
 }
 

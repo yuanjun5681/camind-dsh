@@ -285,7 +285,6 @@ export class GeomView {
     /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
     setHiddenBodies(bodies: Iterable<number> | null): void {
         const next = new Set<number>(bodies ?? []);
-        if (next.size === 0) this.isolation = null;
         const changed = next.size !== this.hiddenBodies.size
             || [...next].some((b) => !this.hiddenBodies.has(b));
         if (!changed)
@@ -296,6 +295,12 @@ export class GeomView {
         if (this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
             this.setHoverFace(null);
         this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+    }
+
+    /** 显式全部显示并退出隔离；隔离内部计算出的空隐藏集不得走此入口。 */
+    showAllBodies(): void {
+        this.isolation = null;
+        this.setHiddenBodies(null);
     }
 
     /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
