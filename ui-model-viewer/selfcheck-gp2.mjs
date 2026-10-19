@@ -87,6 +87,9 @@ try {
     ['body_count_missing', doc => { delete doc.body_count }, 'CountMismatch'],
     ['body_count_empty_mismatch', doc => { doc.body_count = 5; doc.bodies = [] }, 'CountMismatch'],
     ['zero_count_nonempty', doc => { doc.body_count = 0; doc.bodies = [{ body: 0, n_faces: 1 }] }, 'CountMismatch'],
+    ['body_count_null', doc => { doc.body_count = null }, 'BadJson'],
+    ['body_count_fractional', doc => { doc.body_count = 2.5 }, 'BadJson'],
+    ['bodies_null', doc => { doc.bodies = null }, 'CountMismatch'],
     ['excluded_body_count_mismatch', doc => { doc.body_count = 2; doc.bodies = []; doc.enumerated_body_count = 2 }, 'CountMismatch'],
     ['excluded_formula_mismatch', doc => { doc.body_count = 1; doc.bodies = [{ body: 0, n_faces: 1 }]; doc.enumerated_body_count = 3 }, 'CountMismatch'],
     ['stable_key_non_string', doc => {
@@ -111,6 +114,33 @@ try {
       return true
     }, name)
   }
+  const withoutExcluded = structuredClone(baseManifest)
+  for (const key of ['enumerated_body_count', 'excluded_bodies', 'exclusion_policy', 'manifest_revision'])
+    delete withoutExcluded[key]
+  withoutExcluded.body_count = 0
+  withoutExcluded.bodies = [{ body: 0, n_faces: 1 }]
+  assert.throws(() => parseManifest(JSON.stringify(withoutExcluded)), error => error.code === 'CountMismatch')
+
+  const legacyGp1 = structuredClone(withoutExcluded)
+  legacyGp1.pipeline_version = 'gp-1'
+  legacyGp1.bodies = []
+  legacyGp1.face_count = 0
+  legacyGp1.edge_count = 0
+  for (const value of [null, 2.5, -1, 0x100000000]) {
+    const doc = structuredClone(legacyGp1)
+    doc.body_count = value
+    assert.equal(parseManifest(JSON.stringify(doc)).bodyCount, undefined, `gp-1 ignores ${value}`)
+  }
+  const legacyNonzero = structuredClone(legacyGp1)
+  legacyNonzero.body_count = 0
+  legacyNonzero.face_count = 1
+  legacyNonzero.edge_count = 2
+  legacyNonzero.bbox_relative.max[0] = 1
+  const legacyParsed = parseManifest(JSON.stringify(legacyNonzero))
+  assert.equal(legacyParsed.bodyCount, 0)
+  assert.equal(legacyParsed.faceCount, 1)
+  assert.equal(legacyParsed.edgeCount, 2)
+
   const integerValued = structuredClone(baseManifest)
   integerValued.body_count = 0.0
   integerValued.bodies = []

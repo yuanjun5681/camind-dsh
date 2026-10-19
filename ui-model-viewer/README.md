@@ -86,6 +86,10 @@ Host 每次验证会话引用、源PRT内容、几何包版本、NC字节、面�
 ```sh
 node ui-model-viewer/build.mjs
 node ui-model-viewer/selfcheck.mjs
+# GP-2 读端合同：需相邻 CAM-Agent 仓库与 python3；CAM_AGENT_REPO/CAM_AGENT_REF 可覆盖来源。
+node ui-model-viewer/selfcheck-gp2.mjs
+# 多体显隐/声明体：需相邻 Camind-desktop 仓库提供合成包与 GL mock；DESKTOP_REPO 可覆盖路径。
+node ui-model-viewer/selfcheck-visibility.mjs
 node ui-preview/selfcheck.mjs
 # 真实浏览器布局回归，需要本机 Playwright 和其 Chromium。
 CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-model-viewer/selfcheck-layout.mjs

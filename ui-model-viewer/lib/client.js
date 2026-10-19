@@ -420,8 +420,16 @@ function parseManifest(text) {
       fail("InvalidValue", "\u6E05\u5355\u91CC\u7684\u6587\u4EF6\u540D\u4E0D\u5408\u6CD5:" + e.name, file);
     return e;
   });
-  if ("body_count" in doc)
-    m.bodyCount = intInRange(doc, "body_count", file, 0, 4294967295);
+  const legacyGp1 = m.pipelineVersion === "gp-1";
+  if ("body_count" in doc) {
+    if (legacyGp1) {
+      const value = integer(doc.body_count);
+      if (value !== null && value >= 0 && value <= 4294967295)
+        m.bodyCount = value;
+    } else {
+      m.bodyCount = intInRange(doc, "body_count", file, 0, 4294967295);
+    }
+  }
   if ("bodies" in doc && doc.bodies !== null)
     m.bodies = parseBodies(doc.bodies, m.bodyCount ?? null, file);
   if ("excluded_bodies" in doc) {
@@ -442,7 +450,7 @@ function parseManifest(text) {
       );
     }
   }
-  if (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0) {
+  if (!legacyGp1 && (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0)) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
@@ -2564,6 +2572,7 @@ var GeomView = class _GeomView {
   declaredRole = null;
   roleError = null;
   isolation = null;
+  applyingIsolation = false;
   // 刀路
   pathBuffers = null;
   stationTransform = new RigidTransform();
@@ -2730,8 +2739,9 @@ var GeomView = class _GeomView {
   isBodyHidden(body) {
     return this.hiddenBodies.has(body);
   }
-  /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
+  /** 更新隐藏体；调用方直接改显隐会退出隔离，隔离内部更新由 applyingIsolation 区分。 */
   setHiddenBodies(bodies) {
+    if (!this.applyingIsolation) this.isolation = null;
     const next = new Set(bodies ?? []);
     const changed = next.size !== this.hiddenBodies.size || [...next].some((b) => !this.hiddenBodies.has(b));
     if (!changed)
@@ -2805,7 +2815,12 @@ var GeomView = class _GeomView {
     if (!this.isolation)
       this.isolation = { body, hiddenBefore: new Set(this.hiddenBodies) };
     this.isolation.body = body;
-    this.setHiddenBodies([...known].filter((candidate) => candidate !== body));
+    this.applyingIsolation = true;
+    try {
+      this.setHiddenBodies([...known].filter((candidate) => candidate !== body));
+    } finally {
+      this.applyingIsolation = false;
+    }
     this.fitToBody(body);
   }
   clearIsolation() {
@@ -3147,7 +3162,7 @@ var GeomView = class _GeomView {
   getCamera() {
     return this.camera;
   }
-  /** 定位到单个体；优先按网格顶点实测，失败退回面表，仍无法求盒则全局适应。 */
+  /** 定位到单个体；网格顶点与面表 bboxRelative 都相对 origin_offset，回退不另做坐标平移。 */
   fitToBody(body) {
     let min = null;
     let max = null;

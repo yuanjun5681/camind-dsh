@@ -195,8 +195,16 @@ function parseManifest(text) {
       fail("InvalidValue", "\u6E05\u5355\u91CC\u7684\u6587\u4EF6\u540D\u4E0D\u5408\u6CD5:" + e.name, file);
     return e;
   });
-  if ("body_count" in doc)
-    m.bodyCount = intInRange(doc, "body_count", file, 0, 4294967295);
+  const legacyGp1 = m.pipelineVersion === "gp-1";
+  if ("body_count" in doc) {
+    if (legacyGp1) {
+      const value = integer(doc.body_count);
+      if (value !== null && value >= 0 && value <= 4294967295)
+        m.bodyCount = value;
+    } else {
+      m.bodyCount = intInRange(doc, "body_count", file, 0, 4294967295);
+    }
+  }
   if ("bodies" in doc && doc.bodies !== null)
     m.bodies = parseBodies(doc.bodies, m.bodyCount ?? null, file);
   if ("excluded_bodies" in doc) {
@@ -217,7 +225,7 @@ function parseManifest(text) {
       );
     }
   }
-  if (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0) {
+  if (!legacyGp1 && (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0)) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);

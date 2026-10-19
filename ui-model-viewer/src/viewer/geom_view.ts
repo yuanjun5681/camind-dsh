@@ -115,6 +115,7 @@ export class GeomView {
     private declaredRole: { identity: GeomPartIdentity; bodies: Set<number> } | null = null;
     private roleError: string | null = null;
     private isolation: { body: number; hiddenBefore: Set<number> } | null = null;
+    private applyingIsolation = false;
 
     // 刀路
     private pathBuffers: ToolpathGeometry | null = null;
@@ -282,8 +283,9 @@ export class GeomView {
     hiddenBodiesOf(): number[] { return [...this.hiddenBodies].sort((a, b) => a - b); }
     isBodyHidden(body: number): boolean { return this.hiddenBodies.has(body); }
 
-    /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
+    /** 更新隐藏体；调用方直接改显隐会退出隔离，隔离内部更新由 applyingIsolation 区分。 */
     setHiddenBodies(bodies: Iterable<number> | null): void {
+        if (!this.applyingIsolation) this.isolation = null;
         const next = new Set<number>(bodies ?? []);
         const changed = next.size !== this.hiddenBodies.size
             || [...next].some((b) => !this.hiddenBodies.has(b));
@@ -368,7 +370,12 @@ export class GeomView {
         if (!this.isolation)
             this.isolation = { body, hiddenBefore: new Set(this.hiddenBodies) };
         this.isolation.body = body;
-        this.setHiddenBodies([...known].filter((candidate) => candidate !== body));
+        this.applyingIsolation = true;
+        try {
+            this.setHiddenBodies([...known].filter((candidate) => candidate !== body));
+        } finally {
+            this.applyingIsolation = false;
+        }
         this.fitToBody(body);
     }
 
@@ -711,7 +718,7 @@ export class GeomView {
 
     getCamera(): OrbitCamera { return this.camera; }
 
-    /** 定位到单个体；优先按网格顶点实测，失败退回面表，仍无法求盒则全局适应。 */
+    /** 定位到单个体；网格顶点与面表 bboxRelative 都相对 origin_offset，回退不另做坐标平移。 */
     fitToBody(body: number): void {
         let min: { x: number; y: number; z: number } | null = null;
         let max: { x: number; y: number; z: number } | null = null;

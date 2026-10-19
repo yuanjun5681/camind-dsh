@@ -235,9 +235,18 @@ export function parseManifest(text: string): Manifest {
         return e;
     });
 
-    // ★可选 body_count 与体表(拍板 #3:整数字面量形式不作为校验依据,数值为整数即收)。
-    if ("body_count" in doc)
-        m.bodyCount = intInRange(doc, "body_count", file, 0, 0xFFFFFFFF);
+    // gp-1 保留旧读端：非法可选 body_count 忽略，且无零体附加约束；gp-2 起严格拒收。
+    // excluded_bodies 是 gp-2 新合同，若旧包自行携带则仍须满足下面的完整对账。
+    const legacyGp1 = m.pipelineVersion === "gp-1";
+    if ("body_count" in doc) {
+        if (legacyGp1) {
+            const value = integer(doc.body_count);
+            if (value !== null && value >= 0 && value <= 0xFFFFFFFF)
+                m.bodyCount = value;
+        } else {
+            m.bodyCount = intInRange(doc, "body_count", file, 0, 0xFFFFFFFF);
+        }
+    }
     if ("bodies" in doc && doc.bodies !== null)
         m.bodies = parseBodies(doc.bodies, m.bodyCount ?? null, file);
 
@@ -255,7 +264,7 @@ export function parseManifest(text: string): Manifest {
                 + ") != bodies.length(" + m.bodies.length + ") + excluded_bodies(" + m.excludedBodies.length + ")", file);
         }
     }
-    if (m.bodyCount === 0 || (m.bodies !== undefined && m.bodies.length === 0)) {
+    if (!legacyGp1 && (m.bodyCount === 0 || (m.bodies !== undefined && m.bodies.length === 0))) {
         const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
         if (coords.some(value => value !== 0))
             fail("InvalidValue", file + ":零体包的 bbox_relative 必须全为 0", file);

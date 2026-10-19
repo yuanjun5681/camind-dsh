@@ -18,7 +18,7 @@ const { outputFiles } = await build({
       export { GeomView } from './viewer/geom_view.ts';
       export { SceneRenderer, viewParamsFromCamera, defaultRenderOptions } from './viewer/scene_renderer.ts';
       export { SelectionModel } from './core/select/selection.ts';
-      export { cpuPick, rayThroughPixel, segmentToPickId } from './core/pick.ts';
+      export { cpuPick, rayThroughPixel, faceToPickId, segmentToPickId } from './core/pick.ts';
       export { OrbitCamera } from './core/camera.ts';
       export { meshBounds } from './core/buffers.ts';
       export { NO_FACE } from './core/geompack/mesh.ts';
@@ -51,7 +51,7 @@ runInNewContext(outputFiles[0].text, {
 })
 const {
   GeomView, SceneRenderer, viewParamsFromCamera, defaultRenderOptions, SelectionModel,
-  cpuPick, rayThroughPixel, segmentToPickId, OrbitCamera, meshBounds, NO_FACE,
+  cpuPick, rayThroughPixel, faceToPickId, segmentToPickId, OrbitCamera, meshBounds, NO_FACE,
   makeSyntheticPackMulti, parseSyntheticMesh, parseSyntheticEdges, makeGlMock,
 } = module.exports
 
@@ -314,6 +314,11 @@ function testSelectionAndRoles() {
   a.view.isolateBody(2)
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry-2' })
   assert.equal(a.view.isolationBody(), null)
+  a.view.isolateBody(2)
+  a.view.setHiddenBodies([1])
+  assert.equal(a.view.isolationBody(), null)
+  a.view.clearIsolation()
+  deepEqual(a.view.hiddenBodiesOf(), [1])
   const bounds = a.view.getCamera().sceneBounds()
   const expected = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }
   const pos = a.mesh.positions(), idx = a.mesh.indices()
@@ -334,6 +339,22 @@ function testSelectionAndRoles() {
   for (const [i, axis] of [[0, 'x'], [1, 'y'], [2, 'z']]) {
     const want = (expected.min[i] + expected.max[i]) / 2
     assert.ok(Math.abs(target[axis] - want) < 1e-6, `${axis}: ${target[axis]} != ${want}`)
+  }
+
+  const fallback = makeView()
+  fallback.view.setMesh(null)
+  const fallbackBounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }
+  for (const face of fallback.pack.faces.filter(face => face.body === 1)) {
+    for (let axis = 0; axis < 3; ++axis) {
+      fallbackBounds.min[axis] = Math.min(fallbackBounds.min[axis], face.bboxRelative.min[axis])
+      fallbackBounds.max[axis] = Math.max(fallbackBounds.max[axis], face.bboxRelative.max[axis])
+    }
+  }
+  fallback.view.fitToBody(1)
+  const fallbackTarget = fallback.view.getCamera().target()
+  for (const [i, axis] of [[0, 'x'], [1, 'y'], [2, 'z']]) {
+    const want = (fallbackBounds.min[i] + fallbackBounds.max[i]) / 2
+    assert.ok(Math.abs(fallbackTarget[axis] - want) < 1e-6, `fallback ${axis}: ${fallbackTarget[axis]} != ${want}`)
   }
 
   const single = makeView()
@@ -405,6 +426,11 @@ function testCpuAndPath() {
   }
   assert.ok(onVisible > 0 && revealed > 0, `onVisible=${onVisible} revealed=${revealed}`)
 
+  const visibleFace = a.pack.faces.findIndex(face => face.body === 1)
+  a.view.setHiddenBodies([0, 2, 3])
+  a.mock.setPickId(faceToPickId(visibleFace))
+  deepEqual(a.view.pickAt({ x: 150, y: 100 }), { kind: 1, index: visibleFace })
+
   const path = {
     positions: new Float32Array([0, 0, 0, 10, 0, 0, 10, 10, 0, 20, 10, 0]),
     colors: new Uint8Array(16).fill(255),
@@ -415,8 +441,9 @@ function testCpuAndPath() {
   a.view.setPlayheadSegment(0)
   a.view.setFutureSegmentsVisible(false)
   a.view.setHiddenBodies([0, 1, 2, 3])
+  const meshDrawsBefore = a.mock.callsOf('drawElements').length
   a.runFrame()
-  deepEqual(a.mock.callsOf('drawElements'), [])
+  deepEqual(a.mock.callsOf('drawElements').slice(meshDrawsBefore), [])
   const arrays = a.mock.callsOf('drawArrays')
   assert.equal(arrays.at(-1).args[2], 2)
   a.view.setPickMode('path')
@@ -431,6 +458,13 @@ function testCpuAndPath() {
     a.canvas.dispatch('pointerup', { button: 0, offsetX: 150, offsetY: 100, pointerId })
     assert.equal(a.mock.callsOf('readPixels').length, before, type)
   }
+  const normalBefore = a.mock.callsOf('readPixels').length
+  a.canvas.dispatch('pointerdown', { button: 0, offsetX: 150, offsetY: 100, pointerId: 3 })
+  a.canvas.dispatch('pointerup', { button: 0, offsetX: 150, offsetY: 100, pointerId: 3 })
+  assert.equal(a.mock.callsOf('readPixels').length, normalBefore + 1)
+  a.canvas.dispatch('lostpointercapture', { pointerId: 3 })
+  a.canvas.dispatch('pointerup', { button: 0, offsetX: 150, offsetY: 100, pointerId: 3 })
+  assert.equal(a.mock.callsOf('readPixels').length, normalBefore + 1)
   console.log('ok - CPU/GPU visibility, NC playback/path pick and pointer cancellation')
 }
 
@@ -438,4 +472,4 @@ testVisibilityStateMachine()
 testBlankedAndSmallBuffers()
 testSelectionAndRoles()
 testCpuAndPath()
-console.log('multi-body visibility selfcheck complete; hidden bodies never remain pickable by visible-index or CPU paths.')
+console.log('multi-body visibility selfcheck complete; GPU visible-index picking and cpuPick predicate checks passed.')
