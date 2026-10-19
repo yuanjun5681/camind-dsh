@@ -88,6 +88,10 @@ try {
     ['body_count_empty_mismatch', doc => { doc.body_count = 5; doc.bodies = [] }, 'CountMismatch'],
     ['zero_count_nonempty', doc => { doc.body_count = 0; doc.bodies = [{ body: 0, n_faces: 1 }] }, 'CountMismatch'],
     ['excluded_body_count_mismatch', doc => { doc.body_count = 2; doc.bodies = []; doc.enumerated_body_count = 2 }, 'CountMismatch'],
+    ['excluded_formula_mismatch', doc => { doc.body_count = 1; doc.bodies = [{ body: 0, n_faces: 1 }]; doc.enumerated_body_count = 3 }, 'CountMismatch'],
+    ['stable_key_non_string', doc => {
+      doc.bodies = [{ body: 0, n_faces: 1, stable_key: 1 }]; doc.body_count = 1; doc.enumerated_body_count = 2
+    }, 'BadJson'],
     ['bodies_missing', doc => { delete doc.bodies }, 'CountMismatch'],
     ['excluded_element_array', doc => { doc.excluded_bodies = [[]] }, 'BadJson'],
     ['empty_bodies_nonzero_bbox', doc => {
@@ -113,7 +117,13 @@ try {
   integerValued.face_count = 0.0
   integerValued.edge_count = 0.0
   integerValued.enumerated_body_count = 1
-  assert.equal(parseManifest(JSON.stringify(integerValued)).bodyCount, 0)
+  const withNumberLiterals = (doc, value) => {
+    let text = JSON.stringify(doc)
+    for (const key of ['body_count', 'face_count', 'edge_count', 'enumerated_body_count'])
+      text = text.replace(`"${key}": ${value}`, `"${key}": ${value === 0 ? '0.0' : '3e2'}`)
+    return text
+  }
+  assert.equal(parseManifest(withNumberLiterals(integerValued, 0)).bodyCount, 0)
   const largeIntegerValued = structuredClone(baseManifest)
   largeIntegerValued.body_count = 3e2
   largeIntegerValued.bodies = Array.from({ length: 300 }, (_, body) => ({ body, n_faces: 1 }))
@@ -121,7 +131,7 @@ try {
   largeIntegerValued.edge_count = 3e2
   largeIntegerValued.enumerated_body_count = 3e2
   largeIntegerValued.excluded_bodies = []
-  assert.equal(parseManifest(JSON.stringify(largeIntegerValued)).bodyCount, 300)
+  assert.equal(parseManifest(withNumberLiterals(largeIntegerValued, 300)).bodyCount, 300)
   console.log('ok - excluded element forms, empty bodies, missing counts and integer-valued numbers')
   assert.equal(normalizeExcludedReason('toString'), 'other')
   assert.equal(excludedReasonLabel('future-reason'), '其他原因')

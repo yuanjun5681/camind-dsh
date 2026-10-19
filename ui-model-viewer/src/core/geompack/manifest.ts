@@ -152,6 +152,8 @@ function parseBodies(value: any, bodyCount: number | null, file: string): BodyIn
         if (item.blanked !== undefined && typeof item.blanked !== "boolean")
             fail("BadJson", file + ":体 " + i + " 的 blanked 应为布尔", file);
         if (typeof item.blanked === "boolean") b.blanked = item.blanked;
+        if (item.stable_key !== undefined && typeof item.stable_key !== "string")
+            fail("BadJson", file + ":体 " + i + " 的 stable_key 应为字符串", file);
         if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
         out.push(b);
     }

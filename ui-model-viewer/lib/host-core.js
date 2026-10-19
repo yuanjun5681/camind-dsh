@@ -115,6 +115,8 @@ function parseBodies(value, bodyCount, file) {
     if (item.blanked !== void 0 && typeof item.blanked !== "boolean")
       fail("BadJson", file + ":\u4F53 " + i + " \u7684 blanked \u5E94\u4E3A\u5E03\u5C14", file);
     if (typeof item.blanked === "boolean") b.blanked = item.blanked;
+    if (item.stable_key !== void 0 && typeof item.stable_key !== "string")
+      fail("BadJson", file + ":\u4F53 " + i + " \u7684 stable_key \u5E94\u4E3A\u5B57\u7B26\u4E32", file);
     if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
     out.push(b);
   }

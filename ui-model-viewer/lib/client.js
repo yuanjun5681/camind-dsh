@@ -340,6 +340,8 @@ function parseBodies(value, bodyCount, file) {
     if (item.blanked !== void 0 && typeof item.blanked !== "boolean")
       fail("BadJson", file + ":\u4F53 " + i + " \u7684 blanked \u5E94\u4E3A\u5E03\u5C14", file);
     if (typeof item.blanked === "boolean") b.blanked = item.blanked;
+    if (item.stable_key !== void 0 && typeof item.stable_key !== "string")
+      fail("BadJson", file + ":\u4F53 " + i + " \u7684 stable_key \u5E94\u4E3A\u5B57\u7B26\u4E32", file);
     if (typeof item.stable_key === "string" && item.stable_key !== "") b.stableKey = item.stable_key;
     out.push(b);
   }
@@ -2677,12 +2679,14 @@ var GeomView = class _GeomView {
   // Browser loading is asynchronous; the plugin verifies the package before setPart/setMesh.
   /** 更新源/几何身份；任何变化都使角色声明与隔离失效，不按 partRef 或名称猜角色。 */
   setPartIdentity(identity, notify = true) {
-    if (identity.sourceSha256 === this.partIdentity.sourceSha256 && identity.geometrySha256 === this.partIdentity.geometrySha256)
+    if (identity.sourceSha256 === this.partIdentity.sourceSha256 && identity.geometrySha256 === this.partIdentity.geometrySha256) {
+      if (!this.declaredRole) this.roleError = null;
       return;
+    }
     this.partIdentity = { ...identity };
     const previousRole = this.declaredRole;
     this.roleError = previousRole ? "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548" : null;
-    if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+    if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     this.declaredRole = null;
     this.selection.setDeclaredBodies([]);
     this.isolation = null;
@@ -2729,6 +2733,7 @@ var GeomView = class _GeomView {
   /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
   setHiddenBodies(bodies) {
     const next = new Set(bodies ?? []);
+    if (next.size === 0) this.isolation = null;
     const changed = next.size !== this.hiddenBodies.size || [...next].some((b) => !this.hiddenBodies.has(b));
     if (!changed)
       return;
@@ -2742,6 +2747,12 @@ var GeomView = class _GeomView {
   /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
   setSelectableBodies(declaration) {
     const reject = (reason) => {
+      const previous = this.declaredRole;
+      if (previous && previous.identity.sourceSha256 === this.partIdentity.sourceSha256 && previous.identity.geometrySha256 === this.partIdentity.geometrySha256) {
+        this.roleError = reason;
+        this.callbacks.roleChanged?.({ applied: false, reason });
+        return { applied: false, reason };
+      }
       this.declaredRole = null;
       this.roleError = reason;
       this.selection.setDeclaredBodies([]);

@@ -231,12 +231,14 @@ export class GeomView {
     /** 更新源/几何身份；任何变化都使角色声明与隔离失效，不按 partRef 或名称猜角色。 */
     setPartIdentity(identity: GeomPartIdentity, notify = true): void {
         if (identity.sourceSha256 === this.partIdentity.sourceSha256
-            && identity.geometrySha256 === this.partIdentity.geometrySha256)
+            && identity.geometrySha256 === this.partIdentity.geometrySha256) {
+            if (!this.declaredRole) this.roleError = null;
             return;
+        }
         this.partIdentity = { ...identity };
         const previousRole = this.declaredRole;
         this.roleError = previousRole ? '身份已变化，原角色声明失效' : null;
-        if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+        if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         this.declaredRole = null;
         this.selection.setDeclaredBodies([]);
         this.isolation = null;
@@ -283,6 +285,7 @@ export class GeomView {
     /** 更新隐藏体；相等早退，隐藏悬停所属体时走完整清理路径。 */
     setHiddenBodies(bodies: Iterable<number> | null): void {
         const next = new Set<number>(bodies ?? []);
+        if (next.size === 0) this.isolation = null;
         const changed = next.size !== this.hiddenBodies.size
             || [...next].some((b) => !this.hiddenBodies.has(b));
         if (!changed)
@@ -298,6 +301,14 @@ export class GeomView {
     /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
     setSelectableBodies(declaration: GeomRoleDeclaration): GeomRoleStatus {
         const reject = (reason: string): GeomRoleStatus => {
+            const previous = this.declaredRole;
+            if (previous && previous.identity.sourceSha256 === this.partIdentity.sourceSha256
+                && previous.identity.geometrySha256 === this.partIdentity.geometrySha256) {
+                // 非法新声明不得撤销已生效的同身份保护。
+                this.roleError = reason;
+                this.callbacks.roleChanged?.({ applied: false, reason });
+                return { applied: false, reason };
+            }
             this.declaredRole = null;
             this.roleError = reason;
             this.selection.setDeclaredBodies([]);
