@@ -117,13 +117,18 @@ try {
   integerValued.face_count = 0.0
   integerValued.edge_count = 0.0
   integerValued.enumerated_body_count = 1
-  const withNumberLiterals = (doc, value) => {
+  const withNumberLiterals = (doc, format) => {
     let text = JSON.stringify(doc)
-    for (const key of ['body_count', 'face_count', 'edge_count', 'enumerated_body_count'])
-      text = text.replace(`"${key}": ${value}`, `"${key}": ${value === 0 ? '0.0' : '3e2'}`)
+    for (const key of ['body_count', 'face_count', 'edge_count', 'enumerated_body_count']) {
+      const needle = `"${key}":${JSON.stringify(doc[key])}`
+      const literal = format(doc[key])
+      assert.ok(text.includes(needle), `${key}: numeric source not found`)
+      text = text.replace(needle, `"${key}":${literal}`)
+      assert.ok(text.includes(`"${key}":${literal}`), `${key}: numeric literal not injected`)
+    }
     return text
   }
-  assert.equal(parseManifest(withNumberLiterals(integerValued, 0)).bodyCount, 0)
+  assert.equal(parseManifest(withNumberLiterals(integerValued, value => `${value}.0`)).bodyCount, 0)
   const largeIntegerValued = structuredClone(baseManifest)
   largeIntegerValued.body_count = 3e2
   largeIntegerValued.bodies = Array.from({ length: 300 }, (_, body) => ({ body, n_faces: 1 }))
@@ -131,7 +136,7 @@ try {
   largeIntegerValued.edge_count = 3e2
   largeIntegerValued.enumerated_body_count = 3e2
   largeIntegerValued.excluded_bodies = []
-  assert.equal(parseManifest(withNumberLiterals(largeIntegerValued, 300)).bodyCount, 300)
+  assert.equal(parseManifest(withNumberLiterals(largeIntegerValued, () => '3e2')).bodyCount, 300)
   console.log('ok - excluded element forms, empty bodies, missing counts and integer-valued numbers')
   assert.equal(normalizeExcludedReason('toString'), 'other')
   assert.equal(excludedReasonLabel('future-reason'), '其他原因')
