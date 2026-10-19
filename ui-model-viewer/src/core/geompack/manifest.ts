@@ -247,10 +247,10 @@ export function parseManifest(text: string): Manifest {
                 file + ":excluded_bodies 出现时 enumerated_body_count、body_count、bodies[] 必须齐备", file);
         }
         m.enumeratedBodyCount = intInRange(doc, "enumerated_body_count", file, 0, 0xFFFFFFFF);
-        if (m.enumeratedBodyCount !== m.bodyCount + m.excludedBodies.length) {
+        if (m.enumeratedBodyCount !== m.bodies.length + m.excludedBodies.length) {
             fail("CountMismatch",
                 file + ":对账不成立 enumerated_body_count(" + m.enumeratedBodyCount
-                + ") != body_count(" + m.bodyCount + ") + excluded_bodies(" + m.excludedBodies.length + ")", file);
+                + ") != bodies.length(" + m.bodies.length + ") + excluded_bodies(" + m.excludedBodies.length + ")", file);
         }
     }
     if (m.bodyCount === 0 || (m.bodies !== undefined && m.bodies.length === 0)) {

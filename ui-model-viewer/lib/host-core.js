@@ -207,10 +207,10 @@ function parseManifest(text) {
       );
     }
     m.enumeratedBodyCount = intInRange(doc, "enumerated_body_count", file, 0, 4294967295);
-    if (m.enumeratedBodyCount !== m.bodyCount + m.excludedBodies.length) {
+    if (m.enumeratedBodyCount !== m.bodies.length + m.excludedBodies.length) {
       fail(
         "CountMismatch",
-        file + ":\u5BF9\u8D26\u4E0D\u6210\u7ACB enumerated_body_count(" + m.enumeratedBodyCount + ") != body_count(" + m.bodyCount + ") + excluded_bodies(" + m.excludedBodies.length + ")",
+        file + ":\u5BF9\u8D26\u4E0D\u6210\u7ACB enumerated_body_count(" + m.enumeratedBodyCount + ") != bodies.length(" + m.bodies.length + ") + excluded_bodies(" + m.excludedBodies.length + ")",
         file
       );
     }

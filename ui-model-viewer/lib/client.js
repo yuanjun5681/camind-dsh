@@ -432,10 +432,10 @@ function parseManifest(text) {
       );
     }
     m.enumeratedBodyCount = intInRange(doc, "enumerated_body_count", file, 0, 4294967295);
-    if (m.enumeratedBodyCount !== m.bodyCount + m.excludedBodies.length) {
+    if (m.enumeratedBodyCount !== m.bodies.length + m.excludedBodies.length) {
       fail(
         "CountMismatch",
-        file + ":\u5BF9\u8D26\u4E0D\u6210\u7ACB enumerated_body_count(" + m.enumeratedBodyCount + ") != body_count(" + m.bodyCount + ") + excluded_bodies(" + m.excludedBodies.length + ")",
+        file + ":\u5BF9\u8D26\u4E0D\u6210\u7ACB enumerated_body_count(" + m.enumeratedBodyCount + ") != bodies.length(" + m.bodies.length + ") + excluded_bodies(" + m.excludedBodies.length + ")",
         file
       );
     }
@@ -2681,10 +2681,8 @@ var GeomView = class _GeomView {
       return;
     this.partIdentity = { ...identity };
     const previousRole = this.declaredRole;
-    if (previousRole) {
-      this.roleError = "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
-      this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
-    }
+    this.roleError = previousRole ? "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548" : null;
+    if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     this.declaredRole = null;
     this.selection.setDeclaredBodies([]);
     this.isolation = null;
@@ -2697,11 +2695,11 @@ var GeomView = class _GeomView {
   }
   /** 换零件,清空选择集。bodies = 清单的体表(CAM-Agent T-398 ②;老包没有 ⇒ 空) */
   setPart(partRef, faces, bodies = [], identity) {
+    const previousRole = this.declaredRole;
     this.setPartIdentity(identity ?? { sourceSha256: "", geometrySha256: "" }, false);
     this.partRef = partRef;
     this.faces = faces;
     this.bodies = bodies;
-    const previousRole = this.declaredRole;
     if (previousRole) {
       this.roleError = "\u6362\u4EF6\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
       this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });

@@ -85,6 +85,9 @@ try {
     ['excluded_null', doc => { doc.excluded_bodies = null }, 'BadJson'],
     ['excluded_key_blank', doc => { doc.excluded_bodies[0].key = ' ' }, 'InvalidValue'],
     ['body_count_missing', doc => { delete doc.body_count }, 'CountMismatch'],
+    ['body_count_empty_mismatch', doc => { doc.body_count = 5; doc.bodies = [] }, 'CountMismatch'],
+    ['zero_count_nonempty', doc => { doc.body_count = 0; doc.bodies = [{ body: 0, n_faces: 1 }] }, 'CountMismatch'],
+    ['excluded_body_count_mismatch', doc => { doc.body_count = 2; doc.bodies = []; doc.enumerated_body_count = 2 }, 'CountMismatch'],
     ['bodies_missing', doc => { delete doc.bodies }, 'CountMismatch'],
     ['excluded_element_array', doc => { doc.excluded_bodies = [[]] }, 'BadJson'],
     ['empty_bodies_nonzero_bbox', doc => {

@@ -39,7 +39,12 @@ const { outputFiles: clientOutput } = await build({
   footer: { js: 'return module.exports; } });' },
 })
 assert.equal(clientOutput[0].text, fs.readFileSync(path.join(root, 'lib/client.js'), 'utf8'), 'client bundle 不是最新构建产物')
-console.log('ok - client bundle reproducible')
+const { outputFiles: hostOutput } = await build({
+  entryPoints: [path.join(root, 'src/host-core.ts')], bundle: true, write: false,
+  platform: 'node', format: 'esm',
+})
+assert.equal(hostOutput[0].text, fs.readFileSync(path.join(root, 'lib/host-core.js'), 'utf8'), 'host-core bundle 不是最新构建产物')
+console.log('ok - client and host bundles reproducible')
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, performance, setTimeout, clearTimeout, console,
@@ -282,7 +287,11 @@ function testSelectionAndRoles() {
   assert.equal(a.view.isDeclaredFace(0), false)
   a.view.setPart('new-part@gp-1', a.pack.faces, a.pack.bodies, { sourceSha256: 'source-3', geometrySha256: 'geometry-3' })
   assert.equal(a.view.roleStatus().applied, false)
-  assert.match(a.view.roleStatus().reason, /格式无效/)
+  assert.equal(a.view.roleStatus().reason, undefined)
+  deepEqual(declare('source-3', 'geometry-3'), { applied: true })
+  a.view.setPart('other-part@gp-1', a.pack.faces, a.pack.bodies, { sourceSha256: 'source-4', geometrySha256: 'geometry-4' })
+  assert.equal(a.view.roleStatus().applied, false)
+  assert.equal(a.view.roleStatus().reason, '换件，原角色声明失效')
   a.view.setMesh(a.mesh)
 
   a.view.setPartIdentity({ sourceSha256: 'source', geometrySha256: 'geometry' })

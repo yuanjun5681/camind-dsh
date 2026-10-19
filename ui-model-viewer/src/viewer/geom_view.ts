@@ -235,10 +235,8 @@ export class GeomView {
             return;
         this.partIdentity = { ...identity };
         const previousRole = this.declaredRole;
-        if (previousRole) {
-            this.roleError = '身份已变化，原角色声明失效';
-            this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
-        }
+        this.roleError = previousRole ? '身份已变化，原角色声明失效' : null;
+        if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         this.declaredRole = null;
         this.selection.setDeclaredBodies([]);
         this.isolation = null;
@@ -252,11 +250,11 @@ export class GeomView {
 
     /** 换零件,清空选择集。bodies = 清单的体表(CAM-Agent T-398 ②;老包没有 ⇒ 空) */
     setPart(partRef: string, faces: FaceInfo[], bodies: BodyInfo[] = [], identity?: GeomPartIdentity): void {
+        const previousRole = this.declaredRole;
         this.setPartIdentity(identity ?? { sourceSha256: '', geometrySha256: '' }, false);
         this.partRef = partRef;
         this.faces = faces;
         this.bodies = bodies;
-        const previousRole = this.declaredRole;
         if (previousRole) {
             this.roleError = '换件，原角色声明失效';
             this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
