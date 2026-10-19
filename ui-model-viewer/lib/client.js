@@ -450,7 +450,7 @@ function parseManifest(text) {
       );
     }
   }
-  if (!legacyGp1 && (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0)) {
+  if ((!legacyGp1 || m.excludedBodies !== void 0) && (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0)) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);
@@ -2695,12 +2695,12 @@ var GeomView = class _GeomView {
     this.partIdentity = { ...identity };
     const previousRole = this.declaredRole;
     this.roleError = previousRole ? "\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548" : null;
-    if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     this.declaredRole = null;
     this.selection.setDeclaredBodies([]);
     this.isolation = null;
     this.hiddenBodies = /* @__PURE__ */ new Set();
     this.renderer?.setHiddenBodies(null);
+    if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     if (notify) {
       this.scheduleRender();
       this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
@@ -2713,10 +2713,7 @@ var GeomView = class _GeomView {
     this.partRef = partRef;
     this.faces = faces;
     this.bodies = bodies;
-    if (previousRole) {
-      this.roleError = "\u6362\u4EF6\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
-      this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
-    }
+    if (previousRole) this.roleError = "\u6362\u4EF6\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
     this.declaredRole = null;
     this.isolation = null;
     this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
@@ -2728,6 +2725,7 @@ var GeomView = class _GeomView {
     this.fitPending = true;
     this.renderer?.clearPart();
     this.renderer?.setHiddenBodies(this.hiddenBodies);
+    if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     this.callbacks.partChanged?.();
     this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
     this.callbacks.selectionChanged?.();
@@ -2739,13 +2737,13 @@ var GeomView = class _GeomView {
   isBodyHidden(body) {
     return this.hiddenBodies.has(body);
   }
-  /** 更新隐藏体；调用方直接改显隐会退出隔离，隔离内部更新由 applyingIsolation 区分。 */
+  /** 更新隐藏体；有效的调用方变更会退出隔离，同集重放与隔离内部更新不会。 */
   setHiddenBodies(bodies) {
-    if (!this.applyingIsolation) this.isolation = null;
     const next = new Set(bodies ?? []);
     const changed = next.size !== this.hiddenBodies.size || [...next].some((b) => !this.hiddenBodies.has(b));
     if (!changed)
       return;
+    if (!this.applyingIsolation) this.isolation = null;
     this.hiddenBodies = next;
     this.renderer?.setHiddenBodies(this.hiddenBodies);
     this.scheduleRender();

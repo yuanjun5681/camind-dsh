@@ -63,7 +63,7 @@ export interface GeomViewCallbacks {
     selectionChanged?(): void;
     /** setHiddenBodies 有效变化、setPart 初始显隐和身份失效时发；partChanged 另行表达换件。 */
     visibilityChanged?(hiddenBodies: number[]): void;
-    /** 角色声明生效、被拒绝或身份变化失效。 */
+    /** applied 表示本次声明结果；拒绝但保留旧角色时 roleStatus().applied 仍可分别为 false/true。 */
     roleChanged?(status: GeomRoleStatus): void;
     /** 用户点了一张面(单击,不论它因此被选中还是被取消)。 */
     faceClicked?(subject: FaceSubject): void;
@@ -239,12 +239,12 @@ export class GeomView {
         this.partIdentity = { ...identity };
         const previousRole = this.declaredRole;
         this.roleError = previousRole ? '身份已变化，原角色声明失效' : null;
-        if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         this.declaredRole = null;
         this.selection.setDeclaredBodies([]);
         this.isolation = null;
         this.hiddenBodies = new Set();
         this.renderer?.setHiddenBodies(null);
+        if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         if (notify) {
             this.scheduleRender();
             this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
@@ -258,10 +258,7 @@ export class GeomView {
         this.partRef = partRef;
         this.faces = faces;
         this.bodies = bodies;
-        if (previousRole) {
-            this.roleError = '换件，原角色声明失效';
-            this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
-        }
+        if (previousRole) this.roleError = '换件，原角色声明失效';
         this.declaredRole = null;
         this.isolation = null;
         // blanked 只决定初始显隐；后续显隐由用户当前状态驱动。
@@ -274,6 +271,7 @@ export class GeomView {
         this.fitPending = true;
         this.renderer?.clearPart();
         this.renderer?.setHiddenBodies(this.hiddenBodies);
+        if (previousRole) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         this.callbacks.partChanged?.();
         this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
         this.callbacks.selectionChanged?.();
@@ -283,14 +281,14 @@ export class GeomView {
     hiddenBodiesOf(): number[] { return [...this.hiddenBodies].sort((a, b) => a - b); }
     isBodyHidden(body: number): boolean { return this.hiddenBodies.has(body); }
 
-    /** 更新隐藏体；调用方直接改显隐会退出隔离，隔离内部更新由 applyingIsolation 区分。 */
+    /** 更新隐藏体；有效的调用方变更会退出隔离，同集重放与隔离内部更新不会。 */
     setHiddenBodies(bodies: Iterable<number> | null): void {
-        if (!this.applyingIsolation) this.isolation = null;
         const next = new Set<number>(bodies ?? []);
         const changed = next.size !== this.hiddenBodies.size
             || [...next].some((b) => !this.hiddenBodies.has(b));
         if (!changed)
             return;
+        if (!this.applyingIsolation) this.isolation = null;
         this.hiddenBodies = next;
         this.renderer?.setHiddenBodies(this.hiddenBodies);
         this.scheduleRender();

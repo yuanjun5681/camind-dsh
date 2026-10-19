@@ -225,7 +225,7 @@ function parseManifest(text) {
       );
     }
   }
-  if (!legacyGp1 && (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0)) {
+  if ((!legacyGp1 || m.excludedBodies !== void 0) && (m.bodyCount === 0 || m.bodies !== void 0 && m.bodies.length === 0)) {
     const coords = [...m.bboxRelative.min, ...m.bboxRelative.max];
     if (coords.some((value) => value !== 0))
       fail("InvalidValue", file + ":\u96F6\u4F53\u5305\u7684 bbox_relative \u5FC5\u987B\u5168\u4E3A 0", file);

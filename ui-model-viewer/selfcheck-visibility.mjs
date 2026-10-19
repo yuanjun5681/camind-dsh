@@ -263,9 +263,17 @@ function testSelectionAndRoles() {
   a.view.setSelectedFids(['F000002'])
   deepEqual(declare('source', 'geometry'), { applied: true })
   deepEqual(a.view.selectedFids(), ['F000002'])
+  const identityRoleEvents = []
+  a.view.callbacks.roleChanged = status => {
+    identityRoleEvents.push(status)
+    assert.equal(a.view.roleStatus().applied, false)
+    assert.equal(a.view.isDeclaredFace(0), false)
+  }
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry' })
   assert.equal(a.view.isDeclaredFace(0), false)
   assert.equal(a.view.roleStatus().applied, false)
+  deepEqual(identityRoleEvents, [{ applied: false, reason: '身份已变化，原角色声明失效' }])
+  delete a.view.callbacks.roleChanged
   deepEqual(declare('source-2', 'geometry'), { applied: true })
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry-2' })
   assert.equal(a.view.isDeclaredFace(0), false)
@@ -296,7 +304,11 @@ function testSelectionAndRoles() {
   assert.equal(a.view.roleStatus().applied, true)
   assert.match(a.view.roleStatus().reason, /格式无效/)
   const roleEvents = []
-  a.view.callbacks.roleChanged = status => roleEvents.push(status)
+  a.view.callbacks.roleChanged = status => {
+    roleEvents.push(status)
+    assert.equal(a.view.roleStatus().applied, false)
+    assert.equal(a.view.isDeclaredFace(0), false)
+  }
   a.view.setPart('other-part@gp-1', a.pack.faces, a.pack.bodies, { sourceSha256: 'source-4', geometrySha256: 'geometry-4' })
   assert.equal(a.view.roleStatus().applied, false)
   assert.equal(a.view.roleStatus().reason, '换件，原角色声明失效')
@@ -315,6 +327,9 @@ function testSelectionAndRoles() {
   a.view.setPartIdentity({ sourceSha256: 'source-2', geometrySha256: 'geometry-2' })
   assert.equal(a.view.isolationBody(), null)
   a.view.isolateBody(2)
+  const isolatedHidden = a.view.hiddenBodiesOf()
+  a.view.setHiddenBodies(isolatedHidden)
+  assert.equal(a.view.isolationBody(), 2)
   a.view.setHiddenBodies([1])
   assert.equal(a.view.isolationBody(), null)
   a.view.clearIsolation()
