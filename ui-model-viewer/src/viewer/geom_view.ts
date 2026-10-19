@@ -256,6 +256,11 @@ export class GeomView {
         this.partRef = partRef;
         this.faces = faces;
         this.bodies = bodies;
+        const previousRole = this.declaredRole;
+        if (previousRole) {
+            this.roleError = '换件，原角色声明失效';
+            this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+        }
         this.declaredRole = null;
         this.isolation = null;
         // blanked 只决定初始显隐；后续显隐由用户当前状态驱动。

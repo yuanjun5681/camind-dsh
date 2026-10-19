@@ -22,7 +22,8 @@ export function ModelControls({ view, onReference }: { view: GeomView; onReferen
     const faces = view.facesOf()
     const unknown = fids.filter(fid => !faces.some(face => face.fid === fid))
     const excluded = faces.filter(face => wanted.has(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType))
-    const declared = faces.filter((face, index) => wanted.has(face.fid) && view.isDeclaredFace(index))
+    const currentSelected = new Set(view.selectedFids())
+    const declared = faces.filter((face, index) => wanted.has(face.fid) && view.isDeclaredFace(index) && !currentSelected.has(face.fid))
     if (unknown.length || excluded.length || declared.length) {
       setMessage([unknown.length ? `面编号不存在：${unknown.join('、')}` : '', excluded.length ? `面被类型筛选排除：${excluded.map(face => face.fid).join('、')}` : '', declared.length ? `已声明体（身份匹配）不可选：${declared.map(face => face.fid).join('、')}` : ''].filter(Boolean).join('；'))
       return
@@ -41,6 +42,7 @@ export function ModelControls({ view, onReference }: { view: GeomView; onReferen
         h('form', { className: 'cmv-face-form', onSubmit: select },
           h(Input, { 'aria-label': '面编号', placeholder: 'F000001，多个编号用空格或逗号分隔', value: input, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value) }),
           h(Button, { type: 'submit' }, '选择'),
+          h(Button, { type: 'button', onClick: () => { view.setHiddenBodies(null); setMessage('') } }, '全部显示'),
           h(Button, { type: 'button', onClick: () => { view.clearSelection(); setInput(''); setMessage('') } }, '清空')),
         onReference ? h(Button, { disabled: !selected.length || adding, onClick: async () => {
           setAdding(true); setMessage('')

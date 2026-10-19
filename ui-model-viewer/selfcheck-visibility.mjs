@@ -1,5 +1,6 @@
 // Multi-body visibility/selection state-machine checks with synthetic GL/CPU data; no real NX or production evidence.
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +30,16 @@ const { outputFiles } = await build({
   alias: { '@camind/core': path.join(root, 'src/core/index.ts') },
   platform: 'browser', format: 'cjs',
 })
+const { outputFiles: clientOutput } = await build({
+  entryPoints: [path.join(root, 'src/client.ts')], bundle: true, write: false,
+  absWorkingDir: path.dirname(root),
+  alias: { '@camind/core': path.join(root, 'src/core/index.ts') },
+  platform: 'browser', format: 'cjs', external: ['react', '@deepseek-ai/dsh-client-ui-primitives'],
+  banner: { js: "// Generated from ui-model-viewer/src; run node ui-model-viewer/build.mjs.\nwindow.__ModuleLoader__.load({ id: 'camind-ui-model-viewer', factory: (require) => { var module = { exports: {} }; var exports = module.exports;" },
+  footer: { js: 'return module.exports; } });' },
+})
+assert.equal(clientOutput[0].text, fs.readFileSync(path.join(root, 'lib/client.js'), 'utf8'), 'client bundle 不是最新构建产物')
+console.log('ok - client bundle reproducible')
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, performance, setTimeout, clearTimeout, console,

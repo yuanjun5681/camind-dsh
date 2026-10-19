@@ -2701,6 +2701,11 @@ var GeomView = class _GeomView {
     this.partRef = partRef;
     this.faces = faces;
     this.bodies = bodies;
+    const previousRole = this.declaredRole;
+    if (previousRole) {
+      this.roleError = "\u6362\u4EF6\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
+      this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
+    }
     this.declaredRole = null;
     this.isolation = null;
     this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
@@ -3364,7 +3369,8 @@ function ModelControls({ view, onReference }) {
     const faces = view.facesOf();
     const unknown = fids.filter((fid) => !faces.some((face) => face.fid === fid));
     const excluded = faces.filter((face) => wanted.has(face.fid) && filter.length > 0 && !filter.includes(face.surfaceType));
-    const declared = faces.filter((face, index) => wanted.has(face.fid) && view.isDeclaredFace(index));
+    const currentSelected = new Set(view.selectedFids());
+    const declared = faces.filter((face, index) => wanted.has(face.fid) && view.isDeclaredFace(index) && !currentSelected.has(face.fid));
     if (unknown.length || excluded.length || declared.length) {
       setMessage([unknown.length ? `\u9762\u7F16\u53F7\u4E0D\u5B58\u5728\uFF1A${unknown.join("\u3001")}` : "", excluded.length ? `\u9762\u88AB\u7C7B\u578B\u7B5B\u9009\u6392\u9664\uFF1A${excluded.map((face) => face.fid).join("\u3001")}` : "", declared.length ? `\u5DF2\u58F0\u660E\u4F53\uFF08\u8EAB\u4EFD\u5339\u914D\uFF09\u4E0D\u53EF\u9009\uFF1A${declared.map((face) => face.fid).join("\u3001")}` : ""].filter(Boolean).join("\uFF1B"));
       return;
@@ -3390,6 +3396,10 @@ function ModelControls({ view, onReference }) {
         { className: "cmv-face-form", onSubmit: select },
         h(import_dsh_client_ui_primitives.Input, { "aria-label": "\u9762\u7F16\u53F7", placeholder: "F000001\uFF0C\u591A\u4E2A\u7F16\u53F7\u7528\u7A7A\u683C\u6216\u9017\u53F7\u5206\u9694", value: input, onChange: (e) => setInput(e.target.value) }),
         h(import_dsh_client_ui_primitives.Button, { type: "submit" }, "\u9009\u62E9"),
+        h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => {
+          view.setHiddenBodies(null);
+          setMessage("");
+        } }, "\u5168\u90E8\u663E\u793A"),
         h(import_dsh_client_ui_primitives.Button, { type: "button", onClick: () => {
           view.clearSelection();
           setInput("");
