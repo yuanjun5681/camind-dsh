@@ -21,14 +21,17 @@ layout(std140) uniform Ubuf {
 in vec3 aPos;
 in vec3 aNormal;
 in vec4 aColor;
+in float aPhase;    // 抖动掩码相位(0/1),与不透明度分立
 out vec3 vNormal;
 out vec3 vPos;
 out vec4 vColor;
+out float vPhase;
 void main()
 {
     vNormal = aNormal;
     vPos = aPos;
     vColor = aColor;
+    vPhase = aPhase;
     gl_Position = ub.mvp * vec4(aPos, 1.0);
 }`;
 
@@ -44,15 +47,21 @@ layout(std140) uniform Ubuf {
 in vec3 vNormal;
 in vec3 vPos;
 in vec4 vColor;
+in float vPhase;
 out vec4 fragColor;
 void main()
 {
     // 半透明实体(NX 里设了透明度):按屏幕像素 4×4 有序抖动镂空。
     // 单趟画、不用排序也不改管线;选中/预亮的颜色 A = 255,不受影响。
+    // A 只表达有效不透明度;vPhase 选择掩码平移。同为 A=128 的相位 0/1
+    // 保留集互补;同相位叠层仍会遮挡,抖动镂空也不是平滑混合。
     if (vColor.a < 0.998) {
         const float bayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
                                           3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-        ivec2 p = ivec2(gl_FragCoord.xy) & ivec2(3);
+        ivec2 p = ivec2(gl_FragCoord.xy);
+        if (vPhase > 0.5)
+            p += ivec2(1, 2);
+        p &= ivec2(3);
         if (vColor.a <= (bayer[p.y * 4 + p.x] + 0.5) / 16.0)
             discard;
     }

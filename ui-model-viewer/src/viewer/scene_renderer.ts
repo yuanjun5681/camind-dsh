@@ -137,6 +137,8 @@ export class SceneRenderer {
     // bodyOfFace[face] = 体号；visible* 是可见索引前缀缓冲，与 NC 播放区间完全独立。
     private bodyOfFace: Uint32Array = new Uint32Array(0);
     private hiddenBodies: Set<number> = new Set();
+    // X-ray 开时隐藏体仍进面可见索引与 ID 画布;边线索引不跟随。
+    private xrayMode = false;
     private visibleIndexCount = 0;
     private visibleScratch: Uint32Array | null = null;
     private edgeVisibleIndexCount = 0;
@@ -145,6 +147,9 @@ export class SceneRenderer {
     private path: ToolpathGeometry | null = null;
     private colors: Uint8Array = new Uint8Array(0);       // 逐顶点 RGBA,高亮改的就是它
     private baseColors: Uint8Array = new Uint8Array(0);   // 每张面的本色,4 字节一张面
+    // 每顶点 0/255,归一化为相位 0/1;A 通道只表达有效不透明度。
+    private phases: Uint8Array = new Uint8Array(0);
+    private phaseDirty = false;
     private pathIds: Uint8Array = new Uint8Array(0);
     private dirtyColorRanges: ByteRange[] = [];
     private colorsFullyDirty = false;
@@ -161,6 +166,7 @@ export class SceneRenderer {
     private posBuf: WebGLBuffer | null = null;
     private normalBuf: WebGLBuffer | null = null;
     private colorBuf: WebGLBuffer | null = null;
+    private phaseBuf: WebGLBuffer | null = null;
     private idBuf: WebGLBuffer | null = null;
     private indexBuf: WebGLBuffer | null = null;
     private edgePosBuf: WebGLBuffer | null = null;
@@ -232,6 +238,7 @@ export class SceneRenderer {
                 this.bodyOfFace[f] = faces[f] ? faces[f].body : 0;
             this.colors = buildFaceColorAttribute(mesh, faces);
             this.baseColors = new Uint8Array(mesh.faceCount() * 4);
+            this.phases = new Uint8Array(mesh.vertexCount());
             for (let f = 0; f < mesh.faceCount(); ++f) {
                 const c: Rgba = f < faces.length
                     ? [faces[f].rgb[0], faces[f].rgb[1], faces[f].rgb[2], faces[f].opacity]
@@ -242,6 +249,7 @@ export class SceneRenderer {
             this.bodyOfFace = new Uint32Array(0);
             this.colors = new Uint8Array(0);
             this.baseColors = new Uint8Array(0);
+            this.phases = new Uint8Array(0);
         }
         this.meshDirty = true;
         this.colorsFullyDirty = false;
@@ -257,6 +265,14 @@ export class SceneRenderer {
         this.hiddenBodies = hidden ? new Set(hidden) : new Set();
         this.rebuildVisibleIndices();
         this.rebuildEdgeVisibleIndices();
+    }
+
+    /** X-ray 只改变面可见索引;隐藏体的边线仍按原显隐剔除。 */
+    setXrayMode(on: boolean): void {
+        if (this.xrayMode === on)
+            return;
+        this.xrayMode = on;
+        this.rebuildVisibleIndices();
     }
 
     visibleIndexDrawCount(): number { return this.visibleIndexCount; }
@@ -279,7 +295,7 @@ export class SceneRenderer {
         let n = 0;
         const indices = this.mesh.indices();
         for (let f = 0; f < this.mesh.faceCount(); ++f) {
-            if (this.hiddenBodies.has(this.bodyOfFace[f]))
+            if (this.hiddenBodies.has(this.bodyOfFace[f]) && !this.xrayMode)
                 continue;
             const r = this.mesh.faceRange(f);
             this.visibleScratch.set(indices.subarray(r.indexOffset, r.indexOffset + r.indexCount), n);
@@ -357,6 +373,51 @@ export class SceneRenderer {
         if (face * 4 + 4 <= this.baseColors.length) {
             c[0] = this.baseColors[face * 4]; c[1] = this.baseColors[face * 4 + 1];
             c[2] = this.baseColors[face * 4 + 2]; c[3] = this.baseColors[face * 4 + 3];
+        }
+        return c;
+    }
+
+    /** 相位未变时不置脏,避免 hover/选择的颜色局部刷新退化成整份相位上传。 */
+    setFacePhase(face: number, phase: 0 | 1): void {
+        if (!this.mesh || face < 0 || face >= this.mesh.faceCount())
+            return;
+        const range = this.mesh.faceRange(face);
+        if (range.vertexCount === 0)
+            return;
+        const value = phase === 0 ? 0 : 255;
+        let changed = false;
+        for (let k = 0; k < range.vertexCount; ++k) {
+            if (this.phases[range.vertexOffset + k] !== value) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed)
+            return;
+        for (let k = 0; k < range.vertexCount; ++k)
+            this.phases[range.vertexOffset + k] = value;
+        if (!this.meshDirty)
+            this.phaseDirty = true;
+    }
+
+    // Invariant: setFacePhase writes every vertex of the face uniformly, so reading the
+    // first vertex of the range is representative (selfcheck-xray asserts the invariant).
+    facePhaseAt(face: number): 0 | 1 {
+        if (!this.mesh || face < 0 || face >= this.mesh.faceCount())
+            return 0;
+        const range = this.mesh.faceRange(face);
+        return range.vertexCount > 0 && this.phases[range.vertexOffset] > 0 ? 1 : 0;
+    }
+
+    /** 当前显示色只读探针;A 是有效不透明度,不兼任相位。 */
+    faceColorAt(face: number): Rgba {
+        const c: Rgba = [0, 0, 0, 0];
+        if (!this.mesh || face < 0 || face >= this.mesh.faceCount())
+            return c;
+        const offset = this.mesh.faceRange(face).vertexOffset * 4;
+        if (offset + 4 <= this.colors.length) {
+            c[0] = this.colors[offset]; c[1] = this.colors[offset + 1];
+            c[2] = this.colors[offset + 2]; c[3] = this.colors[offset + 3];
         }
         return c;
     }
@@ -523,7 +584,7 @@ export class SceneRenderer {
 
     dispose(): void {
         const gl = this.gl;
-        for (const b of [this.posBuf, this.normalBuf, this.colorBuf, this.idBuf, this.indexBuf,
+        for (const b of [this.posBuf, this.normalBuf, this.colorBuf, this.phaseBuf, this.idBuf, this.indexBuf,
                          this.edgePosBuf, this.edgeIndexBuf, this.pathPosBuf, this.pathColorBuf, this.pathIdBuf,
                          this.mainUbo, this.pathUbo, this.pickUbo, this.pickPathUbo])
             if (b) gl.deleteBuffer(b);
@@ -678,9 +739,9 @@ export class SceneRenderer {
         const gl = this.gl;
         if (this.meshDirty) {
             this.meshDirty = false;
-            for (const b of [this.posBuf, this.normalBuf, this.colorBuf, this.idBuf, this.indexBuf])
+            for (const b of [this.posBuf, this.normalBuf, this.colorBuf, this.phaseBuf, this.idBuf, this.indexBuf])
                 this.deleteBuffer(b);
-            this.posBuf = this.normalBuf = this.colorBuf = this.idBuf = this.indexBuf = null;
+            this.posBuf = this.normalBuf = this.colorBuf = this.phaseBuf = this.idBuf = this.indexBuf = null;
             this.deleteVao(this.meshVao);
             this.deleteVao(this.idMeshVao);
             this.meshVao = this.idMeshVao = null;
@@ -698,12 +759,14 @@ export class SceneRenderer {
                 this.normalBuf = this.upload(nrmBytes, gl.STATIC_DRAW);
                 this.idBuf = this.upload(ids, gl.STATIC_DRAW);
                 this.indexBuf = this.upload(idxBytes, gl.STATIC_DRAW, gl.ELEMENT_ARRAY_BUFFER);
-                // 颜色是唯一会改的:之后按区间局部上传。
+                // 颜色按区间局部上传;相位每顶点 1 字节,变更后整块重传。
                 this.colorBuf = this.upload(this.colors, gl.STATIC_DRAW);
+                this.phaseBuf = this.upload(this.phases, gl.STATIC_DRAW);
                 this.meshVao = this.makeVao(this.meshProg.program, [
                     ["aPos", this.posBuf, 3, gl.FLOAT],
                     ["aNormal", this.normalBuf, 3, gl.FLOAT],
                     ["aColor", this.colorBuf, 4, gl.UNSIGNED_BYTE, true],
+                    ["aPhase", this.phaseBuf, 1, gl.UNSIGNED_BYTE, true],
                 ], this.indexBuf);
                 this.idMeshVao = this.makeVao(this.idProg.program, [
                     ["aPos", this.posBuf, 3, gl.FLOAT],
@@ -720,6 +783,7 @@ export class SceneRenderer {
             }
             this.colorsFullyDirty = false;
             this.dirtyColorRanges = [];
+            this.phaseDirty = false;
         } else if (this.colorBuf) {
             if (this.colorsFullyDirty) {
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuf);
@@ -731,6 +795,11 @@ export class SceneRenderer {
             }
             this.colorsFullyDirty = false;
             this.dirtyColorRanges = [];
+            if (this.phaseDirty && this.phaseBuf) {
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.phaseBuf);
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.phases);
+                this.phaseDirty = false;
+            }
         }
 
         if (this.edgesDirty) {

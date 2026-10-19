@@ -10,7 +10,7 @@ dsh 的核心理念是 **everything is a plugin**：agent 的所有能力（工�
 
 ## 技术栈
 
-- **运行时**：Node.js `^22.19` 或 `>=24`（当前环境 v22.22.1）。
+- **运行时**：Node.js `^22.19` 或 `>=24`；当前验证宿主为 v25.7.0（Node 22 的本次 bundle 可重现性未重新验证）。
 - **插件**：纯 JavaScript、ESM（`"type": "module"`），无构建步骤、无 TypeScript、无测试框架。例外：`ui-shell/` 用 TypeScript（Host 侧 `tsc`，前端 Vite + React），`npm run build` 产出 `dist/`。
 - **客户端（浏览器）bundle**：树外 dsh UI 扩展仍用手写 `window.__ModuleLoader__.load()` 格式。独立定制界面在 `ui-shell/`，复用官方 slot runtime，由 Host 桥挂在 `/camind`。
 - **包管理**：profile 内的插件安装由 `dsh plugin` 命令转发给 pnpm 完成。
@@ -57,7 +57,9 @@ ui-home/            新会话首页插件（`camind-ui-home`）：`/` 叠加品�
                     （`shell.home` 链），blank hero 示例 chips 挂官方
                     `conversation.input.dock`；官方 HeroShell 由结构选择器 CSS 隐藏
 ui-model-viewer/    PRT/NC统一WebGL2查看器：保留cam.model.preview与cam.nc.preview席位，
-                    工位/工序显隐、当前工序回放、源码定位、临时选面和应用内扩大视区。
+                    工位/工序显隐、当前工序回放、源码定位、临时选面和应用内扩大视区；
+                    多体显隐/隔离、声明体可选性与独立相位X-ray（有序抖动，非平滑混合，
+                    边线不跟随；生产电极角色接线、真实桌面多体与真实Chrome context loss验收仍挂账）。
                     Host复用previewFiles会话引用与camPipeline五步几何导出/缓存，源件不覆盖、
                     未保存NX会话阻断；联合入口previewRun读run目录preview.json及NC zip，
                     必须验证源/几何/NC SHA与每工序真实工位矩阵。常规cam_run尚无完整回读，
@@ -171,7 +173,7 @@ npm run check:dsh-version
 
 ## 测试策略
 
-本项目没有统一测试框架；文件预览引用边界有 assert 自检：`node ui-preview/selfcheck.mjs`，三维模型插件自检：`node ui-model-viewer/selfcheck.mjs`（先 `node ui-model-viewer/build.mjs`；构建复用 ui-shell 的 esbuild）。GP-2 读端合同自检：`node ui-model-viewer/selfcheck-gp2.mjs`（需相邻 CAM-Agent 仓库与 python3，`CAM_AGENT_REPO`/`CAM_AGENT_REF` 可覆盖）；多体显隐与声明体自检：`node ui-model-viewer/selfcheck-visibility.mjs`（需相邻 Camind-desktop 仓库的合成包与 GL mock，`DESKTOP_REPO` 可覆盖）。图纸转换器自检：`node service-draft-converter/selfcheck.mjs`（合成 DXF 用例常开；黄金对照需 `DRAFT_GOLDEN_DWG` + `DRAFT_GOLDEN_PY` 两个环境变量指向本地真图与 Python 版包，敏感图纸不入库）。Python/JS/TS 三方 packcheck 差分：`DESKTOP_REPO=/path/to/Camind-desktop CAM_AGENT_REPO=/path/to/CAM-Agent node service-draft-converter/selfcheck-three-way.mjs`（先在 Desktop 运行 `python3 tools/gen_draft_fixtures.py --selfcheck` 生成共享夹具；writer/reader 双档比对标准化错误码与 skipped，不代表图纸已审）。其余主要验证手段是手动冒烟：
+本项目没有统一测试框架；文件预览引用边界有 assert 自检：`node ui-preview/selfcheck.mjs`，三维模型插件自检：`node ui-model-viewer/selfcheck.mjs`（先 `node ui-model-viewer/build.mjs`；构建复用 ui-shell 的 esbuild）。GP-2 读端合同自检：`node ui-model-viewer/selfcheck-gp2.mjs`（需相邻 CAM-Agent 仓库与 python3，`CAM_AGENT_REPO`/`CAM_AGENT_REF` 可覆盖）；多体显隐与声明体自检：`node ui-model-viewer/selfcheck-visibility.mjs`，X-ray 状态/相位自检：`node ui-model-viewer/selfcheck-xray.mjs`（均需相邻 Camind-desktop 仓库的合成包与 GL mock，`DESKTOP_REPO` 可覆盖）；真实 Chromium X-ray 像素与控件自检：`node ui-model-viewer/selfcheck-xray-gpu.mjs` / `node ui-model-viewer/selfcheck-xray-ui.mjs`（需 `CAMIND_PLAYWRIGHT_PATH`，必要时另设 `CAMIND_CHROMIUM_PATH`；gpu 用例内含撤相位平移、独立 Bayer 变异与伪造 GPU vendor/renderer 负控）；镜像哈希自检：`node ui-model-viewer/selfcheck-mirror.mjs`（默认同时核对 `DESKTOP_REPO` 的 sourceCommit，仅核本地设 `CAMIND_MIRROR_LOCAL_ONLY=1`）。干净 worktree 全量验证：`CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core CAMIND_CHROMIUM_PATH=/path/to/chrome bash ui-model-viewer/selfcheck-clean.sh`（从 HEAD 新建 detached worktree，依次跑构建、基础、镜像、GP-2、显隐、X-ray、预览自检与播放、布局、真实 Chromium 回归，构建前后断言工作区无残留改动；「干净」仅指本仓库工作树，相邻 Desktop/CAM-Agent 仓库只记录状态不隔离，GP-2 fixture 来源哈希在日志记录，pinned fixture 之外的相邻仓库内容不作可复现性保证）。图纸转换器自检：`node service-draft-converter/selfcheck.mjs`（合成 DXF 用例常开；黄金对照需 `DRAFT_GOLDEN_DWG` + `DRAFT_GOLDEN_PY` 两个环境变量指向本地真图与 Python 版包，敏感图纸不入库）。Python/JS/TS 三方 packcheck 差分：`DESKTOP_REPO=/path/to/Camind-desktop CAM_AGENT_REPO=/path/to/CAM-Agent node service-draft-converter/selfcheck-three-way.mjs`（先在 Desktop 运行 `python3 tools/gen_draft_fixtures.py --selfcheck` 生成共享夹具；writer/reader 双档比对标准化错误码与 skipped，不代表图纸已审）。其余主要验证手段是手动冒烟：
 
 1. `--dump-config`（无需 API key）：确认插件行出现在组合后的配置里。
 2. `http://127.0.0.1:3080/`（302 到 `/camind/`）：验证自定义前端（需先在 `ui-shell/` 执行 `npm install && npm run build`）。新会话页 `/` 显示 Camind 品牌区（CAM 虎钳工匠 mascot + 字标 + Harness 徽章）、紧随其下的示例卡片，与官方工作区行/输入卡组成一个整体居中组，官方鱼标/「探索未至之境」/预览徽章不再出现（ui-home 叠加 + CSS 隐藏）；点示例直接写入输入框草稿（无会话时先自动接最近工作区的 blank 会话再预填）。侧栏顶部显示同一 mascot + 字标（ui-brand 占 `sidebar.brand.mark`/`sidebar.brand.name` 席位；折叠 rail 只剩 mascot），底部「设置」上方显示「记忆库」（page-memory），点击进入 `/camind/pages/memory`：知识/经验双 tab 列表、搜索与 chip 过滤、上传 .md/.txt 后元数据自动生成（「生成中」→ 自动填好或「生成失败」可编辑手填）、编辑/删除、经验采纳/弃用，详情深链接刷新保持。Composer 加号打开斜杠命令列表（含命令与技能），输入 `/` 同样弹出。官方壳由 `http://127.0.0.1:3080/web`（302 到 `/index.html`）访问，保持原生品牌与布局。

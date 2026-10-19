@@ -112,6 +112,8 @@ export class GeomView {
     private originOffset: [number, number, number] = [0, 0, 0];
     private partIdentity: GeomPartIdentity = { sourceSha256: '', geometrySha256: '' };
     private hiddenBodies: Set<number> = new Set();
+    private xrayMode = false;
+    private translucentBodies: Set<number> = new Set();
     private declaredRole: { identity: GeomPartIdentity; bodies: Set<number> } | null = null;
     private roleError: string | null = null;
     private isolation: { body: number; hiddenBefore: Set<number> } | null = null;
@@ -192,6 +194,8 @@ export class GeomView {
             this.renderer = new SceneRenderer(gl, { checkErrors: this.debugCheckErrors });
             if (this.hiddenBodies.size > 0)
                 this.renderer.setHiddenBodies(this.hiddenBodies);
+            if (this.xrayMode)
+                this.renderer.setXrayMode(true);
             this.feedRenderer();
             this.scheduleRender(); // 恢复/首建后要重画一帧(对应 C++ initialize 后的 update)
         } catch (e) {
@@ -243,7 +247,9 @@ export class GeomView {
         this.selection.setDeclaredBodies([]);
         this.isolation = null;
         this.hiddenBodies = new Set();
+        this.translucentBodies = new Set();
         this.renderer?.setHiddenBodies(null);
+        this.refreshAllFaceColors();
         if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
         if (notify) {
             this.scheduleRender();
@@ -261,6 +267,7 @@ export class GeomView {
         if (previousRole) this.roleError = '换件，原角色声明失效';
         this.declaredRole = null;
         this.isolation = null;
+        this.translucentBodies = new Set();
         // blanked 只决定初始显隐；后续显隐由用户当前状态驱动。
         this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
         this.originOffset = [0, 0, 0];
@@ -280,6 +287,10 @@ export class GeomView {
 
     hiddenBodiesOf(): number[] { return [...this.hiddenBodies].sort((a, b) => a - b); }
     isBodyHidden(body: number): boolean { return this.hiddenBodies.has(body); }
+    visibleIndexDrawCount(): number { return this.renderer?.visibleIndexDrawCount() ?? 0; }
+    edgeVisibleIndexDrawCount(): number { return this.renderer?.edgeVisibleIndexDrawCount() ?? 0; }
+    faceDisplayColorAt(face: number): Rgba { return this.renderer?.faceColorAt(face) ?? [0, 0, 0, 0]; }
+    facePhaseAt(face: number): 0 | 1 { return this.renderer?.facePhaseAt(face) ?? 0; }
 
     /** 更新隐藏体；有效的调用方变更会退出隔离，同集重放与隔离内部更新不会。 */
     setHiddenBodies(bodies: Iterable<number> | null): void {
@@ -291,10 +302,39 @@ export class GeomView {
         if (!this.applyingIsolation) this.isolation = null;
         this.hiddenBodies = next;
         this.renderer?.setHiddenBodies(this.hiddenBodies);
+        if (this.xrayMode)
+            this.refreshAllFaceColors();
         this.scheduleRender();
-        if (this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
+        if (!this.xrayMode && this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
             this.setHoverFace(null);
         this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+    }
+
+    /** X-ray 让隐藏体以 50% 有序抖动显示并可拾取;边线仍按原显隐剔除。 */
+    setXrayMode(on: boolean): void {
+        if (this.xrayMode === on)
+            return;
+        this.xrayMode = on;
+        this.renderer?.setXrayMode(on);
+        this.refreshAllFaceColors();
+        if (!on && this.hoverFace !== null
+            && this.hiddenBodies.has(this.faces[this.hoverFace]?.body ?? -1))
+            this.setHoverFace(null);
+        this.scheduleRender();
+    }
+
+    xrayModeOn(): boolean { return this.xrayMode; }
+
+    /** alpha 只补源不透明体；传入的默认透视角色体统一用相位 1。保留其他源透明度时不保证与相位 0 互补。 */
+    setDefaultTranslucentBodies(bodies: Iterable<number> | null): void {
+        const next = new Set<number>(bodies ?? []);
+        const changed = next.size !== this.translucentBodies.size
+            || [...next].some((b) => !this.translucentBodies.has(b));
+        if (!changed)
+            return;
+        this.translucentBodies = next;
+        this.refreshAllFaceColors();
+        this.scheduleRender();
     }
 
     /** 显式全部显示并退出隔离；隔离内部计算出的空隐藏集不得走此入口。 */
@@ -303,7 +343,7 @@ export class GeomView {
         this.setHiddenBodies(null);
     }
 
-    /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
+    /** 声明当前 source+geometry 下不可选的角色体；bodies 是声明集，不是可选白名单。名称沿用上游兼容 API。 */
     setSelectableBodies(declaration: GeomRoleDeclaration): GeomRoleStatus {
         const reject = (reason: string): GeomRoleStatus => {
             const previous = this.declaredRole;
@@ -662,28 +702,49 @@ export class GeomView {
         const selected = this.selection.isSelected(face);
         const hovered = this.hoverFace === face;
         const base = this.renderer ? this.renderer.baseFaceColor(face) : [180, 180, 180, 255] as Rgba;
-        return displayFaceColor(base, selected, hovered, this.selection.passesTypeFilter(face));
+        const color = [...displayFaceColor(base, selected, hovered, this.selection.passesTypeFilter(face))] as Rgba;
+        const body = this.faces[face]?.body ?? -1;
+        if (!selected && !hovered) {
+            if (this.xrayMode && this.hiddenBodies.has(body))
+                color[3] = 128;
+            else if (this.translucentBodies.has(body) && color[3] === 255)
+                color[3] = 128;
+        }
+        return color;
+    }
+
+    // Phase 1 comes only from the default-translucent body set (setDefaultTranslucentBodies).
+    // Declaring a role via setSelectableBodies only filters selection and never assigns a
+    // phase on its own; production role wiring must set both.
+    private facePhaseOf(face: number): 0 | 1 {
+        return this.translucentBodies.has(this.faces[face]?.body ?? -1) ? 1 : 0;
     }
 
     private refreshFaceColor(face: number): void {
         this.renderer?.setFaceColor(face, this.displayColorOf(face));
+        this.renderer?.setFacePhase(face, this.facePhaseOf(face));
     }
 
     private refreshAllFaceColors(): void {
         if (!this.renderer || !this.mesh)
             return;
-        if (this.selection.typeFilter().size > 0) {
+        if (this.selection.typeFilter().size > 0
+            || (this.xrayMode && this.hiddenBodies.size > 0)
+            || this.translucentBodies.size > 0) {
             for (let f = 0; f < this.mesh.faceCount(); ++f)
                 this.refreshFaceColor(f);
             return;
         }
-        // 没有过滤时,只有选中的和滑过的不是本色;先把本色铺回去,再涂这几张。
+        // 没有过滤和透视时,只有选中的和滑过的不是本色;先把本色与相位铺回去。
         for (let f = 0; f < this.mesh.faceCount(); ++f) {
-            if (!this.selection.isSelected(f) && this.hoverFace !== f)
+            if (!this.selection.isSelected(f) && this.hoverFace !== f) {
                 this.renderer.setFaceColor(f, this.renderer.baseFaceColor(f));
+                this.renderer.setFacePhase(f, 0);
+            }
         }
         for (const f of this.selection.selection())
             this.refreshFaceColor(f);
+        // 快路径也必须重刷 hover 面；清空默认透视时相位随之归零。
         if (this.hoverFace !== null)
             this.refreshFaceColor(this.hoverFace);
     }

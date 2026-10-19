@@ -1669,14 +1669,17 @@ layout(std140) uniform Ubuf {
 in vec3 aPos;
 in vec3 aNormal;
 in vec4 aColor;
+in float aPhase;    // \u6296\u52A8\u63A9\u7801\u76F8\u4F4D(0/1),\u4E0E\u4E0D\u900F\u660E\u5EA6\u5206\u7ACB
 out vec3 vNormal;
 out vec3 vPos;
 out vec4 vColor;
+out float vPhase;
 void main()
 {
     vNormal = aNormal;
     vPos = aPos;
     vColor = aColor;
+    vPhase = aPhase;
     gl_Position = ub.mvp * vec4(aPos, 1.0);
 }`;
 var MESH_FRAG = `#version 300 es
@@ -1691,15 +1694,21 @@ layout(std140) uniform Ubuf {
 in vec3 vNormal;
 in vec3 vPos;
 in vec4 vColor;
+in float vPhase;
 out vec4 fragColor;
 void main()
 {
     // \u534A\u900F\u660E\u5B9E\u4F53(NX \u91CC\u8BBE\u4E86\u900F\u660E\u5EA6):\u6309\u5C4F\u5E55\u50CF\u7D20 4\xD74 \u6709\u5E8F\u6296\u52A8\u9542\u7A7A\u3002
     // \u5355\u8D9F\u753B\u3001\u4E0D\u7528\u6392\u5E8F\u4E5F\u4E0D\u6539\u7BA1\u7EBF;\u9009\u4E2D/\u9884\u4EAE\u7684\u989C\u8272 A = 255,\u4E0D\u53D7\u5F71\u54CD\u3002
+    // A \u53EA\u8868\u8FBE\u6709\u6548\u4E0D\u900F\u660E\u5EA6;vPhase \u9009\u62E9\u63A9\u7801\u5E73\u79FB\u3002\u540C\u4E3A A=128 \u7684\u76F8\u4F4D 0/1
+    // \u4FDD\u7559\u96C6\u4E92\u8865;\u540C\u76F8\u4F4D\u53E0\u5C42\u4ECD\u4F1A\u906E\u6321,\u6296\u52A8\u9542\u7A7A\u4E5F\u4E0D\u662F\u5E73\u6ED1\u6DF7\u5408\u3002
     if (vColor.a < 0.998) {
         const float bayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
                                           3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-        ivec2 p = ivec2(gl_FragCoord.xy) & ivec2(3);
+        ivec2 p = ivec2(gl_FragCoord.xy);
+        if (vPhase > 0.5)
+            p += ivec2(1, 2);
+        p &= ivec2(3);
         if (vColor.a <= (bayer[p.y * 4 + p.x] + 0.5) / 16.0)
             discard;
     }
@@ -1831,6 +1840,8 @@ var SceneRenderer = class {
   // bodyOfFace[face] = 体号；visible* 是可见索引前缀缓冲，与 NC 播放区间完全独立。
   bodyOfFace = new Uint32Array(0);
   hiddenBodies = /* @__PURE__ */ new Set();
+  // X-ray 开时隐藏体仍进面可见索引与 ID 画布;边线索引不跟随。
+  xrayMode = false;
   visibleIndexCount = 0;
   visibleScratch = null;
   edgeVisibleIndexCount = 0;
@@ -1841,6 +1852,9 @@ var SceneRenderer = class {
   // 逐顶点 RGBA,高亮改的就是它
   baseColors = new Uint8Array(0);
   // 每张面的本色,4 字节一张面
+  // 每顶点 0/255,归一化为相位 0/1;A 通道只表达有效不透明度。
+  phases = new Uint8Array(0);
+  phaseDirty = false;
   pathIds = new Uint8Array(0);
   dirtyColorRanges = [];
   colorsFullyDirty = false;
@@ -1857,6 +1871,7 @@ var SceneRenderer = class {
   posBuf = null;
   normalBuf = null;
   colorBuf = null;
+  phaseBuf = null;
   idBuf = null;
   indexBuf = null;
   edgePosBuf = null;
@@ -1924,6 +1939,7 @@ var SceneRenderer = class {
         this.bodyOfFace[f] = faces[f] ? faces[f].body : 0;
       this.colors = buildFaceColorAttribute(mesh, faces);
       this.baseColors = new Uint8Array(mesh.faceCount() * 4);
+      this.phases = new Uint8Array(mesh.vertexCount());
       for (let f = 0; f < mesh.faceCount(); ++f) {
         const c = f < faces.length ? [faces[f].rgb[0], faces[f].rgb[1], faces[f].rgb[2], faces[f].opacity] : [180, 180, 180, 255];
         this.baseColors.set(c, f * 4);
@@ -1932,6 +1948,7 @@ var SceneRenderer = class {
       this.bodyOfFace = new Uint32Array(0);
       this.colors = new Uint8Array(0);
       this.baseColors = new Uint8Array(0);
+      this.phases = new Uint8Array(0);
     }
     this.meshDirty = true;
     this.colorsFullyDirty = false;
@@ -1945,6 +1962,13 @@ var SceneRenderer = class {
     this.hiddenBodies = hidden ? new Set(hidden) : /* @__PURE__ */ new Set();
     this.rebuildVisibleIndices();
     this.rebuildEdgeVisibleIndices();
+  }
+  /** X-ray 只改变面可见索引;隐藏体的边线仍按原显隐剔除。 */
+  setXrayMode(on) {
+    if (this.xrayMode === on)
+      return;
+    this.xrayMode = on;
+    this.rebuildVisibleIndices();
   }
   visibleIndexDrawCount() {
     return this.visibleIndexCount;
@@ -1968,7 +1992,7 @@ var SceneRenderer = class {
     let n = 0;
     const indices = this.mesh.indices();
     for (let f = 0; f < this.mesh.faceCount(); ++f) {
-      if (this.hiddenBodies.has(this.bodyOfFace[f]))
+      if (this.hiddenBodies.has(this.bodyOfFace[f]) && !this.xrayMode)
         continue;
       const r = this.mesh.faceRange(f);
       this.visibleScratch.set(indices.subarray(r.indexOffset, r.indexOffset + r.indexCount), n);
@@ -2042,6 +2066,50 @@ var SceneRenderer = class {
       c[1] = this.baseColors[face * 4 + 1];
       c[2] = this.baseColors[face * 4 + 2];
       c[3] = this.baseColors[face * 4 + 3];
+    }
+    return c;
+  }
+  /** 相位未变时不置脏,避免 hover/选择的颜色局部刷新退化成整份相位上传。 */
+  setFacePhase(face, phase) {
+    if (!this.mesh || face < 0 || face >= this.mesh.faceCount())
+      return;
+    const range = this.mesh.faceRange(face);
+    if (range.vertexCount === 0)
+      return;
+    const value = phase === 0 ? 0 : 255;
+    let changed = false;
+    for (let k = 0; k < range.vertexCount; ++k) {
+      if (this.phases[range.vertexOffset + k] !== value) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed)
+      return;
+    for (let k = 0; k < range.vertexCount; ++k)
+      this.phases[range.vertexOffset + k] = value;
+    if (!this.meshDirty)
+      this.phaseDirty = true;
+  }
+  // Invariant: setFacePhase writes every vertex of the face uniformly, so reading the
+  // first vertex of the range is representative (selfcheck-xray asserts the invariant).
+  facePhaseAt(face) {
+    if (!this.mesh || face < 0 || face >= this.mesh.faceCount())
+      return 0;
+    const range = this.mesh.faceRange(face);
+    return range.vertexCount > 0 && this.phases[range.vertexOffset] > 0 ? 1 : 0;
+  }
+  /** 当前显示色只读探针;A 是有效不透明度,不兼任相位。 */
+  faceColorAt(face) {
+    const c = [0, 0, 0, 0];
+    if (!this.mesh || face < 0 || face >= this.mesh.faceCount())
+      return c;
+    const offset = this.mesh.faceRange(face).vertexOffset * 4;
+    if (offset + 4 <= this.colors.length) {
+      c[0] = this.colors[offset];
+      c[1] = this.colors[offset + 1];
+      c[2] = this.colors[offset + 2];
+      c[3] = this.colors[offset + 3];
     }
     return c;
   }
@@ -2237,6 +2305,7 @@ var SceneRenderer = class {
       this.posBuf,
       this.normalBuf,
       this.colorBuf,
+      this.phaseBuf,
       this.idBuf,
       this.indexBuf,
       this.edgePosBuf,
@@ -2378,9 +2447,9 @@ var SceneRenderer = class {
     const gl = this.gl;
     if (this.meshDirty) {
       this.meshDirty = false;
-      for (const b of [this.posBuf, this.normalBuf, this.colorBuf, this.idBuf, this.indexBuf])
+      for (const b of [this.posBuf, this.normalBuf, this.colorBuf, this.phaseBuf, this.idBuf, this.indexBuf])
         this.deleteBuffer(b);
-      this.posBuf = this.normalBuf = this.colorBuf = this.idBuf = this.indexBuf = null;
+      this.posBuf = this.normalBuf = this.colorBuf = this.phaseBuf = this.idBuf = this.indexBuf = null;
       this.deleteVao(this.meshVao);
       this.deleteVao(this.idMeshVao);
       this.meshVao = this.idMeshVao = null;
@@ -2398,10 +2467,12 @@ var SceneRenderer = class {
         this.idBuf = this.upload(ids, gl.STATIC_DRAW);
         this.indexBuf = this.upload(idxBytes, gl.STATIC_DRAW, gl.ELEMENT_ARRAY_BUFFER);
         this.colorBuf = this.upload(this.colors, gl.STATIC_DRAW);
+        this.phaseBuf = this.upload(this.phases, gl.STATIC_DRAW);
         this.meshVao = this.makeVao(this.meshProg.program, [
           ["aPos", this.posBuf, 3, gl.FLOAT],
           ["aNormal", this.normalBuf, 3, gl.FLOAT],
-          ["aColor", this.colorBuf, 4, gl.UNSIGNED_BYTE, true]
+          ["aColor", this.colorBuf, 4, gl.UNSIGNED_BYTE, true],
+          ["aPhase", this.phaseBuf, 1, gl.UNSIGNED_BYTE, true]
         ], this.indexBuf);
         this.idMeshVao = this.makeVao(this.idProg.program, [
           ["aPos", this.posBuf, 3, gl.FLOAT],
@@ -2417,6 +2488,7 @@ var SceneRenderer = class {
       }
       this.colorsFullyDirty = false;
       this.dirtyColorRanges = [];
+      this.phaseDirty = false;
     } else if (this.colorBuf) {
       if (this.colorsFullyDirty) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuf);
@@ -2428,6 +2500,11 @@ var SceneRenderer = class {
       }
       this.colorsFullyDirty = false;
       this.dirtyColorRanges = [];
+      if (this.phaseDirty && this.phaseBuf) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.phaseBuf);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.phases);
+        this.phaseDirty = false;
+      }
     }
     if (this.edgesDirty) {
       this.edgesDirty = false;
@@ -2569,6 +2646,8 @@ var GeomView = class _GeomView {
   originOffset = [0, 0, 0];
   partIdentity = { sourceSha256: "", geometrySha256: "" };
   hiddenBodies = /* @__PURE__ */ new Set();
+  xrayMode = false;
+  translucentBodies = /* @__PURE__ */ new Set();
   declaredRole = null;
   roleError = null;
   isolation = null;
@@ -2646,6 +2725,8 @@ var GeomView = class _GeomView {
       this.renderer = new SceneRenderer(gl, { checkErrors: this.debugCheckErrors });
       if (this.hiddenBodies.size > 0)
         this.renderer.setHiddenBodies(this.hiddenBodies);
+      if (this.xrayMode)
+        this.renderer.setXrayMode(true);
       this.feedRenderer();
       this.scheduleRender();
     } catch (e) {
@@ -2699,7 +2780,9 @@ var GeomView = class _GeomView {
     this.selection.setDeclaredBodies([]);
     this.isolation = null;
     this.hiddenBodies = /* @__PURE__ */ new Set();
+    this.translucentBodies = /* @__PURE__ */ new Set();
     this.renderer?.setHiddenBodies(null);
+    this.refreshAllFaceColors();
     if (previousRole && notify) this.callbacks.roleChanged?.({ applied: false, reason: this.roleError });
     if (notify) {
       this.scheduleRender();
@@ -2716,6 +2799,7 @@ var GeomView = class _GeomView {
     if (previousRole) this.roleError = "\u6362\u4EF6\uFF0C\u539F\u89D2\u8272\u58F0\u660E\u5931\u6548";
     this.declaredRole = null;
     this.isolation = null;
+    this.translucentBodies = /* @__PURE__ */ new Set();
     this.hiddenBodies = new Set(bodies.filter((body) => body.blanked).map((body) => body.body));
     this.originOffset = [0, 0, 0];
     this.mesh = null;
@@ -2737,6 +2821,18 @@ var GeomView = class _GeomView {
   isBodyHidden(body) {
     return this.hiddenBodies.has(body);
   }
+  visibleIndexDrawCount() {
+    return this.renderer?.visibleIndexDrawCount() ?? 0;
+  }
+  edgeVisibleIndexDrawCount() {
+    return this.renderer?.edgeVisibleIndexDrawCount() ?? 0;
+  }
+  faceDisplayColorAt(face) {
+    return this.renderer?.faceColorAt(face) ?? [0, 0, 0, 0];
+  }
+  facePhaseAt(face) {
+    return this.renderer?.facePhaseAt(face) ?? 0;
+  }
   /** 更新隐藏体；有效的调用方变更会退出隔离，同集重放与隔离内部更新不会。 */
   setHiddenBodies(bodies) {
     const next = new Set(bodies ?? []);
@@ -2746,17 +2842,43 @@ var GeomView = class _GeomView {
     if (!this.applyingIsolation) this.isolation = null;
     this.hiddenBodies = next;
     this.renderer?.setHiddenBodies(this.hiddenBodies);
+    if (this.xrayMode)
+      this.refreshAllFaceColors();
     this.scheduleRender();
-    if (this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
+    if (!this.xrayMode && this.hoverFace !== null && next.has(this.faces[this.hoverFace]?.body ?? -1))
       this.setHoverFace(null);
     this.callbacks.visibilityChanged?.(this.hiddenBodiesOf());
+  }
+  /** X-ray 让隐藏体以 50% 有序抖动显示并可拾取;边线仍按原显隐剔除。 */
+  setXrayMode(on) {
+    if (this.xrayMode === on)
+      return;
+    this.xrayMode = on;
+    this.renderer?.setXrayMode(on);
+    this.refreshAllFaceColors();
+    if (!on && this.hoverFace !== null && this.hiddenBodies.has(this.faces[this.hoverFace]?.body ?? -1))
+      this.setHoverFace(null);
+    this.scheduleRender();
+  }
+  xrayModeOn() {
+    return this.xrayMode;
+  }
+  /** alpha 只补源不透明体；传入的默认透视角色体统一用相位 1。保留其他源透明度时不保证与相位 0 互补。 */
+  setDefaultTranslucentBodies(bodies) {
+    const next = new Set(bodies ?? []);
+    const changed = next.size !== this.translucentBodies.size || [...next].some((b) => !this.translucentBodies.has(b));
+    if (!changed)
+      return;
+    this.translucentBodies = next;
+    this.refreshAllFaceColors();
+    this.scheduleRender();
   }
   /** 显式全部显示并退出隔离；隔离内部计算出的空隐藏集不得走此入口。 */
   showAllBodies() {
     this.isolation = null;
     this.setHiddenBodies(null);
   }
-  /** 声明当前 source+geometry 下的角色体；不匹配、缺身份或未知体均明确拒绝。 */
+  /** 声明当前 source+geometry 下不可选的角色体；bodies 是声明集，不是可选白名单。名称沿用上游兼容 API。 */
   setSelectableBodies(declaration) {
     const reject = (reason) => {
       const previous = this.declaredRole;
@@ -3112,22 +3234,39 @@ var GeomView = class _GeomView {
     const selected = this.selection.isSelected(face);
     const hovered = this.hoverFace === face;
     const base2 = this.renderer ? this.renderer.baseFaceColor(face) : [180, 180, 180, 255];
-    return displayFaceColor(base2, selected, hovered, this.selection.passesTypeFilter(face));
+    const color = [...displayFaceColor(base2, selected, hovered, this.selection.passesTypeFilter(face))];
+    const body = this.faces[face]?.body ?? -1;
+    if (!selected && !hovered) {
+      if (this.xrayMode && this.hiddenBodies.has(body))
+        color[3] = 128;
+      else if (this.translucentBodies.has(body) && color[3] === 255)
+        color[3] = 128;
+    }
+    return color;
+  }
+  // Phase 1 comes only from the default-translucent body set (setDefaultTranslucentBodies).
+  // Declaring a role via setSelectableBodies only filters selection and never assigns a
+  // phase on its own; production role wiring must set both.
+  facePhaseOf(face) {
+    return this.translucentBodies.has(this.faces[face]?.body ?? -1) ? 1 : 0;
   }
   refreshFaceColor(face) {
     this.renderer?.setFaceColor(face, this.displayColorOf(face));
+    this.renderer?.setFacePhase(face, this.facePhaseOf(face));
   }
   refreshAllFaceColors() {
     if (!this.renderer || !this.mesh)
       return;
-    if (this.selection.typeFilter().size > 0) {
+    if (this.selection.typeFilter().size > 0 || this.xrayMode && this.hiddenBodies.size > 0 || this.translucentBodies.size > 0) {
       for (let f = 0; f < this.mesh.faceCount(); ++f)
         this.refreshFaceColor(f);
       return;
     }
     for (let f = 0; f < this.mesh.faceCount(); ++f) {
-      if (!this.selection.isSelected(f) && this.hoverFace !== f)
+      if (!this.selection.isSelected(f) && this.hoverFace !== f) {
         this.renderer.setFaceColor(f, this.renderer.baseFaceColor(f));
+        this.renderer.setFacePhase(f, 0);
+      }
     }
     for (const f of this.selection.selection())
       this.refreshFaceColor(f);
@@ -3558,7 +3697,7 @@ var viewerCss = `
 .cmv-footer{font-size:12px;color:var(--dsw-alias-label-secondary);border-top:1px solid var(--dsw-alias-border-l2);border-bottom:0;overflow-wrap:anywhere}.cmv-footer>span:first-child{flex:1;min-width:0}.cmv-playbar{border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-playbar input[type=range]{flex:1;min-width:120px}.cmv-note{padding:8px 12px;color:var(--dsw-alias-state-warn-label);font-size:12px;overflow-wrap:anywhere}.cmv-alerts{display:flex;gap:6px;flex-wrap:wrap;padding:4px 12px}.cmv-alerts button{border:0;background:transparent;color:var(--dsw-alias-state-warn-label);cursor:pointer;text-align:left;font:inherit}
 .cmv-selection,.cmv-source,.cmv-details{width:310px;flex:none;border-left:1px solid var(--dsw-alias-border-l2);min-height:0;overflow:auto;padding:10px}.cmv-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace}.cmv-axes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}.cmv-selection-body{display:flex;flex-direction:column;gap:8px;padding-top:8px;overflow-wrap:anywhere}.cmv-face-form{display:flex;gap:6px;flex-wrap:wrap}.cmv-face-form input{width:100%}.cmv-selection fieldset{display:flex;gap:8px;flex-wrap:wrap;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-selected{max-height:180px;overflow:auto}
 .cmv-source{display:flex;flex-direction:column;overflow:hidden;padding:0}.cmv-source-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-source-head strong{flex:1;min-width:0;overflow-wrap:anywhere}.cmv-source-head input{width:90px}.cmv-source-lines{flex:1;min-height:100px;overflow:auto;font:12px/20px ui-monospace,monospace;background:var(--dsw-alias-markdown-code-block)}.cmv-source-line{display:block;border:0;background:transparent;color:inherit;text-align:left;white-space:pre;height:20px;line-height:20px;padding:0 8px;min-width:100%;cursor:pointer;font:inherit}.cmv-source-line[aria-current=true]{position:relative;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#2468d8) 24%,var(--dsw-alias-markdown-code-block,#f6f8fa));box-shadow:inset 3px 0 var(--dsw-alias-state-business-primary,#2468d8);font-weight:700}.cmv-source-line[aria-current=true]::before{content:"\u203A";position:absolute;left:5px;color:var(--dsw-alias-state-business-primary,#2468d8);font-weight:700}
-.cmv-layers{position:absolute;right:12px;top:12px;z-index:2;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-layers label{display:block;padding:4px 0}
+.cmv-layers{position:absolute;right:12px;top:12px;z-index:2;max-width:min(320px,calc(100% - 24px));max-height:calc(100% - 24px);overflow-y:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.cmv-layers label{display:block;padding:4px 0}.cmv-layer-note{margin:8px 0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .cmv-inspection-dialog{width:min(900px,calc(100vw - 48px));height:min(720px,80vh);max-height:calc(100vh - 48px);padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:0 16px 64px #0005;overflow:hidden;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.cmv-inspection-dialog[open]{display:flex;flex-direction:column}.cmv-inspection-dialog::backdrop{background:#0005}.cmv-inspection-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-inspection-dialog h2{margin:0;font-size:18px}.cmv-dialog-note{margin:0;padding:12px 20px;color:var(--dsw-alias-label-secondary);flex:none}.cmv-inspection-dialog .cmv-source{width:100%;height:auto;flex:1;min-height:0;border:0}.cmv-inspection-dialog .cmv-source-head{padding:10px 20px}.cmv-inspection-dialog .cmv-source-line{padding:0 20px}.cmv-information{padding:8px 20px 20px;overflow:auto}.cmv-information p{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.cmv-information dl{margin:16px 0}.cmv-information dl>div{display:grid;grid-template-columns:minmax(100px,160px) 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}.cmv-information dt{color:var(--dsw-alias-label-secondary)}.cmv-information dd{margin:0;overflow-wrap:anywhere}
 /* The embedded composer reduces available height; never crop the canvas to a standalone minimum. */
 .campv-embedded .cmv-stage{min-height:min(120px,100%)}
@@ -3720,7 +3859,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
   const [activeId, setActive] = (0, import_react2.useState)(""), [visible, setVisible] = (0, import_react2.useState)([]), [time, setTime] = (0, import_react2.useState)(0), [playing, setPlaying] = (0, import_react2.useState)(false), [speed, setSpeed] = (0, import_react2.useState)(1);
   const [selecting, setSelecting] = (0, import_react2.useState)(false), [source, setSource] = (0, import_react2.useState)(false), [details, setDetails] = (0, import_react2.useState)(false), [follow, setFollow] = (0, import_react2.useState)(true), [layers, setLayers] = (0, import_react2.useState)(false), [expanded, setExpanded] = (0, import_react2.useState)(false);
   const [projection, setProjection] = (0, import_react2.useState)(Projection.Orthographic);
-  const [display, setDisplay] = (0, import_react2.useState)({ model: true, edges: true, rapid: true, cutting: true, future: true, through: false, axes: false });
+  const [display, setDisplay] = (0, import_react2.useState)({ model: true, edges: true, xray: false, rapid: true, cutting: true, future: true, through: false, axes: false });
   const active = programs.find((p) => p.id === activeId);
   const position = active ? atTime(active, time) : null;
   const scene = (0, import_react2.useMemo)(() => buildScene(programs, visible, activeId, display.rapid, display.cutting), [programs, visible, activeId, display.rapid, display.cutting]);
@@ -3821,6 +3960,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
     view.setPickMode(selecting ? "face" : "path");
     view.setModelVisible(display.model);
     view.setEdgesVisible(display.model && display.edges);
+    view.setXrayMode(display.xray);
     view.setToolpathOnTop(display.through);
     view.setFutureSegmentsVisible(display.future);
   }, [view, selecting, display]);
@@ -4059,7 +4199,18 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
 ${active.station} \xB7 ${active.parsed.meta.units}
 ${position?.point ? position.point.map((v, i) => `${["X", "Y", "Z"][i]} ${v.toFixed(3)}`).join("  ") : "\u65E0\u8FD0\u52A8\u6BB5"}
 F ${active.parsed.segments[position?.index ?? 0]?.feed ?? "\u2014"}`) : null,
-        layers ? h2("div", { className: "cmv-layers", "aria-label": "\u663E\u793A\u56FE\u5C42" }, ...Object.entries(display).filter(([key]) => path || !["model", "edges"].includes(key)).map(([key, checked]) => h2("label", { key }, h2("input", { type: "checkbox", checked, onChange: (e) => setDisplay((d) => ({ ...d, [key]: e.target.checked })) }), ` ${{ model: "\u5DE5\u4EF6", edges: "\u8FB9\u7EBF", rapid: "\u5FEB\u79FB\uFF08\u7EA2\uFF09", cutting: "\u5207\u524A\uFF08\u84DD/\u9752/\u7425\u73C0\uFF09", future: "\u6DE1\u663E\u672A\u8D70\u8F68\u8FF9", through: "\u5200\u8DEF\u7A7F\u900F\u663E\u793A", axes: "\u5DE5\u4F4D\u5750\u6807\u8F74" }[key]}`)), h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setLayers(false) }, "\u5173\u95ED\u663E\u793A\u8BBE\u7F6E")) : null,
+        layers ? h2(
+          "div",
+          { className: "cmv-layers", "aria-label": "\u663E\u793A\u56FE\u5C42" },
+          ...Object.entries(display).filter(([key]) => path || !["model", "edges", "xray"].includes(key)).map(([key, checked]) => h2(
+            "label",
+            { key },
+            h2("input", { type: "checkbox", checked, onChange: (e) => setDisplay((d) => ({ ...d, [key]: e.target.checked })) }),
+            ` ${{ model: "\u5DE5\u4EF6", edges: "\u8FB9\u7EBF", xray: "\u9690\u85CF\u4F53\u900F\u89C6\uFF08X-ray\uFF09", rapid: "\u5FEB\u79FB\uFF08\u7EA2\uFF09", cutting: "\u5207\u524A\uFF08\u84DD/\u9752/\u7425\u73C0\uFF09", future: "\u6DE1\u663E\u672A\u8D70\u8F68\u8FF9", through: "\u5200\u8DEF\u7A7F\u900F\u663E\u793A", axes: "\u5DE5\u4F4D\u5750\u6807\u8F74" }[key]}`
+          )),
+          path ? h2("p", { className: "cmv-layer-note" }, "X-ray \u662F\u6709\u5E8F\u6296\u52A8\u9542\u7A7A\uFF0C\u4E0D\u662F\u5E73\u6ED1\u6DF7\u5408\uFF1B\u9690\u85CF\u4F53\u8FB9\u7EBF\u4E0D\u8DDF\u968F\uFF0C\u540C\u76F8\u4F4D\u53E0\u5C42\u4ECD\u4F1A\u906E\u6321\uFF1B\u5F00\u542F\u65F6\u9694\u79BB/\u9690\u85CF\u4F53\u4ECD\u4EE5\u900F\u89C6\u663E\u793A\uFF0C\u4E25\u683C\u9694\u79BB\u8BF7\u5173\u95ED X-ray\uFF1B\u62FE\u53D6\u6309\u5B8C\u6574\u9690\u85CF\u4F53\uFF0C\u4E0D\u53D7\u6296\u52A8\u5B54\u5F71\u54CD\uFF0C\u70B9\u51FB\u53EF\u80FD\u547D\u4E2D\u524D\u5C42\u9690\u85CF\u4F53\u3002") : null,
+          h2(import_dsh_client_ui_primitives2.Button, { onClick: () => setLayers(false) }, "\u5173\u95ED\u663E\u793A\u8BBE\u7F6E")
+        ) : null,
         error ? h2("div", { className: "cmv-message", role: "alert" }, error) : null,
         !error && !ready ? h2("div", { className: "cmv-message" }, state.state === "missing" ? autoPrepare.current === `${sessionId}/${state.sha}` ? h2("p", null, "\u6B63\u5728\u81EA\u52A8\u51C6\u5907\u4E09\u7EF4\u9884\u89C8\uFF1ANX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\u2026") : h2(import_react2.default.Fragment, null, h2("p", null, "\u5C1A\u672A\u751F\u6210\u4E09\u7EF4\u9884\u89C8\u3002NX \u5C06\u6253\u5F00\u72EC\u7ACB\u6807\u8BB0\u526F\u672C\uFF0C\u4E0D\u8986\u76D6\u539F PRT\uFF1B\u6210\u529F\u540E\u53EA\u5173\u95ED\u672C\u6B21\u9884\u89C8\u526F\u672C\u3002"), h2(import_dsh_client_ui_primitives2.Button, { variant: "primary", onClick: prepare }, "\u786E\u8BA4\u5E76\u751F\u6210\u4E09\u7EF4\u9884\u89C8")) : state.state === "error" ? h2(import_react2.default.Fragment, null, h2("p", null, state.message), state.retryable ? h2(import_dsh_client_ui_primitives2.Button, { variant: "primary", onClick: prepare }, "\u91CD\u8BD5\u751F\u6210\u4E09\u7EF4\u9884\u89C8") : h2("p", null, "\u8BF7\u6838\u5B9E NX \u6267\u884C\u72B6\u6001\u3001\u6392\u9664\u95EE\u9898\u540E\u91CD\u542F\u670D\u52A1\u518D\u8BD5\u3002")) : state.message || state.stage || "\u6B63\u5728\u52A0\u8F7D\u2026") : null
       ),

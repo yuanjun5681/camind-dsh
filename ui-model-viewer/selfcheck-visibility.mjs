@@ -5,12 +5,17 @@ import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { build } from '../ui-shell/node_modules/esbuild/lib/main.js'
+import { createPinnedFixturePlugin, loadPinnedFixtures } from './selfcheck-fixtures.mjs'
 
 const deepEqual = (actual, expected, message) => assert.deepEqual(
   JSON.parse(JSON.stringify(actual)), JSON.parse(JSON.stringify(expected)), message)
 
 const root = fileURLToPath(new URL('./', import.meta.url))
 const DESKTOP = path.resolve(process.env.DESKTOP_REPO ?? fileURLToPath(new URL('../../Camind-desktop', import.meta.url)))
+const pinned = loadPinnedFixtures(root, DESKTOP, ['packages/viewer/src/synthetic_pack.ts', 'packages/viewer/test/gl_mock.ts'])
+const sourceCommit = pinned.sourceCommit
+const fixturePlugin = createPinnedFixturePlugin(pinned)
+const plugins = [fixturePlugin.plugin]
 const { outputFiles } = await build({
   stdin: {
     resolveDir: path.join(root, 'src'),
@@ -28,8 +33,39 @@ const { outputFiles } = await build({
   },
   bundle: true, write: false, absWorkingDir: path.join(root, 'src'),
   alias: { '@camind/core': path.join(root, 'src/core/index.ts') },
-  platform: 'browser', format: 'cjs',
+  platform: 'browser', format: 'cjs', plugins,
 })
+fixturePlugin.assertAllLoadedOnce()
+const syntheticAbsolute = pinned.paths.get('packages/viewer/src/synthetic_pack.ts')
+const forbiddenPinned = { ...pinned, sources: new Map(pinned.sources) }
+forbiddenPinned.sources.set(syntheticAbsolute, `${forbiddenPinned.sources.get(syntheticAbsolute)}\nimport './forbidden.ts';\n`)
+const forbiddenPlugin = createPinnedFixturePlugin(forbiddenPinned)
+await assert.rejects(build({
+  stdin: {
+    resolveDir: path.join(root, 'src'),
+    contents: `export { makeSyntheticPackMulti } from ${JSON.stringify(syntheticAbsolute)};`,
+  },
+  bundle: true, write: false, absWorkingDir: path.join(root, 'src'),
+  alias: { '@camind/core': path.join(root, 'src/core/index.ts') },
+  platform: 'browser', format: 'cjs', plugins: [forbiddenPlugin.plugin], logLevel: 'silent',
+}), /forbidden fixture import/)
+const sameNameDir = fs.mkdtempSync(path.join('/tmp/', 'camind-fixture-negative-'))
+try {
+  const sameNamePath = path.join(sameNameDir, 'synthetic_pack.ts')
+  fs.writeFileSync(sameNamePath, 'export {};\n')
+  await assert.rejects(build({
+    stdin: {
+      resolveDir: path.join(root, 'src'),
+      contents: `export {} from ${JSON.stringify(sameNamePath)};`,
+    },
+    bundle: true, write: false, absWorkingDir: path.join(root, 'src'),
+    alias: { '@camind/core': path.join(root, 'src/core/index.ts') },
+    platform: 'browser', format: 'cjs', plugins: [createPinnedFixturePlugin(pinned).plugin], logLevel: 'silent',
+  }), /unexpected fixture path/)
+} finally {
+  fs.rmSync(sameNameDir, { recursive: true, force: true })
+}
+console.log('ok - forbidden fixture import and same-name path rejected')
 const { outputFiles: clientOutput } = await build({
   entryPoints: [path.join(root, 'src/client.ts')], bundle: true, write: false,
   absWorkingDir: path.dirname(root),
@@ -487,4 +523,4 @@ testVisibilityStateMachine()
 testBlankedAndSmallBuffers()
 testSelectionAndRoles()
 testCpuAndPath()
-console.log('multi-body visibility selfcheck complete; GPU visible-index picking and cpuPick predicate checks passed.')
+console.log(`multi-body visibility selfcheck complete; fixtures=${sourceCommit}; GL-mock visible-index picking and cpuPick predicate checks passed.`)

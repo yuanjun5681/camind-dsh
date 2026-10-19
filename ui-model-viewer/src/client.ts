@@ -98,7 +98,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
   const [activeId, setActive] = useState(''), [visible, setVisible] = useState<string[]>([]), [time, setTime] = useState(0), [playing, setPlaying] = useState(false), [speed, setSpeed] = useState(1)
   const [selecting, setSelecting] = useState(false), [source, setSource] = useState(false), [details, setDetails] = useState(false), [follow, setFollow] = useState(true), [layers, setLayers] = useState(false), [expanded, setExpanded] = useState(false)
   const [projection, setProjection] = useState<number>(Projection.Orthographic)
-  const [display, setDisplay] = useState({ model: true, edges: true, rapid: true, cutting: true, future: true, through: false, axes: false })
+  const [display, setDisplay] = useState({ model: true, edges: true, xray: false, rapid: true, cutting: true, future: true, through: false, axes: false })
   const active = programs.find(p => p.id === activeId)
   const position = active ? atTime(active, time) : null
   const scene = useMemo(() => buildScene(programs, visible, activeId, display.rapid, display.cutting), [programs, visible, activeId, display.rapid, display.cutting])
@@ -152,7 +152,7 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
   useEffect(() => {
     if (!view) return
     view.setPickMode(selecting ? 'face' : 'path'); view.setModelVisible(display.model); view.setEdgesVisible(display.model && display.edges)
-    view.setToolpathOnTop(display.through); view.setFutureSegmentsVisible(display.future)
+    view.setXrayMode(display.xray); view.setToolpathOnTop(display.through); view.setFutureSegmentsVisible(display.future)
   }, [view, selecting, display])
   useEffect(() => {
     if (!view) return
@@ -261,7 +261,12 @@ function SceneView({ sessionId, path, programs, expectedSha, notice, contextTool
         h('div', { ref: marker, className: 'cmv-marker', title: '程序刀位标记（不是刀具实体）' }),
         active ? h('svg', { ref: axes, className: 'cmv-axes', 'aria-label': `${active.station} 工位坐标轴`, style: { display: 'none' } }, ...['#f25c5c', '#70cf8e', '#4d9fff'].map((color, i) => h('g', { key: i }, h('line', { stroke: color, strokeWidth: 2 }), h('text', { fill: color, fontSize: 12 }, `${active.station} ${['X', 'Y', 'Z'][i]}`)))) : null,
         ready && active ? h('div', { className: 'cmv-hud' }, `${active.file} · 第${line}行\n${active.station} · ${active.parsed.meta.units}\n${position?.point ? position.point.map((v, i) => `${['X', 'Y', 'Z'][i]} ${v.toFixed(3)}`).join('  ') : '无运动段'}\nF ${active.parsed.segments[position?.index ?? 0]?.feed ?? '—'}`) : null,
-        layers ? h('div', { className: 'cmv-layers', 'aria-label': '显示图层' }, ...Object.entries(display).filter(([key]) => path || !['model', 'edges'].includes(key)).map(([key, checked]) => h('label', { key }, h('input', { type: 'checkbox', checked, onChange: (e: any) => setDisplay(d => ({ ...d, [key]: e.target.checked })) }), ` ${{ model: '工件', edges: '边线', rapid: '快移（红）', cutting: '切削（蓝/青/琥珀）', future: '淡显未走轨迹', through: '刀路穿透显示', axes: '工位坐标轴' }[key]}`)), h(Button, { onClick: () => setLayers(false) }, '关闭显示设置')) : null,
+        layers ? h('div', { className: 'cmv-layers', 'aria-label': '显示图层' },
+          ...Object.entries(display).filter(([key]) => path || !['model', 'edges', 'xray'].includes(key)).map(([key, checked]) => h('label', { key },
+            h('input', { type: 'checkbox', checked, onChange: (e: any) => setDisplay(d => ({ ...d, [key]: e.target.checked })) }),
+            ` ${{ model: '工件', edges: '边线', xray: '隐藏体透视（X-ray）', rapid: '快移（红）', cutting: '切削（蓝/青/琥珀）', future: '淡显未走轨迹', through: '刀路穿透显示', axes: '工位坐标轴' }[key]}`)),
+          path ? h('p', { className: 'cmv-layer-note' }, 'X-ray 是有序抖动镂空，不是平滑混合；隐藏体边线不跟随，同相位叠层仍会遮挡；开启时隔离/隐藏体仍以透视显示，严格隔离请关闭 X-ray；拾取按完整隐藏体，不受抖动孔影响，点击可能命中前层隐藏体。') : null,
+          h(Button, { onClick: () => setLayers(false) }, '关闭显示设置')) : null,
         error ? h('div', { className: 'cmv-message', role: 'alert' }, error) : null,
         !error && !ready ? h('div', { className: 'cmv-message' }, state.state === 'missing'
           ? (autoPrepare.current === `${sessionId}/${state.sha}`

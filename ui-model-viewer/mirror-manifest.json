@@ -1,0 +1,22 @@
+{
+  "sourceRepository": "Camind-desktop",
+  "sourceCommit": "b5196e61651a97cb06b3210436dc64b056dc39c1",
+  "localBaseCommit": "f15fda354725092680cf6fd43f31034bff30fe2b",
+  "localBaseCommitRole": "Earlier feature integration base; not the INT-04 review baseline and not required to be an ancestor of sourceCommit or HEAD",
+  "reviewBaseCommit": "726694d1ffa75eb210e5304bc94aad437fb2ba8a",
+  "mergeBase": "cbb61dff6b9731057cc256fc981ad8547b1fdb9f",
+  "sourceRoot": "packages/viewer/src",
+  "syncedAt": "2026-10-19",
+  "syncScope": "INT-04 final X-ray independent-phase merge; not a full upstream-equivalence claim",
+  "hashScope": "sourceSha256 and fixtures[].sha256 hash upstream files at sourceCommit; files[].sha256 hashes merged local files in camind-dsh ui-model-viewer; localPath/upstreamPath override defaults",
+  "files": [
+    { "path": "geom_view.ts", "status": "merged", "sourceSha256": "b82b4362e62768365f7dc5c05942e567d3c34138db69b9b76e42af30dad9dd94", "sha256": "4fb448f64457344d5fbccc65a8c15e083ecc5dc85b1b070fab407c340bb8fd6b" },
+    { "path": "scene_renderer.ts", "status": "merged", "sourceSha256": "cf06b4ee2c42b8428d919bd13ca98ce61d3f7ded0807539e6827c988e330d1d8", "sha256": "56cad4ccc35fd49c006996577059250cd53c505c75be2ab563f75abe11e08264" },
+    { "path": "shaders.ts", "status": "merged", "sourceSha256": "9a6923ed753219bd24a46411d4e321017f860f435064629454508b7f04560cfe", "sha256": "9744dd2e648be21ffb37e2f69e50c9b2dab0370fbf4e9f181b642f363daddce3" },
+    { "path": "nc/parser.ts", "localPath": "src/core/nc/parser.ts", "upstreamPath": "packages/core/src/nc/parser.ts", "status": "identical", "sourceSha256": "caa858b0d4aa65dd9bb53d3c72ce3463d2ac6d0fe87073d199b13194a77cde65", "sha256": "caa858b0d4aa65dd9bb53d3c72ce3463d2ac6d0fe87073d199b13194a77cde65" }
+  ],
+  "fixtures": [
+    { "path": "packages/viewer/src/synthetic_pack.ts", "sha256": "07e661e7095a3c5f07639011eb20f9624ee840c8d57ffc7a5597d89167d69527" },
+    { "path": "packages/viewer/test/gl_mock.ts", "sha256": "6442209c2f518207b783e9fdf38278bc7ceb6b5556f4a9a2bb0fb4b346583b4e" }
+  ]
+}

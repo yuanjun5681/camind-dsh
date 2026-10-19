@@ -19,6 +19,8 @@
 
 顶部用下拉菜单提供七种标准视图、正交/透视和全部/模型/当前工序适配。点击「选择面」进入临时选面工具，Esc 退出；可输入面编号（如 `F000001`，多个编号用空格或逗号分隔）进行多面选择，查看编号、曲面类型与面积；单击选面，Ctrl/Cmd + 单击增减选择。曲面类型支持多选、全部与全不选，未勾选类型的面压暗且不可选，已有选择会同步移除。无效编号或被筛选排除的编号会提示，不改变原选择。
 
+「显示 → 隐藏体透视（X-ray）」让隐藏体以 50% 有序抖动镂空显示并保持拾取；关闭后恢复剔除。开启 X-ray 时，隔离体以外的隐藏体仍以透视显示；需要严格隔离请先关闭 X-ray。它不是平滑混合，隐藏体边线不跟随透视（仍按显隐剔除），同相位叠层仍会互相遮挡。ID 拾取按完整隐藏体进行，不跟随 4×4 抖动孔；点击后层可见像素所在位置仍可能命中前层隐藏体。在 A=128 时，角色默认透视体的相位 1 与普通 X-ray 体的相位 0 掩码互补；保留其他源透明度时不保证互补。隐藏的角色透视体与另一个可见角色透视体同为相位 1，重叠时仍可能互相遮挡。声明体即使透视显示仍不可选；选中的面与悬停面保持不透明高亮。通过 X-ray 选中后关闭透视会保留选择集，但不表示该面仍可见。相位 1 只由默认透视体集合（`setDefaultTranslucentBodies`）决定，角色声明（`setSelectableBodies`）只过滤选择、不自动产生相位，生产角色接线需同时设置两者。角色默认透视的 API 保留源透明度，生产电极角色声明接线仍未完成，不按名称猜角色。WebGL context 恢复目前只有 GL mock 覆盖，真实 Chrome context loss 未验证；GPU 自检的点击使用合成 PointerEvent，未覆盖 OS 级指针输入。
+
 在一级工作台选面后，可点「添加到提问」插入原生引用 chip，点选本身不写草稿或执行。引用绑定当前会话、PRT SHA256、几何清单 SHA256 和最多 100 个面编号。发送前及当前用户请求的 Agent 步骤前重新核验；跨会话、源件变更、几何变更或不存在的面会拒绝。历史引用不阻断后续的新版本讨论，重新使用须重新选面。只读工具 `read_model_selection` 返回已核验的面编号、曲面类型及显示包面积，不调用 NX，也不是实时精确量测或执行授权。
 
 首次没有几何包时，查看 PRT 即自动开始生成（每个源文件版本自动一次，无需点击），界面显示进度。NX 必须就绪、队列为空、没有未保存或无法确认修改状态的模型——这些前置检查仍是服务端硬闸门。导出上传独立副本，再按顺序执行面表、粗网格、细网格、边线、清单五步。导出成功后仅关闭本次 UUID 命名的标记副本，丢弃导出导致的临时修改，避免阻塞后续读件；不自动保存或关闭其他模型，不覆盖源 PRT。前置检查失败（NX 不可达/忙碌/有未保存件/另一导出进行中）显示原因并可直接重试；标记副本在 NX 上打开之后的失败仍 fail-closed 保留在进程内，请核实远端执行状态、排除问题后重启服务再试。
@@ -40,15 +42,16 @@
 ## 漂移审计与本地补丁清单
 
 2026-10-18 以 `320dd531` 为共同基线完成三方审计，完整决策见
-[docs/viewer-3d-drift-audit.md](../docs/viewer-3d-drift-audit.md)。当前不能宣称本地 3D 与上游功能等价：
-上游已新增多体显隐、边线显隐、CPU 可见性谓词、声明体选择语义、排除体清单和帧时统计；
-本地同时保留 PRT/NC 联合查看、播放和引用能力。后续同步按审计顺序实施，不整文件覆盖。
+[docs/viewer-3d-drift-audit.md](../docs/viewer-3d-drift-audit.md)。2026-10-19 又按 INT-03/04
+选择性合并上游 `b5196e6` 的多体显隐、声明体、排除体读端和最终独立相位 X-ray，逐文件记录见
+[mirror-manifest.json](./mirror-manifest.json)。当前仍不能宣称与上游完全等价：帧时统计、生产角色声明接线、
+真实 NX/GP-1 语料与真实桌面多体验收另行挂账；本地同时保留 PRT/NC 联合查看、播放和引用能力，不整文件覆盖。
 
 | 本地分叉文件 | 分叉理由与内容 | 对应验证 | 来源映射 |
 |---|---|---|---|
-| `src/viewer/geom_view.ts` | 事件释放、pointercancel、初始化失败反馈、播放区间、face/path 拾取模式 | `selfcheck-controls.mjs`、`selfcheck-playback.mjs`、`acceptance-desktop.mjs` | 上游 `packages/viewer/src/geom_view.ts`；另见审计的状态机冲突项 |
-| `src/viewer/scene_renderer.ts` | 播放区间、未来段和 path 拾取 | `selfcheck-playback.mjs` 与场景渲染测试 | 上游 `packages/viewer/src/scene_renderer.ts`；合并时须同时保留上游面/边可见索引 |
-| `src/viewer/shaders.ts` | 播放、未来段和刀路显示语义 | `selfcheck-playback.mjs` | 上游 `packages/viewer/src/shaders.ts`；保留分叉，合并时不得覆盖 |
+| `src/viewer/geom_view.ts` | 本地事件释放、pointercancel、播放区间、face/path 拾取；合并显隐、隔离、声明体、X-ray 与角色默认透视 | `selfcheck-visibility.mjs`、`selfcheck-xray.mjs`、播放与桌面验收 | 上游 `packages/viewer/src/geom_view.ts`；双方状态机选择性合并 |
+| `src/viewer/scene_renderer.ts` | 本地播放区间、未来段和 path 拾取；合并面/边可见索引、X-ray 与独立相位缓冲 | `selfcheck-visibility.mjs`、`selfcheck-xray.mjs`、`selfcheck-xray-gpu.mjs` | 上游 `packages/viewer/src/scene_renderer.ts`；保留双方绘制与拾取语义 |
+| `src/viewer/shaders.ts` | 本地播放、未来段和刀路显示；合并 `aPhase/vPhase` 互补抖动掩码 | `selfcheck-xray.mjs`、`selfcheck-xray-gpu.mjs` | 上游 `packages/viewer/src/shaders.ts`；A=128 相位 0/1，非 A=135 旧方案 |
 | `src/client.ts`、`controls.ts`、`scene.ts`、`styles.ts` | PRT/NC 联合查看、工位/工序、源码定位、引用和扩大视区 | `selfcheck-joint.mjs`、播放/布局与桌面验收 | 本地宿主适配，无上游同构单文件；保留分叉并评审是否回上游 |
 | `src/core/nc/parser.ts` | 无分叉，与上游字节一致 | `packages/core/test/nc.test.ts` 与 `diff -q` | 上游 `packages/core/src/nc/parser.ts` |
 
@@ -88,12 +91,22 @@ node ui-model-viewer/build.mjs
 node ui-model-viewer/selfcheck.mjs
 # GP-2 读端合同：需相邻 CAM-Agent 仓库与 python3；CAM_AGENT_REPO/CAM_AGENT_REF 可覆盖来源。
 node ui-model-viewer/selfcheck-gp2.mjs
-# 多体显隐/声明体：需相邻 Camind-desktop 仓库提供合成包与 GL mock；DESKTOP_REPO 可覆盖路径。
+# 多体显隐/声明体/X-ray：需相邻 Camind-desktop 仓库提供合成包与 GL mock；DESKTOP_REPO 可覆盖路径。
 node ui-model-viewer/selfcheck-visibility.mjs
+node ui-model-viewer/selfcheck-xray.mjs
+# 镜像清单的本地与上游 SHA256；仅核对本地时设 CAMIND_MIRROR_LOCAL_ONLY=1。
+node ui-model-viewer/selfcheck-mirror.mjs
 node ui-preview/selfcheck.mjs
-# 真实浏览器布局回归，需要本机 Playwright 和其 Chromium。
+# 真实浏览器布局、播放和 X-ray 像素/控件回归，需要本机 Playwright 与 Chromium/Chrome。
 CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-model-viewer/selfcheck-layout.mjs
 CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-model-viewer/selfcheck-playback.mjs
+CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core CAMIND_CHROMIUM_PATH=/path/to/chrome node ui-model-viewer/selfcheck-xray-gpu.mjs
+CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core CAMIND_CHROMIUM_PATH=/path/to/chrome node ui-model-viewer/selfcheck-xray-ui.mjs
+# 干净 worktree 全量验证：从 HEAD 新建 detached worktree，依次跑构建、基础、镜像、GP-2、显隐、
+# X-ray、文件预览自检与播放、布局、真实 Chromium 像素/控件回归，并在构建前后断言工作区无残留改动。
+# 「干净」仅指 camind-dsh 工作树；相邻 Desktop/CAM-Agent 仓库只记录 HEAD 与工作树状态、不做隔离，
+# GP-2 fixture 来源哈希在日志中记录，pinned fixture 之外的相邻仓库内容不作可复现性保证。
+CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core CAMIND_CHROMIUM_PATH=/path/to/chrome bash ui-model-viewer/selfcheck-clean.sh
 ```
 
 `npm run init` 的 web/desktop 模板包含本插件，并在 ui-shell 安装后构建它。运行时不要为升级插件重复 init；当前机器已安装，重启即可。
