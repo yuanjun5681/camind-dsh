@@ -92,3 +92,14 @@ CAMIND_PLAYWRIGHT_PATH=/path/to/playwright-core node ui-workbench/acceptance-res
 此项需要可用模型与 `zstd` 命令；报告仅写入私有数据目录。自检使用真实的官方聊天目标与轮次数据结构，覆盖公开流式/终态、原生 chip、保留草稿、失效及跨会话拒绝。截图与报告在 `$DSH_HOME/workbench-acceptance/`，不提交私有数据。自检另覆盖会话预览隔离、无效/缺失文件不抢页、思考文本不泄入当前响应面板。
 
 结束后退出自己启动的桌面及子服务，不停止用户原有 Web 进程。
+
+## INT-05 集成回归记录（2026-10-19 ~ 2026-10-21；Host/Node 侧全量 + 桌面 informational）
+
+INT-01 ~ INT-04（CAM-Agent / Camind-desktop 进展集成）后的全量回归，宿主 Node v25.7.0。已知门禁空洞单列见文末分栏行。
+
+- Node/Host 侧全绿（各项标注来源）：本轮在本机重跑并留 log 的有 service-draft-converter（selfcheck 18 项 + identity + worker）、三方 packcheck 差分（writer/reader × 20 包 + 前向兼容守卫 + JS/TS 新增语义，242 项断言）、ui-drawing-viewer（build + tsc + 9 个 selfcheck + acceptance-host + acceptance-2d 10 场景约 373 断言[结构验证：GL 调用序列与参数，非真实裁剪效果；断言数随场景/帧数变化，非固定契约] + acceptance-lifecycle）、ui-workbench 6 个 selfcheck、ui-compact-composer、tool-cam 四个 selfcheck、ui-preview、ui-shell 构建；ui-model-viewer 全量项经 `ui-model-viewer/selfcheck-clean.sh` 在最终 HEAD 的干净 worktree 重跑（其日志行 `INT04_CLEAN_VALIDATION_EXIT=0`，含真实 Chromium X-ray 像素与 UI smoke；早期轮次曾沿用 INT-04 证据，最终以重跑为准并计入门禁）。
+- 回归修掉的既有缺口（三组五个脚本）：三方差分改从生成器 `BAD_CASES` 派生期望（Desktop 从不产出 manifest.json）；`selfcheck-performance.mjs` 合成包补 INT-02 要求的 `title_block` 形态；`selfcheck-client.mjs` / `acceptance-2d.mjs` / `acceptance-lifecycle.mjs` 为 pinned gl_mock 补本地 scissor 记录（M1-02 起每帧调用、mock 一直没有）。
+- 桌面只读验收（官方 App 9236 端口，不上传/不发模型/不改任务；question 用例经路由拦截返回 409「验收：已阻止发送，不调用模型」，发送被刻意拒绝）：`acceptance-drawing-desktop`、`acceptance-drawing-status-desktop`、`acceptance-drawing-question-desktop` 均 PASS（question 首跑曾超时、干净状态重跑通过，首跑根因未定位）。原始 stdout 与截图在本机临时日志与 `$DSH_HOME/workbench-acceptance/`（私有数据目录，不入库、未随评审包提供；结论为本机记录、待复核），此处为运行结论记录。
+- `acceptance-response-desktop` 未通过但模型链路本身健康（本项非门禁，挂账待复跑定性）：两次运行各自的新验收会话 turn 1 均 completed、`tool/call` 为零；失败点是官方壳交互——「停止」按钮 30s 未出现，且会话头标题（含数字两侧空格）与侧栏条目（无空格）精确匹配不一致导致恢复点击落空。根因未定位；候选原因是官方壳版本漂移（运行中的官方 App 已于 2026-10-17 自动更新为 0.2.1-rc.2，`dsh-version.json` 固定 0.2.0-rc.2，未做 0.2.0 对照复跑，不能排除插件侧因素），待回钉 0.2.0-rc.2 或按 docs/dsh-upgrade.md 升级后复跑再定性。
+- `acceptance-desktop.mjs`（3D 模型画布）环境不满足（本项非门禁，与 M1-04-live 一并挂账）：当前桌面没有任何带模型预览态的会话（按钮按设计 fail-closed 禁用），重建状态需要调用 NX。
+- 门禁与 informational 分栏：本轮合并门禁 = **本 HEAD 实际重跑的** Node/Host 自检与验收全绿（**官方壳交互路径与流式响应路径无门禁覆盖**；ui-model-viewer 全量项经 `ui-model-viewer/selfcheck-clean.sh` 在最终 HEAD 的干净 worktree 重跑（INT04_CLEAN_VALIDATION_EXIT=0，含真实 Chromium X-ray 像素与 UI smoke；早期轮次曾沿用 INT-04 证据，最终以重跑为准并计入门禁）；acceptance-2d/acceptance-lifecycle 的 provenance 来源行为 informational，降级 unknown 不构成失败；三方差分的来源行虽标注「仅记录」，但其 rev-parse/哈希在主流程 execFileSync 计算、失败即抛，不属可降级类）；以下桌面项（三项 PASS、response 未通过、3D 环境不满足）均为 informational/挂账，不构成门禁证据。三项桌面 PASS 均在 0.2.1-rc.2 壳上取得，不代表 pin 0.2.0-rc.2 组合，且 drawing-question 含「首跑超时、重跑通过」的非确定性；待回钉 0.2.0-rc.2 后复跑超时项确认可重复性。

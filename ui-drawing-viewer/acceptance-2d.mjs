@@ -3,16 +3,25 @@
 import assertBase from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { build } from '../ui-shell/node_modules/esbuild/lib/main.js'
+import { withScissor, assertScissorViewportPairing, gitSafeEnv } from './with-scissor.mjs'
 
 const root = fileURLToPath(new URL('./', import.meta.url))
 const DESKTOP = path.resolve(process.env.DESKTOP_REPO ?? '')
 const CAM_AGENT = path.resolve(process.env.CAM_AGENT_REPO ?? '')
-assertBase.ok(process.env.DESKTOP_REPO && fs.statSync(DESKTOP, { throwIfNoEntry: false })?.isDirectory(), 'DESKTOP_REPO 必须指向隔离 Desktop 检出')
+assertBase.ok(process.env.DESKTOP_REPO && fs.statSync(DESKTOP, { throwIfNoEntry: false })?.isDirectory(), 'DESKTOP_REPO 必须指向存在的 Desktop 检出目录（隔离性由运行约定保证）')
 assertBase.ok(process.env.CAM_AGENT_REPO && fs.statSync(CAM_AGENT, { throwIfNoEntry: false })?.isDirectory(), 'CAM_AGENT_REPO 必须指向固定 CAM-Agent 检出')
+// 来源可回溯（仅记录，取不到时降级为 unknown 并显式警告，不阻断验收）。
+const sha256File = p => createHash('sha256').update(fs.readFileSync(p)).digest('hex').slice(0, 16)
+const sourceUnknowns = { count: 0 }
+const sourceOf = (label, fn) => { try { return fn() } catch (err) { sourceUnknowns.count++; console.warn(`acceptance 来源降级：${label} 取不到（${err.message}），仅记录不受影响`); return 'unknown' } }
 const fixture = path.join(DESKTOP, 'tests/fixtures/draft/draft_good.json')
+const glMockFile = path.join(DESKTOP, 'packages/viewer/test/gl_mock.ts')
+console.log(`acceptance 来源（仅记录）：Desktop@${sourceOf('HEAD', () => execFileSync('git', ['-C', DESKTOP, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 15000, env: gitSafeEnv() }).trim())} status行数=${sourceOf('status', () => String(execFileSync('git', ['--no-optional-locks', '-C', DESKTOP, 'status', '--porcelain'], { encoding: 'utf8', timeout: 15000, env: gitSafeEnv() }).trim().split('\n').filter(Boolean).length))} draft_good=${sourceOf('draft_good', () => sha256File(fixture))} gl_mock=${sourceOf('gl_mock', () => sha256File(glMockFile))}`)
 const goodRaw = JSON.parse(fs.readFileSync(fixture, 'utf8'))
 const clone = value => JSON.parse(JSON.stringify(value))
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -23,6 +32,8 @@ const assert = {
   equal(...args) { assertionCount++; assertBase.equal(...args) },
   notEqual(...args) { assertionCount++; assertBase.notEqual(...args) },
   deepEqual(...args) { assertionCount++; assertBase.deepEqual(...args) },
+  strictEqual(...args) { assertionCount++; assertBase.strictEqual(...args) },
+  deepStrictEqual(...args) { assertionCount++; assertBase.deepStrictEqual(...args) },
   match(...args) { assertionCount++; assertBase.match(...args) },
   throws(...args) { assertionCount++; assertBase.throws(...args) },
 }
@@ -133,7 +144,7 @@ function makeDom(makeGlMock) {
       getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 } },
       getContext(kind) {
         if (kind === 'webgl2') {
-          const mock = makeGlMock()
+          const mock = withScissor(makeGlMock())
           el.glMocks.push(mock)
           mock.gl.canvas = el
           return mock.gl
@@ -356,7 +367,7 @@ await scenario('stipple', '256 列 R8 stipple LUT 与像素周期 clamp [4,16]',
   assert.ok(dashed.every(segment => segment.dashPeriod === 4.5 && segment.dashRow === 1))
   assert.equal([...draft.dashLut[1]].filter(value => value === 255).length, 171)
 
-  const gl = instrumentGl(core.makeGlMock())
+  const gl = instrumentGl(withScissor(core.makeGlMock()))
   const c2d = makeC2dMock()
   const view = new core.DraftView(gl.mock.gl, c2d.ctx, draft)
   const upload = gl.textures[0]
@@ -379,7 +390,7 @@ await scenario('stipple', '256 列 R8 stipple LUT 与像素周期 clamp [4,16]',
 
 await scenario(['render', 'color'], 'WebGL2 线段 + Canvas2D 文字及 ACI/真彩顶点颜色', () => {
   const draft = loadGood()
-  const gl = instrumentGl(core.makeGlMock())
+  const gl = instrumentGl(withScissor(core.makeGlMock()))
   gl.mock.gl.canvas = { width: 800, height: 600 }
   const c2d = makeC2dMock()
   const view = new core.DraftView(gl.mock.gl, c2d.ctx, draft, { checkErrors: true })
@@ -418,7 +429,7 @@ await scenario(['render', 'color'], 'WebGL2 线段 + Canvas2D 文字及 ACI/真�
 
 await scenario('layers', '图层初始 off/frozen 与线段、点、文字显隐', () => {
   const draft = loadGood()
-  const gl = core.makeGlMock()
+  const gl = withScissor(core.makeGlMock())
   gl.gl.canvas = { width: 800, height: 600 }
   const c2d = makeC2dMock()
   const view = new core.DraftView(gl.gl, c2d.ctx, draft)
@@ -493,7 +504,7 @@ await scenario(['csr', 'text-priority'], '64×64 CSR 拾取对账、容差/显�
   assert.equal(isolated.pick(50, 0, 2, () => false), -1)
 
   const draft = loadGood()
-  const gl = core.makeGlMock()
+  const gl = withScissor(core.makeGlMock())
   gl.gl.canvas = { width: 800, height: 600 }
   const c2d = makeC2dMock()
   const view = new core.DraftView(gl.gl, c2d.ctx, draft)
@@ -649,7 +660,7 @@ await scenario('budget', '默认每帧 6000 段/240 字预算且全量数据与 
   const fullGrid = core.buildSegGrid(draft.segments)
   assert.equal(new Set(fullGrid.items).size, 7000)
 
-  const gl = instrumentGl(core.makeGlMock())
+  const gl = instrumentGl(withScissor(core.makeGlMock()))
   gl.mock.gl.canvas = { width: 800, height: 600 }
   const c2d = makeC2dMock()
   const view = new core.DraftView(gl.mock.gl, c2d.ctx, draft)
@@ -731,10 +742,12 @@ await scenario('degradation', 'DrawingPreview 实际显示抽稀、文字截断�
   const gl = container.children[0].glMocks[0]
   const lines = gl.callsOf('drawArrays').find(call => call.args[0] === gl.gl.LINES)
   assert.equal(lines.args[2], 7000)
+  // draft_view.ts:434-435 issues scissor and viewport with the same GL-space rect each frame.
+  assertScissorViewportPairing(gl, assert)
   assert.equal(container.children[1].c2dMocks[0].texts.length, 240)
   for (const cleanup of cleanups) if (typeof cleanup === 'function') cleanup()
 })
 
 const requiredCoverage = ['skin', 'entities', 'stipple', 'render', 'color', 'layers', 'csr', 'text-priority', 'dims', 'origin', 'budget', 'degradation']
 for (const id of requiredCoverage) assert.ok(coverage.has(id), `综合入口未执行覆盖项：${id}`)
-console.log(`M3-03 2D 功能迁移验收通过：${scenarioCount} 个综合场景，${assertionCount} 项断言（合成概览，不代表完整审图）。`)
+console.log(`M3-03 2D 功能迁移验收通过：${scenarioCount} 个综合场景，${assertionCount} 项断言（合成概览，不代表完整审图；来源降级 ${sourceUnknowns.count} 项）。`)

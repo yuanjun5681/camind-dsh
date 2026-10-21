@@ -87,6 +87,9 @@ DraftPane.prototype.handle = function (message) {
 const TARGET_TEXT = 'SEARCH_TARGET_7F3A'
 const TARGET_DIM = 'D_SEARCH'
 let pack = makePerformancePack()
+// reader 门禁本身校验 title_block 形态（INT-02 packcheck），本用例只要求合成包过门；
+// title_block 的负例语义由三方差分的 JS/TS 新增语义负例段覆盖
+// （service-draft-converter/selfcheck-three-way.mjs；不在生成器 EXPECTED_BAD_CASES 集合内）。
 const reader = checkDraftPack(pack, 'reader')
 assert.equal(reader.errors.length, 0, `合成性能包必须通过 reader 门禁：${reader.errors.join(';')}`)
 assert.equal(reader.skipped.join(','), 'future_entity')
@@ -315,7 +318,7 @@ function makePerformancePack() {
       def_points: [[2, 2], [8, 8]], dimlfac: 1, view_id: 0,
       entity_ids: [0, 3000], inferred: false, rule_version: 'm3-05',
     }],
-    tech_requirements: [], title_block: {},
+    tech_requirements: [], title_block: { attributes: [], found: false, inferred: false, rule_version: 'm3-05' },
   }
 }
 

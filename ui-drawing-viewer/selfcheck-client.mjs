@@ -5,9 +5,11 @@ import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { build } from '../ui-shell/node_modules/esbuild/lib/main.js'
 import { fileURLToPath } from 'node:url'
+import { withScissor, assertScissorViewportPairing } from './with-scissor.mjs'
 
 const root = fileURLToPath(new URL('./', import.meta.url))
-const DESKTOP = path.resolve(process.env.DESKTOP_REPO ?? fileURLToPath(new URL('../../Camind-desktop', import.meta.url)))
+const DESKTOP = path.resolve(process.env.DESKTOP_REPO ?? '')
+assert.ok(process.env.DESKTOP_REPO && fs.statSync(DESKTOP, { throwIfNoEntry: false })?.isDirectory(), 'DESKTOP_REPO 必须指向存在的 Desktop 检出目录（隔离性由运行约定保证）')
 const goodText = fs.readFileSync(path.join(DESKTOP, 'tests/fixtures/draft/draft_good.json'), 'utf8')
 const { outputFiles } = await build({
   stdin: {
@@ -48,6 +50,9 @@ runInNewContext(outputFiles[0].text, {
 })
 const { DrawingPreview, fitView, makeGlMock } = module.exports
 
+let scissorFault = false
+const faultedMocks = []
+
 function makeEl() {
   const children = [], listeners = new Map(), attributes = new Map()
   const el = {
@@ -62,7 +67,8 @@ function makeEl() {
     getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 } },
     getContext(kind) {
       if (kind === 'webgl2') {
-        const mock = makeGlMock(); el.glMocks.push(mock); mock.gl.canvas = el
+        const mock = withScissor(makeGlMock()); el.glMocks.push(mock); mock.gl.canvas = el
+        if (scissorFault) { faultedMocks.push(mock); mock.__shimScissor = mock.gl.scissor; mock.gl.scissor = () => { throw new Error('injected scissor failure') } }
         return mock.gl
       }
       return new Proxy({ measureText: () => ({ width: 20 }) }, { get: (o, k) => k in o ? o[k] : () => {} })
@@ -113,6 +119,85 @@ await sleep(250)
 render(baseDescriptor, () => { throw new Error('sync-reference-failure') })
 assert.match(text(tree), /sync-reference-failure/)
 console.log('ok - synchronous reference failure is contained')
+
+// A failed load must not leave a half-initialized pane that later issues references.
+// （引用缺失断言 = 时间窗断言：await sleep(250) 内未触发即判 0，不证明永不回调；本 harness 的
+// 定时器为真实 setTimeout，同步路径确定性覆盖。）
+// containment 的点击直接落在首次失败加载之后、任何重渲染之前——不耦合「同 descriptor 不重载」
+// 这一实现细节（若未来实现改为重渲染即重载自愈，本用例不受影响）。
+freshPreview()
+let brokenRefs = 0
+const brokenDescriptor = { ...baseDescriptor, packText: '{"format":"camind-draft-pack","format_version":1}' }
+render(brokenDescriptor, () => { brokenRefs++ })
+clickEntity0()
+await sleep(250)
+assert.equal(brokenRefs, 0, 'load failure must never produce reference callbacks')
+clickEntity0()
+await sleep(250)
+assert.equal(brokenRefs, 0, '失败后第二次点击同样不得产生引用（迟到/二次触发面）')
+// 容错错误展示：同 descriptor 再 render 只刷新展示树让拒绝码进入 text(tree)（当前实现细节，
+// 本断言只钉「错误进入展示树」，不涉及点击行为）。
+// 坏包用合法 JSON 但缺字段的 pack，reader 门禁拒绝码是稳定的 DRAFT_E_SCHEMA（与 V8/Node
+// 版本的 JSON 语法错误文案无关，跨 Node 22/24/25 稳定）。
+await sleep(20)
+render(brokenDescriptor, () => { brokenRefs++ })
+assert.match(text(tree), /DRAFT_E_SCHEMA/, 'broken pack must surface a contained load error')
+await sleep(20)
+assert.equal(brokenRefs, 0, '时间窗外迟到回调也不允许（展示刷新后复核计数）')
+console.log('ok - failed load produces no reference callbacks (250ms window)')
+
+// Parse succeeds but the first render throws (the original scissor bug shape): 锁定的语义是
+// 「失败帧后同一 pane 不静默发引用」（containment）+「换新 element 的 fresh load 是恢复路径」
+// （recovery）。containment 的点击直接落在首次失败加载之后、任何重渲染之前——不经过
+// 「同 descriptor 重渲染」这一实现细节（若未来实现选择重渲染即重载自愈，本用例不受影响）；
+// 不断言同一 element 重渲染会自愈。
+// scissorFault 的注入窗口依赖「getContext 在 render() 调用内同步发生」这一 harness 事实
+// （已知脆弱点；失效时 /injected scissor failure/ 与 0 引用断言会以「未出现注入错误」响亮变红，
+// 不会静默通过，但需注意失败消息指向的是注入未命中而非产品缺陷）。
+freshPreview()
+const recoveryRefs = []
+scissorFault = true
+try {
+    render(baseDescriptor, reference => { recoveryRefs.push(reference) })
+} finally {
+    scissorFault = false // 故障注入必须复位，render 抛错也不能污染后续用例
+}
+assert.ok(faultedMocks.length > 0, 'scissor fault injection must hit getContext synchronously (harness fact; otherwise this case is vacuous)')
+for (const mock of faultedMocks.splice(0)) { mock.gl.scissor = mock.__shimScissor; delete mock.__shimScissor }
+clickEntity0()
+const noRefT0 = performance.now()
+await sleep(250)
+const noRefWaitedMs = Math.round(performance.now() - noRefT0)
+assert.equal(recoveryRefs.length, 0, `render-time failure must produce no reference callbacks (waited ${noRefWaitedMs}ms; 时间窗断言，窗口内未触发即判 0)`)
+clickEntity0()
+const noRef2T0 = performance.now()
+await sleep(250)
+assert.equal(recoveryRefs.length, 0, `失败后第二次点击同样不得产生引用 (waited ${Math.round(performance.now() - noRef2T0)}ms; 迟到/二次触发面)`)
+// 容错错误展示：同 descriptor 再 render 只刷新展示树（effect 不重放、pane 不重载是当前实现
+// 细节）；本断言只钉「错误进入展示树」，不涉及点击行为。
+await sleep(20)
+render(baseDescriptor, reference => { recoveryRefs.push(reference) })
+assert.match(text(tree), /injected scissor failure/, 'render-time failure must surface a contained error')
+freshPreview()
+render(baseDescriptor, reference => { recoveryRefs.push(reference) })
+clickEntity0()
+const oneRefT0 = performance.now()
+await sleep(250)
+const oneRefWaitedMs = Math.round(performance.now() - oneRefT0)
+render(baseDescriptor, reference => { recoveryRefs.push(reference) })
+assert.equal(recoveryRefs.length, 1, `fresh load after render-time failure must issue correct references (waited ${oneRefWaitedMs}ms before final render)`)
+const dimCandidates = JSON.parse(goodText).dims.filter(d => Array.isArray(d.entity_ids) && d.entity_ids.includes(0)).map(d => d.id)
+// 引用对象产自 vm realm（原型不同），逐字段比较而非 deepEqual 整个对象；
+// 目标取 pane 实际命中：entity/0 或任一 entity_ids 含 0 的 dim，不按数组首个猜优先级
+// （目标集合断言 ≠ pick 优先级断言；本用例锁 recovery 语义，不锁 pick 顺序契约）。
+const recoveredTarget = recoveryRefs[0]?.target
+assert.ok(recoveredTarget && ((recoveredTarget.type === 'entity' && recoveredTarget.id === 0)
+  || (recoveredTarget.type === 'dim' && dimCandidates.includes(recoveredTarget.id))),
+  `recovered reference must target the clicked entity: ${JSON.stringify(recoveredTarget)}`)
+assert.equal(recoveryRefs[0]?.kind, 'camind-drawing-ref')
+assert.equal(recoveryRefs[0]?.session, 's1')
+assert.equal(text(tree).includes('injected scissor failure'), false)
+console.log('ok - render-time failure yields no references and fresh load recovers')
 
 freshPreview()
 let rejectReference
@@ -185,6 +270,7 @@ assert.equal(controls.degraded?.geometryDecimated, false, 'the adapter must rece
 assert.equal(controls.viewportRef.current, container)
 controls.controller.setViewportInsets({ top: 10, right: 20, bottom: 30, left: 40 })
 assert.deepEqual(Array.from(container.children[0].glMocks[0].callsOf('viewport').at(-1).args), [40, 30, 740, 560])
+assertScissorViewportPairing(container.children[0].glMocks[0], assert)
 assert.deepEqual(JSON.parse(container.dataset.insets), { top: 10, right: 20, bottom: 30, left: 40 })
 controls.controller.zoomToRect({ x: 10, y: 20, width: 100, height: 50 })
 const halfBeforeZoom = JSON.parse(container.dataset.camera).halfH

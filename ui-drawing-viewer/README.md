@@ -23,7 +23,33 @@ node ui-drawing-viewer/selfcheck-routes.mjs
 node ui-drawing-viewer/selfcheck-reference.mjs
 # 实际 converter + HTTP + curl 的 M2 集成验收（不替代 dsh-app:// 桌面冒烟）
 node ui-drawing-viewer/acceptance-host.mjs
+# 伞自检（含 selfcheck-client/selfcheck-adapter/三方差分子进程；自身解析 DESKTOP_REPO 并转发）
+node ui-drawing-viewer/selfcheck.mjs
+# selfcheck-client 单独运行需显式 DESKTOP_REPO（无相邻仓库回退）：
+DESKTOP_REPO=/path/to/Camind-desktop node ui-drawing-viewer/selfcheck-client.mjs
+# 镜像 loader/renderer/pane/client 的 2D 综合验收与生命周期验收（合成实体 + Desktop gl_mock）
+# （DESKTOP_REPO 只校验为存在目录，隔离性由运行约定保证，不由脚本机器保证）
+# acceptance-2d：10 个综合场景（断言总数随帧数线性变化，不是固定契约；2026-10-21 本机
+# Node v25.7.0 实测约 373 项）
+DESKTOP_REPO=/path/to/Camind-desktop CAM_AGENT_REPO=/path/to/CAM-Agent node ui-drawing-viewer/acceptance-2d.mjs
+DESKTOP_REPO=/path/to/Camind-desktop node ui-drawing-viewer/acceptance-lifecycle.mjs
 ```
+
+上游 pinned `gl_mock.ts` 没有 `scissor`（`draft_view.ts` 的 insets 裁剪每帧调用）；`selfcheck-client.mjs`、
+`acceptance-2d.mjs`、`acceptance-lifecycle.mjs` 在本地为 mock 补记录型 `scissor`，不改 pinned fixture；
+上游一旦补上 scissor，本地 shim 会响亮报错提醒移除。`acceptance-2d.mjs`（至少 degradation
+场景）、`acceptance-lifecycle.mjs` 与 `selfcheck-client.mjs` 均用共享 `with-scissor.mjs` 的配对断言（计数相等 + 逐条同参，覆盖单帧
+漏调用与任意帧参数错配；`selfcheck-client.mjs` 另以字面值钉住 insets 换算的 viewport 矩形，
+依据 `draft_view.ts:434-435` 同表达式设置，自检宿主 DPR=1）。shim 只验证 scissor 与 viewport
+参数一致：同帧同参已钉，但 scissor/viewport 同错（insets 计算错误同时传给两者）在
+acceptance-2d/acceptance-lifecycle 不检出——字面值矩形由 `selfcheck-client.mjs` 钉住
+（`[40, 30, 740, 560]`）；不验证真实 WebGL2 裁剪效果，真实 GL 裁剪验证待补。修复前这些用例为红（exit 1），
+已在 base `fd9c345`（INT-04 终点、本修复引入前）实跑复现：`selfcheck-client.mjs` 以
+`AssertionError /sync-reference-failure/` 失败（scissor TypeError 被 pane 容错展示掩盖引用回调）、
+`acceptance-2d.mjs` 以 `TypeError: gl.scissor is not a function`（DraftView.drawGL）失败、
+`acceptance-lifecycle.mjs` 以 `AssertionError 0 !== 1` 失败（引用计数为零）。故障链：`draft_pane.ts`
+的 `handle()` catch（emit `error` 消息）把 load→`setColorMode`→render 的 `gl.scissor` TypeError
+吞在初始加载里，`view`/`draft` 未赋值导致后续点击的 `preparePick` 空返回，引用回调永远不触发。
 
 ## 构建与检查
 

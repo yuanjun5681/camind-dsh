@@ -4,13 +4,24 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { build } from '../ui-shell/node_modules/esbuild/lib/main.js'
+import { withScissor, assertScissorViewportPairing, gitSafeEnv } from './with-scissor.mjs'
 
 const root = fileURLToPath(new URL('./', import.meta.url))
-const DESKTOP = path.resolve(process.env.DESKTOP_REPO ?? fileURLToPath(new URL('../../Camind-desktop', import.meta.url)))
-const goodText = fs.readFileSync(path.join(DESKTOP, 'tests/fixtures/draft/draft_good.json'), 'utf8')
+const DESKTOP = path.resolve(process.env.DESKTOP_REPO ?? '')
+assert.ok(process.env.DESKTOP_REPO && fs.statSync(DESKTOP, { throwIfNoEntry: false })?.isDirectory(), 'DESKTOP_REPO 必须指向存在的 Desktop 检出目录（隔离性由运行约定保证）')
+// 来源可回溯（仅记录，取不到时降级为 unknown 并显式警告，不阻断验收）。
+const goodPath = path.join(DESKTOP, 'tests/fixtures/draft/draft_good.json')
+const glMockPath = path.join(DESKTOP, 'packages/viewer/test/gl_mock.ts')
+const sha256File = p => createHash('sha256').update(fs.readFileSync(p)).digest('hex').slice(0, 16)
+const sourceUnknowns = { count: 0 }
+const sourceOf = (label, fn) => { try { return fn() } catch (err) { sourceUnknowns.count++; console.warn(`acceptance 来源降级：${label} 取不到（${err.message}），仅记录不受影响`); return 'unknown' } }
+console.log(`acceptance 来源（仅记录）：Desktop@${sourceOf('HEAD', () => execFileSync('git', ['-C', DESKTOP, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 15000, env: gitSafeEnv() }).trim())} status行数=${sourceOf('status', () => String(execFileSync('git', ['--no-optional-locks', '-C', DESKTOP, 'status', '--porcelain'], { encoding: 'utf8', timeout: 15000, env: gitSafeEnv() }).trim().split('\n').filter(Boolean).length))} draft_good=${sourceOf('draft_good', () => sha256File(goodPath))} gl_mock=${sourceOf('gl_mock', () => sha256File(glMockPath))}`)
+const goodText = fs.readFileSync(goodPath, 'utf8')
 const goodPack = JSON.parse(goodText)
 const { outputFiles } = await build({
   stdin: {
@@ -126,7 +137,7 @@ function makeEl(tag = 'div') {
     getBoundingClientRect() { return { ...el.rect } },
     getContext(kind) {
       if (kind === 'webgl2') {
-        const mock = makeGlMock()
+        const mock = withScissor(makeGlMock())
         el.glMocks.push(mock)
         mock.gl.canvas = el
         return mock.gl
@@ -310,6 +321,8 @@ aCanvas.dispatch('pointerdown', { button: 0, clientX: 100, clientY: 100 })
 windowDispatch('pointermove', { clientX: 155, clientY: 145 })
 windowDispatch('pointerup', {})
 const pannedA = lastCameraUniform(aGl)
+// draft_view.ts:434-435 issues scissor and viewport with the same GL-space rect each frame.
+assertScissorViewportPairing(aGl, assert)
 assert.equal(aGl.callsOf('deleteBuffer').length, 0, 'A must be alive before the switch')
 
 renderPreview({ descriptor: b, onReference: reference => { bRefs.push(reference) } })
@@ -533,4 +546,4 @@ assert.equal(timers.size, 0)
 pane.dispose()
 assertGpuDisposed(restoredGl, 'idempotent dispose')
 console.log('ok - dispose leaves no listeners, observers, GPU resources or resurrecting work')
-console.log('ui-drawing-viewer lifecycle acceptance passed (deterministic mocks; live desktop not exercised)')
+console.log(`ui-drawing-viewer lifecycle acceptance passed (deterministic mocks; live desktop not exercised; 来源降级 ${sourceUnknowns.count} 项)`)
