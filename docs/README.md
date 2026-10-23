@@ -20,6 +20,7 @@
 - [CAM 加工场景设计](cam-machining-design.md)：无流程引擎的插件化方案（camind-tool-cam + camind-service-machine + skill/preset），approval/ask_user_question/jobs 原生机制映射（含目标能力，当前实现边界见正式任务记录）
 - [CAM 作业面交互设计](cam-job-interaction-design.md)：历史方案，当前交互以工作台设计为准；编程交付作业面（件头 / 四阶段 / 当前序 / 冻结与例外 / 交班）；场景包与壳的席位切分；第一张桌子是铣削新件。线框：[cam-job-interaction-wireframes.html](cam-job-interaction-wireframes.html)
 - [Camind 平台设计](camind-platform-design.md)：多租户云服务、既有 NX 工作台集群、现场顾问与云端支持闭环、设备协作、候选 ClawSynapse 通道及可选现场终端。[离线阅读版](camind-platform-design.html) / [架构图](camind-platform-architecture.html)。正文或架构图更新后运行 `node scripts/render-platform-design.mjs` 同步阅读版，`--check` 校验保真与同步状态。
+- [Camind 第一阶段交付方案](camind-phase-one-delivery.md)：AI 辅助 CAM 编程工作台的交付范围、使用流程与验收目标，第一阶段暂不接管机床。[图解阅读版](camind-phase-one-delivery.html)。
 - [dsh 版本升级流程](dsh-upgrade.md)：`dsh-version.json` 唯一版本源 + 同步/校验 SOP；每次升级的过程记录存 [upgrades/](upgrades/)（按目标版本命名）
 
 ## NX Windows 工作台接口

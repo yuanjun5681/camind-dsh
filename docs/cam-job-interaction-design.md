@@ -9,7 +9,7 @@
 > 第一张桌子：接单铣削**新件 / 首件**（棱体/壳体类）。本文 §5.2、§7 的「来件 / 工艺 / 执行 / 交付」是该场景的完整实例，不是壳的固定流程；返修变更、模具开档注册各自阶段，不另起一套作业面  
 > 非目标：报价、机床日排产板、刀管/MES 本体、机床边对话式编程、仿真级碰撞与 Z-map 残料（后二者可作为场景包日后的侧视，不进壳）
 
-相关文档：[cam-machining-design.md](cam-machining-design.md)（执行层与四工具）、[cam-capability-market-design.md](cam-capability-market-design.md)（能力类型与安装授权）、[memory-design.md](memory-design.md)（经验审核）。
+相关文档：[cam-machining-design.md](cam-machining-design.md)（执行层与四工具）、[Camind 平台设计](camind-platform-design.md)（版本、资源包与反馈流程）、[memory-design.md](memory-design.md)（经验审核）。
 
 线框原型（只含界面，不含说明；当前画的是场景 A「铣削新件」，不是壳的固定阶段）：[cam-job-interaction-wireframes.html](cam-job-interaction-wireframes.html)。
 
@@ -276,7 +276,7 @@
 | 编程交付 | 绑定匹配的场景包，显示该包注册的阶段图 |
 | 机床 / 能否干 / 有哪些刀 | 问答，不建单 |
 | 加工完 NC 在哪 | 已交付则打开交付舞台对应文件；否则判断栏指一次 |
-| 要接 MES、要同步刀库 | [产品顾问](cam-capability-market-design.md)，不是本作业面 |
+| 要接 MES、要同步刀库 | [平台反馈流程](camind-platform-design.md#7-版本自进化)，不是本作业面 |
 
 ## 8. 场景包
 
@@ -310,7 +310,7 @@
 
 ## 9. 插件切分与插拔
 
-场景包用插件做，与 [能力市场](cam-capability-market-design.md) 的类型一致：插件注册阶段图、状态投影、领域视图、闸门/校验器、交付模板与可选增补工具，**一个** AgentPreset「编程交付」领壳，Skill 做 §7.1.1 路由和红线。不是每个场景复制一套 proxy 和工作台，也不是每个包再挂一个 Preset 让人分类。
+场景包用插件做：插件注册阶段图、状态投影、领域视图、闸门/校验器、交付模板与可选增补工具，**一个** AgentPreset「编程交付」领壳，Skill 做 §7.1.1 路由和红线。不是每个场景复制一套 proxy 和工作台，也不是每个包再挂一个 Preset 让人分类。
 
 ```
 作业面壳（不随场景卸载）
